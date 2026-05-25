@@ -4,10 +4,16 @@ OAR 当前处于产品与技术规划阶段，目标是构建一款基于 Lark C
 
 ## 当前文件
 
-- `docs/product-plan.md`：产品定位、MVP、技术路线、身份/同步、智能体运行时、A2A 边界。
+- `docs/product-plan.md`：产品总纲、MVP 定义、关键假设和文档地图。
+- `docs/market-and-positioning.md`：市场判断、目标用户、竞品和长期定位。
+- `docs/product-experience.md`：桌面端、iOS、飞书入口和核心工作流。
+- `docs/technical-architecture.md`：Swift/Rust 架构、LarkAdapter、身份、同步和智能体运行时。
+- `docs/security-and-permissions.md`：执行安全、智能体能力边界、权限和数据边界。
 - `docs/human-role.md`：人在 OAR 中的作用、智能体边界和人机协作原则。
 - `docs/memory-architecture.md`：三层记忆架构、检索流程、MVP 范围和治理原则。
 - `docs/lark-cli-capability-matrix.md`：阶段 0.5 Lark CLI / `lark-okr` 能力验证清单。
+- `docs/validation-plan.md`：路线图、验证实验、成功指标、风险和停止标准。
+- `docs/references.md`：竞品、飞书、Lark CLI、A2A 等参考来源。
 - `.gitignore`：Swift、Rust、本地环境文件忽略规则。
 
 ## 下一步
