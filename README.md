@@ -6,6 +6,7 @@ OAR 当前处于产品与技术规划阶段，目标是构建一款基于 Lark C
 
 - `docs/product-plan.md`：产品定位、MVP、技术路线、身份/同步、智能体运行时、A2A 边界。
 - `docs/human-role.md`：人在 OAR 中的作用、智能体边界和人机协作原则。
+- `docs/memory-architecture.md`：三层记忆架构、检索流程、MVP 范围和治理原则。
 - `docs/lark-cli-capability-matrix.md`：阶段 0.5 Lark CLI / `lark-okr` 能力验证清单。
 - `.gitignore`：Swift、Rust、本地环境文件忽略规则。
 
