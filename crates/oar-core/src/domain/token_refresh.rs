@@ -128,6 +128,18 @@ pub enum TokenRefreshBridgeError {
     TimestampBeforeUnixEpoch,
 }
 
+impl fmt::Display for TokenRefreshBridgeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TokenRefreshBridgeError::TimestampBeforeUnixEpoch => {
+                write!(f, "token refresh timestamp is before the Unix epoch")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TokenRefreshBridgeError {}
+
 fn system_time_to_ms(value: SystemTime) -> Result<u64, TokenRefreshBridgeError> {
     value
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -352,10 +364,43 @@ pub struct TokenRefreshAuditSummary {
     pub safe_error: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum TokenRefreshServiceError<E> {
     DecisionBridge(TokenRefreshBridgeError),
     CommandSink(E),
+}
+
+impl<E> fmt::Debug for TokenRefreshServiceError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TokenRefreshServiceError::DecisionBridge(error) => {
+                f.debug_tuple("DecisionBridge").field(error).finish()
+            }
+            TokenRefreshServiceError::CommandSink(_) => {
+                f.debug_tuple("CommandSink").field(&"[REDACTED]").finish()
+            }
+        }
+    }
+}
+
+impl<E> fmt::Display for TokenRefreshServiceError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TokenRefreshServiceError::DecisionBridge(error) => write!(f, "{error}"),
+            TokenRefreshServiceError::CommandSink(_) => {
+                write!(f, "token refresh command sink failed")
+            }
+        }
+    }
+}
+
+impl<E> std::error::Error for TokenRefreshServiceError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            TokenRefreshServiceError::DecisionBridge(error) => Some(error),
+            TokenRefreshServiceError::CommandSink(_) => None,
+        }
+    }
 }
 
 impl<E> From<TokenRefreshBridgeError> for TokenRefreshServiceError<E> {

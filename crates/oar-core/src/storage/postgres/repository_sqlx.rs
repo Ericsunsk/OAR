@@ -7,6 +7,9 @@ use crate::domain::identity::{
     ActorKind, LarkIdentity, OarUser, OarUserStatus, ScopeBoundary, Tenant, TenantStatus,
     TokenGrantState,
 };
+use crate::domain::token_refresh::{
+    TokenRefreshApplyResult, TokenRefreshCommandSink, TokenRefreshRepositoryCommand,
+};
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
     MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
@@ -79,6 +82,10 @@ pub enum PostgresRepositoryError {
     NegativeInteger { field: &'static str, value: i64 },
     #[error("invalid audit JSON payload: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("failed to build tokio runtime bridge: {0}")]
+    TokioRuntimeBuild(#[source] std::io::Error),
+    #[error("tokio runtime bridge thread panicked")]
+    TokioRuntimeBridgePanic,
 }
 
 pub type PgRepositoryResult<T> = Result<T, PostgresRepositoryError>;
@@ -178,6 +185,11 @@ pub struct PostgresExecutionUnitOfWorkReport {
 #[derive(Debug, Clone)]
 pub struct PostgresTokenGrantRepository {
     pool: PgPool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PostgresTokenRefreshCommandSink {
+    repository: PostgresTokenGrantRepository,
 }
 
 #[derive(Debug, Clone)]
@@ -509,6 +521,38 @@ impl PostgresTokenGrantRepository {
             .fetch_optional(&self.pool)
             .await?;
         row.as_ref().map(encrypted_token_grant_from_row).transpose()
+    }
+}
+
+impl PostgresTokenRefreshCommandSink {
+    pub fn new(repository: PostgresTokenGrantRepository) -> Self {
+        Self { repository }
+    }
+
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self::new(PostgresTokenGrantRepository::new(pool))
+    }
+
+    pub fn repository(&self) -> &PostgresTokenGrantRepository {
+        &self.repository
+    }
+}
+
+impl TokenRefreshCommandSink for PostgresTokenRefreshCommandSink {
+    type Error = PostgresRepositoryError;
+
+    fn apply_refresh_command(
+        &mut self,
+        command: TokenRefreshRepositoryCommand,
+    ) -> Result<Option<TokenRefreshApplyResult>, Self::Error> {
+        let repository = self.repository.clone();
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return std::thread::spawn(move || block_on_refresh_command(repository, command))
+                .join()
+                .map_err(|_| PostgresRepositoryError::TokioRuntimeBridgePanic)?;
+        }
+
+        block_on_refresh_command(repository, command)
     }
 }
 
@@ -1438,6 +1482,34 @@ fn encrypted_token_grant_from_row(row: &PgRow) -> PgRepositoryResult<EncryptedTo
         oauth_grant_fingerprint: row.try_get("oauth_grant_fingerprint")?,
         revocation_reason: row.try_get("revocation_reason")?,
     })
+}
+
+fn block_on_refresh_command(
+    repository: PostgresTokenGrantRepository,
+    command: TokenRefreshRepositoryCommand,
+) -> PgRepositoryResult<Option<TokenRefreshApplyResult>> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(PostgresRepositoryError::TokioRuntimeBuild)?;
+
+    runtime.block_on(async move {
+        repository
+            .apply_refresh_command(command)
+            .await
+            .map(|record| record.map(token_refresh_apply_result_from_record))
+    })
+}
+
+fn token_refresh_apply_result_from_record(
+    record: EncryptedTokenGrantRecord,
+) -> TokenRefreshApplyResult {
+    TokenRefreshApplyResult {
+        grant_id: crate::domain::identity::TokenGrantId(record.id),
+        tenant_id: crate::domain::identity::TenantId(record.tenant_id),
+        state: record.state,
+        fingerprint: record.oauth_grant_fingerprint,
+    }
 }
 
 fn stored_tenant_from_row(row: &PgRow) -> PgRepositoryResult<StoredTenant> {

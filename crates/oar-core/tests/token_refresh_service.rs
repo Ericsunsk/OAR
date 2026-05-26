@@ -11,7 +11,8 @@ use oar_core::domain::token_refresh::{
     RefreshOutcome, TokenRefreshApplyResult, TokenRefreshAttempt, TokenRefreshBridgeError,
     TokenRefreshCommandKind, TokenRefreshCommandSink, TokenRefreshDecision,
     TokenRefreshDecisionKind, TokenRefreshGrantSnapshot, TokenRefreshReportStatus,
-    TokenRefreshRepositoryCommand, TokenRefreshService, TokenRefreshShortCircuitReason,
+    TokenRefreshRepositoryCommand, TokenRefreshService, TokenRefreshServiceError,
+    TokenRefreshShortCircuitReason,
 };
 
 fn sample_grant(state: TokenGrantState, refresh_token: Option<&str>) -> TokenGrant {
@@ -706,4 +707,15 @@ fn service_report_redacts_token_like_adapter_errors() {
     }
     assert!(!format!("{report:?}").contains("opaque-token-fragment"));
     assert!(!format!("{audit:?}").contains("opaque-token-fragment"));
+}
+
+#[test]
+fn service_error_redacts_command_sink_error_outputs() {
+    let error: TokenRefreshServiceError<String> =
+        TokenRefreshServiceError::CommandSink("refresh-token-secret".to_string());
+
+    assert_eq!(error.to_string(), "token refresh command sink failed");
+    assert!(format!("{error:?}").contains("[REDACTED]"));
+    assert!(!format!("{error:?}").contains("refresh-token-secret"));
+    assert!(std::error::Error::source(&error).is_none());
 }

@@ -16,6 +16,6 @@ pub use repository_sqlx::{
     PostgresAuditEventRepository, PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
     PostgresExecutionUnitOfWorkReport, PostgresIdentityRepository, PostgresLarkIdentityRepository,
     PostgresOarUserRepository, PostgresOperationLedgerRepository, PostgresRepositoryError,
-    PostgresTenantRepository, PostgresTokenGrantRepository, StoredDeviceSession,
-    StoredLarkIdentity, StoredOarUser, StoredTenant,
+    PostgresTenantRepository, PostgresTokenGrantRepository, PostgresTokenRefreshCommandSink,
+    StoredDeviceSession, StoredLarkIdentity, StoredOarUser, StoredTenant,
 };

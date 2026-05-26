@@ -23,7 +23,11 @@ use oar_core::domain::identity::{
     OarUserStatus, ScopeBoundary, SecretString, Tenant, TenantId, TenantStatus, TokenGrant,
     TokenGrantId, TokenGrantState,
 };
-use oar_core::domain::token_refresh::{EncryptedGrantBlob, TokenRefreshRepositoryCommand};
+use oar_core::domain::token_refresh::{
+    AuthRefreshAdapter, EncryptedGrantBlob, EncryptedGrantMaterial, RefreshOutcome,
+    TokenRefreshGrantSnapshot, TokenRefreshReportStatus, TokenRefreshRepositoryCommand,
+    TokenRefreshService,
+};
 use oar_core::storage::postgres::audit_outbox_worker::{
     AuditOutboxDelivery, AuditOutboxDispatcher, AuditOutboxDrainConfig, PostgresAuditOutboxWorker,
 };
@@ -32,6 +36,7 @@ use oar_core::storage::postgres::{
     PostgresAuditEventRepository, PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
     PostgresLarkIdentityRepository, PostgresOarUserRepository, PostgresOperationLedgerRepository,
     PostgresRepositoryError, PostgresTenantRepository, PostgresTokenGrantRepository,
+    PostgresTokenRefreshCommandSink,
 };
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -126,6 +131,33 @@ impl AuditOutboxDispatcher for LiveOutboxDispatcher {
         }
 
         Ok(outcomes.remove(0))
+    }
+}
+
+#[derive(Clone)]
+struct LiveRefreshAdapter {
+    outcome: RefreshOutcome,
+    calls: Arc<Mutex<usize>>,
+}
+
+impl LiveRefreshAdapter {
+    fn new(outcome: RefreshOutcome) -> Self {
+        Self {
+            outcome,
+            calls: Arc::new(Mutex::new(0)),
+        }
+    }
+
+    fn calls(&self) -> usize {
+        *self.calls.lock().expect("refresh adapter mutex")
+    }
+}
+
+impl AuthRefreshAdapter for LiveRefreshAdapter {
+    fn refresh(&mut self, _snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
+        let mut calls = self.calls.lock().expect("refresh adapter mutex");
+        *calls += 1;
+        self.outcome.clone()
     }
 }
 
@@ -2360,6 +2392,155 @@ fn postgres_live_token_grant_apply_refresh_command_dispatches_mark_reauth_requir
             Ok(())
         },
     );
+}
+
+#[test]
+fn postgres_live_token_refresh_service_with_sink_rotates_successfully() {
+    run_live_postgres_test("token_refresh_service_sink_success", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_tr_service_success",
+            "user_tr_service_success",
+        )
+        .await?;
+        seed_identity(
+            &pool,
+            "tenant_tr_service_success",
+            "identity_tr_service_success",
+        )
+        .await?;
+
+        let repository = PostgresTokenGrantRepository::new(pool.clone());
+        let initial = encrypted_token_grant_record(
+            "tenant_tr_service_success",
+            "grant_tr_service_success",
+            "identity_tr_service_success",
+            TokenGrantState::NeedsRefresh,
+            "fp-service-old",
+        );
+        repository.upsert_encrypted_grant(&initial).await?;
+
+        let refreshed_at =
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(1_748_302_000_000);
+        let mut service = TokenRefreshService::new(
+            LiveRefreshAdapter::new(RefreshOutcome::Success {
+                rotated_material: EncryptedGrantMaterial {
+                    encrypted_primary: vec![9, 9, 9],
+                    encrypted_renewal: vec![8, 8, 8],
+                },
+                key_id: "key-v3".to_string(),
+                new_fingerprint: "fp-service-new".to_string(),
+                refreshed_at,
+                expires_at: Some(
+                    SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(1_748_402_000_000),
+                ),
+            }),
+            PostgresTokenRefreshCommandSink::new(repository.clone()),
+        );
+
+        let report = service.refresh_grant_at(
+            TokenRefreshGrantSnapshot {
+                grant_id: TokenGrantId("grant_tr_service_success".to_string()),
+                tenant_id: TenantId("tenant_tr_service_success".to_string()),
+                expected_fingerprint: "fp-service-old".to_string(),
+                state: TokenGrantState::NeedsRefresh,
+                has_refresh_material: true,
+                revoked_at: None,
+                reauth_required_at: None,
+            },
+            refreshed_at,
+        )?;
+
+        assert_eq!(report.status, TokenRefreshReportStatus::Succeeded);
+        assert!(report.adapter_called);
+        assert!(report.sink_called);
+        assert_eq!(service.adapter().calls(), 1);
+        let report_debug = format!("{report:?}");
+        let audit_debug = format!("{:?}", report.audit_summary());
+        assert!(!report_debug.contains("9, 9, 9"));
+        assert!(!report_debug.contains("8, 8, 8"));
+        assert!(!audit_debug.contains("9, 9, 9"));
+        assert!(!audit_debug.contains("8, 8, 8"));
+
+        let updated = repository
+            .get_by_id("tenant_tr_service_success", "grant_tr_service_success")
+            .await?
+            .expect("token grant should exist after rotation");
+        assert_eq!(updated.state, TokenGrantState::Valid);
+        assert_eq!(updated.oauth_grant_fingerprint, "fp-service-new");
+        assert_eq!(updated.oauth_grant_key_id, "key-v3");
+        assert_eq!(
+            updated.encrypted_oauth_grant,
+            vec![0, 0, 0, 3, 9, 9, 9, 0, 0, 0, 3, 8, 8, 8]
+        );
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_token_refresh_service_with_sink_stale_fingerprint_noop() {
+    run_live_postgres_test("token_refresh_service_sink_stale_fp", |pool| async move {
+        seed_user(&pool, "tenant_tr_service_noop", "user_tr_service_noop").await?;
+        seed_identity(&pool, "tenant_tr_service_noop", "identity_tr_service_noop").await?;
+
+        let repository = PostgresTokenGrantRepository::new(pool.clone());
+        let initial = encrypted_token_grant_record(
+            "tenant_tr_service_noop",
+            "grant_tr_service_noop",
+            "identity_tr_service_noop",
+            TokenGrantState::NeedsRefresh,
+            "fp-current",
+        );
+        repository.upsert_encrypted_grant(&initial).await?;
+
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(1_748_303_000_000);
+        let mut service = TokenRefreshService::new(
+            LiveRefreshAdapter::new(RefreshOutcome::Success {
+                rotated_material: EncryptedGrantMaterial {
+                    encrypted_primary: vec![9, 9, 9],
+                    encrypted_renewal: vec![8, 8, 8],
+                },
+                key_id: "key-v4".to_string(),
+                new_fingerprint: "fp-noop-new".to_string(),
+                refreshed_at: now,
+                expires_at: None,
+            }),
+            PostgresTokenRefreshCommandSink::new(repository.clone()),
+        );
+
+        let report = service.refresh_grant_at(
+            TokenRefreshGrantSnapshot {
+                grant_id: TokenGrantId("grant_tr_service_noop".to_string()),
+                tenant_id: TenantId("tenant_tr_service_noop".to_string()),
+                expected_fingerprint: "fp-stale".to_string(),
+                state: TokenGrantState::NeedsRefresh,
+                has_refresh_material: true,
+                revoked_at: None,
+                reauth_required_at: None,
+            },
+            now,
+        )?;
+
+        assert_eq!(report.status, TokenRefreshReportStatus::ConflictNoop);
+        assert!(report.adapter_called);
+        assert!(report.sink_called);
+        assert_eq!(service.adapter().calls(), 1);
+        let report_debug = format!("{report:?}");
+        assert!(!report_debug.contains("9, 9, 9"));
+        assert!(!report_debug.contains("8, 8, 8"));
+
+        let stored = repository
+            .get_by_id("tenant_tr_service_noop", "grant_tr_service_noop")
+            .await?
+            .expect("token grant should remain after stale fingerprint noop");
+        assert_eq!(stored.state, TokenGrantState::NeedsRefresh);
+        assert_eq!(stored.oauth_grant_fingerprint, "fp-current");
+        assert_eq!(stored.oauth_grant_key_id, "key-v1");
+        assert_eq!(stored.encrypted_oauth_grant, vec![0x01, 0x02, 0x03]);
+
+        Ok(())
+    });
 }
 
 #[test]
