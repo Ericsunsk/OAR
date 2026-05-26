@@ -67,7 +67,7 @@
 - `idempotency_key` 必须唯一。
 - 所有工具执行结果必须写入 `AuditEvent`。
 
-详细字段设计归入 [`technical-architecture.md`](technical-architecture.md)。
+详细字段设计归入 [`technical-architecture.md`](../architecture/technical-architecture.md)。
 
 ## 4. 验证用例
 

@@ -17,15 +17,15 @@ Current stage:
 
 Start with these documents, in this order:
 
-1. `docs/one-page-brief.md`
-2. `docs/product-plan.md`
-3. `docs/technical-architecture.md`
-4. `docs/security-and-permissions.md`
-5. `docs/validation-plan.md`
-6. `docs/phase-0.5-lark-cli-validation-report.md`
-7. `docs/phase-0.6-identity-sync-validation-report.md`
+1. `docs/product/one-page-brief.md`
+2. `docs/product/product-plan.md`
+3. `docs/architecture/technical-architecture.md`
+4. `docs/architecture/security-and-permissions.md`
+5. `docs/validation/validation-plan.md`
+6. `docs/validation/phase-0.5-lark-cli-validation-report.md`
+7. `docs/validation/phase-0.6-identity-sync-validation-report.md`
 
-Use `docs/memory-architecture.md` when working on retrieval, memory, evidence, decision feedback, or long-term learning.
+Use `docs/architecture/memory-architecture.md` when working on retrieval, memory, evidence, decision feedback, or long-term learning.
 
 ## Product Principles
 

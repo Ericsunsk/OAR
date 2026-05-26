@@ -89,13 +89,13 @@ MVP 不做：
 | [`prd.md`](prd.md) | 第一版 OKR 复盘驾驶舱的用户、范围、需求、验收标准和风险 |
 | [`market-and-positioning.md`](market-and-positioning.md) | 市场判断、竞品、目标用户、长期定位 |
 | [`product-experience.md`](product-experience.md) | 桌面端、iOS、飞书入口和核心工作流 |
-| [`technical-architecture.md`](technical-architecture.md) | Swift/Rust 架构、LarkAdapter、身份、同步、智能体运行时 |
-| [`security-and-permissions.md`](security-and-permissions.md) | 执行安全、人的授权责任、智能体能力边界、权限和数据边界 |
-| [`memory-architecture.md`](memory-architecture.md) | 三层记忆架构、检索流程、MVP 范围和治理原则 |
-| [`phase-0.5-lark-cli-validation-report.md`](phase-0.5-lark-cli-validation-report.md) | 阶段 0.5 Lark CLI / OKR 能力实测报告 |
-| [`phase-0.6-identity-sync-validation-report.md`](phase-0.6-identity-sync-validation-report.md) | 阶段 0.6 身份、授权、同步和幂等执行验证报告 |
-| [`validation-plan.md`](validation-plan.md) | 路线图、验证实验、成功指标、风险和停止标准 |
-| [`references.md`](references.md) | 竞品、飞书、Lark CLI、A2A 等参考来源 |
+| [`technical-architecture.md`](../architecture/technical-architecture.md) | Swift/Rust 架构、LarkAdapter、身份、同步、智能体运行时 |
+| [`security-and-permissions.md`](../architecture/security-and-permissions.md) | 执行安全、人的授权责任、智能体能力边界、权限和数据边界 |
+| [`memory-architecture.md`](../architecture/memory-architecture.md) | 三层记忆架构、检索流程、MVP 范围和治理原则 |
+| [`phase-0.5-lark-cli-validation-report.md`](../validation/phase-0.5-lark-cli-validation-report.md) | 阶段 0.5 Lark CLI / OKR 能力实测报告 |
+| [`phase-0.6-identity-sync-validation-report.md`](../validation/phase-0.6-identity-sync-validation-report.md) | 阶段 0.6 身份、授权、同步和幂等执行验证报告 |
+| [`validation-plan.md`](../validation/validation-plan.md) | 路线图、验证实验、成功指标、风险和停止标准 |
+| [`references.md`](../reference/references.md) | 竞品、飞书、Lark CLI、A2A 等参考来源 |
 
 ## 5. 接下来 7 天
 
