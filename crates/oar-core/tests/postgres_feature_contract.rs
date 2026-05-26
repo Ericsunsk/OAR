@@ -159,6 +159,7 @@ mod postgres_feature_api_contract {
             PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action_with_policy;
         let _upsert_grant = PostgresTokenGrantRepository::upsert_encrypted_grant;
         let _get_grant = PostgresTokenGrantRepository::get_by_id;
+        let _apply_refresh_command = PostgresTokenGrantRepository::apply_refresh_command;
         let _rotate_grant = PostgresTokenGrantRepository::rotate_encrypted_grant;
         let _mark_refresh_failed = PostgresTokenGrantRepository::mark_refresh_failed;
         let _mark_reauth_required = PostgresTokenGrantRepository::mark_reauth_required;

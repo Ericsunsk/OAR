@@ -84,6 +84,8 @@ pub enum PostgresRepositoryError {
 pub type PgRepositoryResult<T> = Result<T, PostgresRepositoryError>;
 
 const REDACTED_TENANT_ACTUAL: &str = "<redacted>";
+const REDACTED_REFRESH_ERROR: &str = "<redacted refresh error>";
+const MAX_REFRESH_ERROR_CHARS: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncryptedTokenGrantRecord {
@@ -365,6 +367,68 @@ impl PostgresTokenGrantRepository {
         row.as_ref().map(encrypted_token_grant_from_row).transpose()
     }
 
+    pub async fn apply_refresh_command(
+        &self,
+        command: crate::domain::token_refresh::TokenRefreshRepositoryCommand,
+    ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
+        match command {
+            crate::domain::token_refresh::TokenRefreshRepositoryCommand::RotateGrantCas {
+                grant_id,
+                tenant_id,
+                expected_fingerprint,
+                expires_at_ms,
+                refreshed_at_ms,
+                encrypted_grant_blob,
+                grant_key_id,
+                new_fingerprint,
+            } => {
+                self.rotate_encrypted_grant(
+                    &tenant_id.0,
+                    &grant_id.0,
+                    &expected_fingerprint,
+                    expires_at_ms,
+                    refreshed_at_ms,
+                    &encrypted_grant_blob.0,
+                    &grant_key_id,
+                    &new_fingerprint,
+                )
+                .await
+            }
+            crate::domain::token_refresh::TokenRefreshRepositoryCommand::MarkNeedsRefresh {
+                grant_id,
+                tenant_id,
+                expected_fingerprint,
+                refreshed_at_ms,
+                safe_error,
+            } => {
+                self.mark_refresh_failed(
+                    &tenant_id.0,
+                    &grant_id.0,
+                    &expected_fingerprint,
+                    refreshed_at_ms,
+                    &safe_error,
+                )
+                .await
+            }
+            crate::domain::token_refresh::TokenRefreshRepositoryCommand::MarkReauthRequired {
+                grant_id,
+                tenant_id,
+                expected_fingerprint,
+                reauth_required_at_ms,
+                safe_error,
+            } => {
+                self.mark_reauth_required(
+                    &tenant_id.0,
+                    &grant_id.0,
+                    &expected_fingerprint,
+                    reauth_required_at_ms,
+                    &safe_error,
+                )
+                .await
+            }
+        }
+    }
+
     pub async fn rotate_encrypted_grant(
         &self,
         tenant_id: &str,
@@ -398,12 +462,13 @@ impl PostgresTokenGrantRepository {
         refreshed_at_ms: u64,
         reason: &str,
     ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
+        let reason = sanitize_refresh_error_for_storage(reason);
         let row = sqlx::query(MARK_TOKEN_GRANT_REFRESH_FAILED)
             .bind(tenant_id)
             .bind(id)
             .bind(expected_fingerprint)
             .bind(refreshed_at_ms as i64)
-            .bind(reason)
+            .bind(&reason)
             .fetch_optional(&self.pool)
             .await?;
         row.as_ref().map(encrypted_token_grant_from_row).transpose()
@@ -417,12 +482,13 @@ impl PostgresTokenGrantRepository {
         reauth_required_at_ms: u64,
         reason: &str,
     ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
+        let reason = sanitize_refresh_error_for_storage(reason);
         let row = sqlx::query(MARK_TOKEN_GRANT_REAUTH_REQUIRED)
             .bind(tenant_id)
             .bind(id)
             .bind(expected_fingerprint)
             .bind(reauth_required_at_ms as i64)
-            .bind(reason)
+            .bind(&reason)
             .fetch_optional(&self.pool)
             .await?;
         row.as_ref().map(encrypted_token_grant_from_row).transpose()
@@ -1695,6 +1761,34 @@ fn redacted_tenant_actual() -> String {
     REDACTED_TENANT_ACTUAL.to_string()
 }
 
+fn sanitize_refresh_error_for_storage(reason: &str) -> String {
+    let lowered = reason.to_ascii_lowercase();
+    let looks_sensitive = [
+        "access token",
+        "access_token",
+        "refresh token",
+        "refresh_token",
+        "authorization:",
+        "bearer ",
+        "client_secret",
+        "authorization_code",
+        "oauth_grant",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle));
+
+    if looks_sensitive {
+        return REDACTED_REFRESH_ERROR.to_string();
+    }
+
+    let trimmed = reason.trim();
+    trimmed
+        .chars()
+        .map(|char| if char.is_control() { ' ' } else { char })
+        .take(MAX_REFRESH_ERROR_CHARS)
+        .collect()
+}
+
 fn is_unique_violation(error: &sqlx::Error) -> bool {
     match error.as_database_error() {
         Some(db_error) => db_error
@@ -1702,5 +1796,37 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
             .map(|code| code.as_ref() == "23505")
             .unwrap_or(false),
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refresh_error_sanitizer_redacts_token_like_payloads() {
+        assert_eq!(
+            sanitize_refresh_error_for_storage(
+                "invalid_grant: refresh_token=rt_fake Authorization: Bearer at_fake"
+            ),
+            REDACTED_REFRESH_ERROR
+        );
+        assert_eq!(
+            sanitize_refresh_error_for_storage("client_secret leaked in oauth response"),
+            REDACTED_REFRESH_ERROR
+        );
+    }
+
+    #[test]
+    fn refresh_error_sanitizer_trims_controls_and_truncates() {
+        let noisy = format!(
+            "  transient\nfailure\t{}  ",
+            "x".repeat(MAX_REFRESH_ERROR_CHARS)
+        );
+        let sanitized = sanitize_refresh_error_for_storage(&noisy);
+
+        assert!(!sanitized.contains('\n'));
+        assert_eq!(sanitized.chars().count(), MAX_REFRESH_ERROR_CHARS);
+        assert!(sanitized.starts_with("transient failure"));
     }
 }
