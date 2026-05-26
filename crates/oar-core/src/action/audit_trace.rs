@@ -89,6 +89,29 @@ impl AuditTrace {
         )
     }
 
+    pub fn execution_denied(
+        &mut self,
+        occurred_at_ms: u64,
+        actor: AuditActor,
+        scope: AuditScope,
+        target: AuditTarget,
+        error_code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> AuditEvent {
+        let sequence = self.allocate_sequence();
+        AuditEvent::execution_denied(
+            self.event_id_for(sequence),
+            self.trace_id.clone(),
+            sequence,
+            occurred_at_ms,
+            actor,
+            scope,
+            target,
+            error_code,
+            message,
+        )
+    }
+
     pub fn execution_failed(
         &mut self,
         occurred_at_ms: u64,

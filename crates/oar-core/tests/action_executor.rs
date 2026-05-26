@@ -5,14 +5,49 @@ use std::time::SystemTime;
 
 use oar_core::action::audit_event::{AuditEventType, AuditStateSummary, ExecutionStatus};
 use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
+use oar_core::action::execution_policy::{ExecutionDenied, ExecutionPolicy};
 use oar_core::action::executor::{
-    ActionAdapter, ActionExecutor, AdapterDryRun, AdapterError, AdapterExecution,
+    ActionAdapter, ActionExecutor, AdapterDryRun, AdapterError, AdapterExecution, ExecutionError,
+};
+use oar_core::domain::identity::{
+    ActorKind, LarkIdentityId, OAuthTokens, ScopeBoundary, SecretString, TenantId, TokenGrant,
+    TokenGrantId, TokenGrantState,
 };
 use oar_core::lark::adapter::MockLarkAdapter;
 
 fn confirmed_action(idempotency_key: &str) -> ConfirmedAction {
     ConfirmedAction::proposed("action-1", "tenant-1", "user-1", idempotency_key)
         .confirm(SystemTime::UNIX_EPOCH)
+}
+
+fn token_grant(scopes: &[&str], state: TokenGrantState) -> TokenGrant {
+    TokenGrant {
+        id: TokenGrantId("grant-1".to_string()),
+        tenant_id: TenantId("tenant-1".to_string()),
+        identity_id: LarkIdentityId("identity-1".to_string()),
+        actor_kind: ActorKind::User,
+        scope_boundary: ScopeBoundary::User,
+        scopes: scopes.iter().map(|scope| (*scope).to_string()).collect(),
+        state,
+        issued_at: SystemTime::UNIX_EPOCH,
+        expires_at: None,
+        refreshed_at: None,
+        revoked_at: None,
+        reauth_required_at: None,
+        last_refresh_error: None,
+        tokens: OAuthTokens {
+            access_token: SecretString::new("access-token"),
+            refresh_token: Some(SecretString::new("refresh-token")),
+        },
+        revocation_reason: None,
+    }
+}
+
+fn progress_update_policy() -> ExecutionPolicy {
+    ExecutionPolicy::new(
+        ["okr.progress.update"],
+        [ActorKind::User, ActorKind::Service],
+    )
 }
 
 #[derive(Clone)]
@@ -195,5 +230,107 @@ fn mock_lark_adapter_runs_through_action_executor() {
             .as_ref()
             .and_then(|execution| execution.adapter_operation_id.as_deref()),
         Some("mock-lark-idem-lark-adapter")
+    );
+}
+
+#[test]
+fn policy_denied_action_does_not_call_adapter_or_mark_success_and_records_safe_reason() {
+    let adapter = MockAdapter::new();
+    let mut ticks = VecDeque::from([7_u64, 8, 9]);
+    let mut executor =
+        ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
+    let action = confirmed_action("idem-policy-denied-1");
+    let policy = progress_update_policy();
+    let grant = token_grant(&["offline_access"], TokenGrantState::Valid);
+
+    let result = executor.execute_confirmed_action_with_policy(
+        &action,
+        "okr.progress.update",
+        "okr.progress.write",
+        &grant,
+        &policy,
+    );
+
+    assert_eq!(adapter.dry_run_calls(), 0);
+    assert_eq!(adapter.execute_calls(), 0);
+    assert!(
+        executor
+            .ledger()
+            .get_by_idempotency_key(&action.idempotency_key)
+            .is_none(),
+        "policy denial should happen before ledger submission"
+    );
+
+    let denial = match result {
+        Err(ExecutionError::PolicyDenied(report)) => report,
+        other => panic!("expected policy denial, got {other:?}"),
+    };
+
+    assert_eq!(
+        denial.denial,
+        ExecutionDenied::MissingScope {
+            required_scope: "okr.progress.write".to_string()
+        }
+    );
+    assert_eq!(denial.events.len(), 1);
+    assert_eq!(denial.events[0].event_type, AuditEventType::ExecutionDenied);
+    assert_eq!(
+        denial.events[0]
+            .execution
+            .as_ref()
+            .map(|v| v.status.clone()),
+        Some(ExecutionStatus::Denied)
+    );
+    assert_eq!(
+        denial.events[0]
+            .execution
+            .as_ref()
+            .and_then(|execution| execution.error_code.as_deref()),
+        Some("policy_denied")
+    );
+    let message = denial.events[0]
+        .execution
+        .as_ref()
+        .and_then(|execution| execution.message.as_deref())
+        .unwrap_or_default();
+    assert!(message.contains("policy"));
+    assert!(message.contains("okr.progress.write"));
+    assert!(!message.contains("access-token"));
+    assert!(!message.contains("refresh-token"));
+}
+
+#[test]
+fn allowed_policy_preserves_happy_path_execution() {
+    let adapter = MockAdapter::new();
+    let mut ticks = VecDeque::from([11_u64, 22, 33]);
+    let mut executor =
+        ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
+    let action = confirmed_action("idem-policy-allow-1");
+    let policy = progress_update_policy();
+    let grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
+
+    let report = executor
+        .execute_confirmed_action_with_policy(
+            &action,
+            "okr.progress.update",
+            "okr.progress.write",
+            &grant,
+            &policy,
+        )
+        .unwrap();
+
+    assert_eq!(adapter.dry_run_calls(), 1);
+    assert_eq!(adapter.execute_calls(), 1);
+    assert!(!report.duplicate);
+    assert_eq!(report.operation.status, ActionStatus::Succeeded);
+    assert_eq!(report.events.len(), 3);
+    assert_eq!(
+        report.events[0].event_type,
+        AuditEventType::ConfirmedActionRecorded
+    );
+    assert_eq!(report.events[1].event_type, AuditEventType::DryRunExecuted);
+    assert_eq!(
+        report.events[2].event_type,
+        AuditEventType::ExecutionSucceeded
     );
 }

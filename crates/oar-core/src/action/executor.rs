@@ -4,7 +4,9 @@ use super::audit_event::{
     AuditActor, AuditActorKind, AuditEvent, AuditScope, AuditStateSummary, AuditTarget,
 };
 use super::confirmed_action::{ActionStatus, ConfirmedAction};
+use super::execution_policy::{ExecutionDenied, ExecutionPolicy};
 use super::operation_ledger::{LedgerError, OperationLedger, OperationRecord, SubmitResult};
+use crate::domain::identity::TokenGrant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterDryRun {
@@ -47,9 +49,16 @@ pub struct ExecutionReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolicyDenialReport {
+    pub denial: ExecutionDenied,
+    pub events: Vec<AuditEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionError {
     Ledger(LedgerError),
     Adapter(AdapterError),
+    PolicyDenied(PolicyDenialReport),
 }
 
 impl From<LedgerError> for ExecutionError {
@@ -110,6 +119,25 @@ where
             }),
             SubmitResult::Created(created) => self.run_new_operation(action, created),
         }
+    }
+
+    pub fn execute_confirmed_action_with_policy(
+        &mut self,
+        action: &ConfirmedAction,
+        action_type: &str,
+        required_scope: &str,
+        grant: &TokenGrant,
+        policy: &ExecutionPolicy,
+    ) -> Result<ExecutionReport, ExecutionError> {
+        if let Err(denial) = policy.evaluate(action, action_type, required_scope, grant) {
+            let event = self.event_denied(action, &denial);
+            return Err(ExecutionError::PolicyDenied(PolicyDenialReport {
+                denial,
+                events: vec![event],
+            }));
+        }
+
+        self.execute_confirmed_action(action)
     }
 
     pub fn ledger(&self) -> &OperationLedger {
@@ -253,6 +281,20 @@ where
         )
     }
 
+    fn event_denied(&mut self, action: &ConfirmedAction, denial: &ExecutionDenied) -> AuditEvent {
+        AuditEvent::execution_denied(
+            self.next_event_id(),
+            self.trace_id(action),
+            self.next_sequence(),
+            self.now_ms(),
+            self.actor(action),
+            self.scope(action),
+            self.target(action),
+            "policy_denied",
+            safe_denial_message(denial),
+        )
+    }
+
     fn next_event_id(&mut self) -> String {
         format!("evt-{}", self.sequence + 1)
     }
@@ -290,6 +332,30 @@ where
             resource_type: "confirmed_action".to_string(),
             resource_id: action.action_id.clone(),
             action_type: "execute".to_string(),
+        }
+    }
+}
+
+fn safe_denial_message(denial: &ExecutionDenied) -> String {
+    match denial {
+        ExecutionDenied::TenantMismatch { .. } => {
+            "Execution denied by policy: action and token grant belong to different tenants"
+                .to_string()
+        }
+        ExecutionDenied::ActionNotConfirmed { status } => {
+            format!("Execution denied by policy: action status is {status:?}, not Confirmed")
+        }
+        ExecutionDenied::ActionNotAllowlisted { action_type } => {
+            format!("Execution denied by policy: action type {action_type} is not allowlisted")
+        }
+        ExecutionDenied::ActorKindNotAllowed { actor_kind } => {
+            format!("Execution denied by policy: actor kind {actor_kind:?} is not allowed")
+        }
+        ExecutionDenied::GrantNotExecutable { state } => {
+            format!("Execution denied by policy: token grant state {state:?} is not executable")
+        }
+        ExecutionDenied::MissingScope { required_scope } => {
+            format!("Execution denied by policy: missing required scope {required_scope}")
         }
     }
 }

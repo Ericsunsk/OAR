@@ -121,3 +121,25 @@ fn audit_trace_failure_keeps_order_and_status() {
         Some("adapter_timeout")
     );
 }
+
+#[test]
+fn audit_trace_policy_denial_is_distinct_from_execution_failure() {
+    let mut trace = AuditTrace::new("trace_denied");
+
+    let denied = trace.execution_denied(
+        1_748_250_120_000,
+        actor(),
+        scope(),
+        target(),
+        "policy_denied",
+        "Execution denied by policy: missing required scope okr.progress.write",
+    );
+
+    assert_eq!(denied.trace_id, "trace_denied");
+    assert_eq!(denied.sequence, 1);
+    assert_eq!(denied.event_type, AuditEventType::ExecutionDenied);
+    assert_eq!(
+        denied.execution.as_ref().map(|result| &result.status),
+        Some(&ExecutionStatus::Denied)
+    );
+}

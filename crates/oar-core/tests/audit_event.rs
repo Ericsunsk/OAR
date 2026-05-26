@@ -103,6 +103,42 @@ fn dry_run_and_execution_events_keep_same_trace_and_order() {
 }
 
 #[test]
+fn policy_denied_event_is_traceable_without_adapter_operation() {
+    let denied = AuditEvent::execution_denied(
+        "evt_denied",
+        "trace_policy",
+        2,
+        1_748_250_025_000,
+        actor(),
+        scope(),
+        target(),
+        "policy_denied",
+        "Execution denied by policy: missing required scope okr.progress.write",
+    );
+
+    assert_eq!(denied.event_type, AuditEventType::ExecutionDenied);
+    assert_eq!(denied.trace_id, "trace_policy");
+    assert_eq!(
+        denied.execution.as_ref().map(|result| &result.status),
+        Some(&ExecutionStatus::Denied)
+    );
+    assert_eq!(
+        denied
+            .execution
+            .as_ref()
+            .and_then(|result| result.adapter_operation_id.as_deref()),
+        None
+    );
+    assert_eq!(
+        denied
+            .execution
+            .as_ref()
+            .and_then(|result| result.error_code.as_deref()),
+        Some("policy_denied")
+    );
+}
+
+#[test]
 fn serialized_event_contains_no_secret_or_token_fields() {
     let failed = AuditEvent::execution_failed(
         "evt_4",

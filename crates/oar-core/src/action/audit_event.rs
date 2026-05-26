@@ -20,6 +20,7 @@ pub struct AuditEvent {
 pub enum AuditEventType {
     ConfirmedActionRecorded,
     DryRunExecuted,
+    ExecutionDenied,
     ExecutionSucceeded,
     ExecutionFailed,
 }
@@ -66,6 +67,7 @@ pub enum ExecutionStatus {
     Succeeded,
     Failed,
     DryRun,
+    Denied,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +163,37 @@ impl AuditEvent {
                 adapter_operation_id: Some(adapter_operation_id.into()),
                 error_code: None,
                 message: None,
+            }),
+        }
+    }
+
+    pub fn execution_denied(
+        event_id: impl Into<String>,
+        trace_id: impl Into<String>,
+        sequence: u64,
+        occurred_at_ms: u64,
+        actor: AuditActor,
+        scope: AuditScope,
+        target: AuditTarget,
+        error_code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            event_id: event_id.into(),
+            trace_id: trace_id.into(),
+            sequence,
+            occurred_at_ms,
+            event_type: AuditEventType::ExecutionDenied,
+            actor,
+            scope,
+            target,
+            before: None,
+            after: None,
+            execution: Some(ExecutionResult {
+                status: ExecutionStatus::Denied,
+                adapter_operation_id: None,
+                error_code: Some(error_code.into()),
+                message: Some(message.into()),
             }),
         }
     }
