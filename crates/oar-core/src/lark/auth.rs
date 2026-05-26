@@ -5,7 +5,7 @@ use crate::domain::token_refresh::{
     AuthRefreshAdapter, EncryptedGrantMaterial, RefreshOutcome, TokenRefreshGrantSnapshot,
 };
 
-const SAFE_TRANSIENT_ERROR: &str = "lark auth refresh temporarily unavailable";
+const SAFE_TRANSIENT_ERROR: &str = "temporarily unavailable";
 const SAFE_REAUTH_ERROR: &str = "reauthentication required";
 const SAFE_PARSE_ERROR: &str = "invalid lark auth refresh envelope";
 
@@ -40,6 +40,26 @@ impl fmt::Debug for LarkAuthRefreshRequest {
             .field("is_revoked", &self.is_revoked)
             .field("reauth_marked", &self.reauth_marked)
             .finish()
+    }
+}
+
+impl LarkAuthRefreshRequest {
+    pub fn from_snapshot(snapshot: &TokenRefreshGrantSnapshot) -> Self {
+        Self {
+            grant_id: snapshot.grant_id.0.clone(),
+            tenant_id: snapshot.tenant_id.0.clone(),
+            expected_fingerprint: snapshot.expected_fingerprint.clone(),
+            grant_state: map_grant_state(snapshot.state),
+            has_refresh_material: snapshot.has_refresh_material,
+            is_revoked: snapshot.revoked_at.is_some(),
+            reauth_marked: snapshot.reauth_required_at.is_some(),
+        }
+    }
+}
+
+impl From<&TokenRefreshGrantSnapshot> for LarkAuthRefreshRequest {
+    fn from(value: &TokenRefreshGrantSnapshot) -> Self {
+        Self::from_snapshot(value)
     }
 }
 
@@ -139,16 +159,12 @@ impl<C> LarkAuthRefreshAdapter<C> {
         Self { client }
     }
 
-    fn map_snapshot(snapshot: &TokenRefreshGrantSnapshot) -> LarkAuthRefreshRequest {
-        LarkAuthRefreshRequest {
-            grant_id: snapshot.grant_id.0.clone(),
-            tenant_id: snapshot.tenant_id.0.clone(),
-            expected_fingerprint: snapshot.expected_fingerprint.clone(),
-            grant_state: map_grant_state(snapshot.state),
-            has_refresh_material: snapshot.has_refresh_material,
-            is_revoked: snapshot.revoked_at.is_some(),
-            reauth_marked: snapshot.reauth_required_at.is_some(),
-        }
+    pub fn client(&self) -> &C {
+        &self.client
+    }
+
+    pub fn client_mut(&mut self) -> &mut C {
+        &mut self.client
     }
 }
 
@@ -157,7 +173,7 @@ where
     C: LarkAuthRefreshClient,
 {
     fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
-        let request = Self::map_snapshot(snapshot);
+        let request = LarkAuthRefreshRequest::from_snapshot(snapshot);
         match self.client.refresh(&request) {
             Ok(LarkAuthRefreshResponse::Success(success)) => RefreshOutcome::Success {
                 rotated_material: EncryptedGrantMaterial {
@@ -209,9 +225,7 @@ fn sanitize_safe_error(value: &str, fallback: &str) -> String {
     }
 
     match trimmed {
-        "invalid_grant" | "temporarily unavailable" | SAFE_TRANSIENT_ERROR | SAFE_REAUTH_ERROR => {
-            trimmed.to_string()
-        }
+        "invalid_grant" | SAFE_TRANSIENT_ERROR | SAFE_REAUTH_ERROR => trimmed.to_string(),
         _ => fallback.to_string(),
     }
 }

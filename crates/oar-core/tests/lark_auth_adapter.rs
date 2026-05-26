@@ -5,8 +5,8 @@ use oar_core::domain::token_refresh::{
     AuthRefreshAdapter, RefreshOutcome, TokenRefreshGrantSnapshot,
 };
 use oar_core::lark::auth::{
-    parse_lark_auth_refresh_response, LarkAuthRefreshAdapter, LarkAuthRefreshClient,
-    LarkAuthRefreshRequest, LarkAuthRefreshResponse,
+    parse_lark_auth_refresh_response, LarkAuthGrantState, LarkAuthRefreshAdapter,
+    LarkAuthRefreshClient, LarkAuthRefreshRequest, LarkAuthRefreshResponse,
 };
 use oar_core::lark::fixtures::{
     AUTH_REFRESH_PLAINTEXT_TOKEN_LEAK_JSON, AUTH_REFRESH_REAUTH_REQUIRED_JSON,
@@ -23,6 +23,22 @@ fn sample_snapshot() -> TokenRefreshGrantSnapshot {
         revoked_at: None,
         reauth_required_at: None,
     }
+}
+
+#[test]
+fn request_from_snapshot_maps_safe_metadata_and_redacts_debug() {
+    let request = LarkAuthRefreshRequest::from_snapshot(&sample_snapshot());
+
+    assert_eq!(request.grant_id, "grant_auth_refresh_1");
+    assert_eq!(request.tenant_id, "tenant_auth_refresh_1");
+    assert_eq!(request.grant_state, LarkAuthGrantState::Valid);
+    assert!(request.has_refresh_material);
+    assert!(!request.is_revoked);
+    assert!(!request.reauth_marked);
+
+    let debug = format!("{request:?}");
+    assert!(debug.contains("grant_auth_refresh_1"));
+    assert!(!debug.contains("fp_prev_v1"));
 }
 
 #[test]
@@ -100,6 +116,20 @@ fn plaintext_token_fixture_is_rejected_without_leaking_token_text() {
     assert!(!debug.contains("tok_refresh_live_should_never_parse"));
     assert!(!rendered.contains("refresh_token="));
     assert!(!debug.contains("refresh_token="));
+}
+
+#[test]
+fn adapter_debug_redacts_client_internals() {
+    let adapter = LarkAuthRefreshAdapter::new(FakeClient::from_error(
+        "access_token=tok_debug_sensitive refresh_token=rt_debug_sensitive",
+    ));
+    let debug = format!("{adapter:?}");
+
+    assert!(debug.contains("[REDACTED]"));
+    assert!(!debug.contains("tok_debug_sensitive"));
+    assert!(!debug.contains("rt_debug_sensitive"));
+    assert!(!debug.contains("access_token"));
+    assert!(!debug.contains("refresh_token"));
 }
 
 #[test]

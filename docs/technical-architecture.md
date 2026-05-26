@@ -176,6 +176,12 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 
 状态声明：以下语义为当前实现/验证方向，属于进行中；只有在代码与集成测试覆盖后才可视为生产完成。
 
+Phase 0.6 refresh 集成状态按三层区分（不得混写为“已生产就绪”）：
+
+1. 安全 parser / adapter contract 层：定义可安全消费的 refresh 输入输出边界与 `RefreshOutcome` 映射（当前：部分通过）。
+2. fixture replay -> Postgres orchestrator/UoW/audit 层：以 fixture/fake adapter 验证 refresh 决策、CAS 持久化与 append-only 审计事务边界（当前：部分通过）。
+3. 真实 `AuthAdapter` client + scheduler 层：接入真实 `lark-cli` / OpenAPI refresh client 与后台调度闭环（当前：未完成）。
+
 ### Tenant / OarUser / LarkIdentity Postgres repositories（进行中）
 
 - `tenants`、`oar_users`、`lark_identities` 作为身份主干表，所有读写均以 `tenant_id` 作为隔离前提。
@@ -201,7 +207,7 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - service 不直接调用任意 CLI/OpenAPI；与飞书交互必须经 `LarkAdapter/AuthAdapter` 封装路径，保留 dry-run/审计一致性。
 - service 仅处理授权材料与状态，不直接执行 OKR 写回；业务写回仍必须走 `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent`。
 - `TokenRefreshAuditSummary` 可通过 `token_refresh_audit_event` 映射为 append-only `AuditEvent`：复用现有 `ExecutionSucceeded` / `ExecutionFailed` / `ExecutionDenied` 类型，用 `target.resource_type = token_grant` 与稳定 `action_type` 区分 refresh 场景。
-- refresh 审计事件只记录 grant id、tenant id、状态分类、命令分类和已脱敏 `safe_error`；不得记录明文 token、授权包、fingerprint、encrypted blob、raw CLI stdout/stderr 或 sink 内部错误。
+- refresh 审计事件只记录 grant id、tenant id、状态分类、命令分类和已脱敏 `safe_error`；不得记录 access token、refresh token、authorization code、raw CLI stdout/stderr、encrypted blob、fingerprint、完整授权包或 sink 内部错误。
 - 当前已在 Postgres live tests 验证 refresh 状态更新 + audit append 的事务化 UoW 语义（同事务提交、审计失败整体回滚）。
 - `PostgresTokenRefreshOrchestrator` 已验证 fake `AuthRefreshAdapter` -> domain decision -> transactional UoW -> audit 的编排边界；短路路径不调用 adapter / UoW，只写 denied audit。
 - Auth refresh 的真实 `lark-cli` / OpenAPI client 尚未接入，后台 scheduler 也尚未连通；当前仅验证 contract + fixture + orchestration 边界，不构成生产 refresh 闭环。

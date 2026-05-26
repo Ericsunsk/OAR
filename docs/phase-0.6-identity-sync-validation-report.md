@@ -6,6 +6,13 @@
 ## 1. 结论
 
 阶段 0.6 已完成首轮身份、授权和刷新前置条件验证。
+当前处于“安全契约已验证、编排回放已打通、真实客户端与调度待接入”的过渡状态，不应视为生产 refresh 闭环已完成。
+
+三层状态（必须区分）：
+
+1. 安全 parser / adapter contract（已部分通过）：定义并验证 refresh 输入输出安全边界与领域映射。
+2. fixture replay -> Postgres orchestrator/UoW/audit（已部分通过）：用 fixture/fake adapter 打通事务化编排与审计留痕。
+3. 真实 `AuthAdapter` client + scheduler（未完成）：真实 `lark-cli` / OpenAPI client 与后台调度尚未接入，不具备生产就绪声明条件。
 
 当前判断：
 
@@ -85,7 +92,7 @@
 1. `Tenant` / `OarUser` / `LarkIdentity` Postgres repositories 语义验证：`tenant_id` 隔离、identity 绑定唯一约束、冲突可恢复语义、最小审计字段落库。
 2. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
 3. 将 `PostgresTokenRefreshOrchestrator` 接入真实 `AuthAdapter` 与后台调度，验证从 refresh attempt 到 Postgres CAS + audit 事务边界的生产路径。
-4. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露 access token、refresh token、authorization code、sink 内部错误或 encrypted blob。
+4. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露 access token、refresh token、authorization code、raw CLI stdout/stderr、sink 内部错误、encrypted blob 或 fingerprint。
 5. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
 6. 以真实 adapter 输出回放 fixture，持续验证 safe parser 边界：只接受 encrypted envelope，拒绝 plaintext token-like 输出，再映射到 `RefreshOutcome`。
 
@@ -128,6 +135,7 @@
 - `TokenGrant` Postgres 持久化集成验证：repository 仅处理加密授权包，不接受/返回明文 token。
 - `TokenRefreshService` 与 repository command sink 的领域编排已覆盖，refresh audit 事件映射、Postgres roundtrip 和 fake adapter 下的 transactional orchestrator 已验证；仍需接入真实 `AuthAdapter` 与后台调度，并在真实 adapter 路径下持续验证同一事务边界。
 - Auth refresh adapter contract / safe parser fixture 边界已建立：当前仅在 fixture/fake adapter 下验证“加密 envelope -> `RefreshOutcome` -> decision bridge”链路；真实 `lark-cli` / OpenAPI client 输出尚未连通。
+- 审计/日志边界必须持续成立：不得记录 access token、refresh token、authorization code、raw CLI stdout/stderr、encrypted blob 或 fingerprint。
 - refresh rotation SQL CAS 集成验证：`tenant_id + grant_id + expected_fingerprint`、状态白名单（`valid` / `needs_refresh` / `expired`）和 `revoked_at IS NULL` / `reauth_required_at IS NULL` guard 全部生效。
 - revoked / reauth-required grant 的 rotation 阻断需在真实数据库和并发场景下持续验证。
 - `DeviceSession` Postgres repository 需补齐真实数据库并发验证：cursor 只前进不回退、revoked/expired 门禁、跨设备冲突可观测。
