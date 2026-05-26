@@ -134,3 +134,47 @@ fn unconfirmed_action_is_rejected() {
         })
     );
 }
+
+#[test]
+fn unknown_idempotency_key_returns_consistent_ledger_error() {
+    let mut ledger = OperationLedger::new();
+
+    assert_eq!(
+        ledger.mark_executing("missing-idem"),
+        Err(LedgerError::UnknownIdempotencyKey(
+            "missing-idem".to_string()
+        ))
+    );
+    assert_eq!(
+        ledger.mark_succeeded("missing-idem"),
+        Err(LedgerError::UnknownIdempotencyKey(
+            "missing-idem".to_string()
+        ))
+    );
+    assert_eq!(
+        ledger.mark_failed("missing-idem", "any error"),
+        Err(LedgerError::UnknownIdempotencyKey(
+            "missing-idem".to_string()
+        ))
+    );
+}
+
+#[test]
+fn transitions_persist_when_loaded_by_idempotency_key() {
+    let mut ledger = OperationLedger::new();
+    let action = confirmed_action("idem-persist");
+    ledger.submit_confirmed_action(&action).unwrap();
+
+    ledger.mark_executing("idem-persist").unwrap();
+    let executing = ledger
+        .get_by_idempotency_key("idem-persist")
+        .expect("record should exist after submit");
+    assert_eq!(executing.status, ActionStatus::Executing);
+
+    ledger.mark_succeeded("idem-persist").unwrap();
+    let succeeded = ledger
+        .get_by_idempotency_key("idem-persist")
+        .expect("record should still exist after success");
+    assert_eq!(succeeded.status, ActionStatus::Succeeded);
+    assert_eq!(succeeded.last_error, None);
+}

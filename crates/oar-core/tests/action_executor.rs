@@ -154,6 +154,9 @@ fn executes_confirmed_action_through_ledger_adapter_and_audit() {
             .map(|v| v.status.clone()),
         Some(ExecutionStatus::Succeeded)
     );
+
+    let persisted = executor.audit().find_by_trace_id("trace-idem-exec-1");
+    assert_eq!(persisted, report.events);
 }
 
 #[test]
@@ -201,6 +204,9 @@ fn execute_failure_marks_ledger_failed_and_emits_failure_event() {
             .and_then(|v| v.error_code.as_deref()),
         Some("adapter_timeout")
     );
+
+    let persisted = executor.audit().find_by_trace_id("trace-idem-fail-1");
+    assert_eq!(persisted, report.events);
 }
 
 #[test]
@@ -297,6 +303,11 @@ fn policy_denied_action_does_not_call_adapter_or_mark_success_and_records_safe_r
     assert!(message.contains("okr.progress.write"));
     assert!(!message.contains("access-token"));
     assert!(!message.contains("refresh-token"));
+
+    let persisted = executor
+        .audit()
+        .find_by_trace_id("trace-idem-policy-denied-1");
+    assert_eq!(persisted, denial.events);
 }
 
 #[test]

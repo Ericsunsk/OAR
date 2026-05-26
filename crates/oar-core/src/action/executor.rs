@@ -3,9 +3,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::audit_event::{
     AuditActor, AuditActorKind, AuditEvent, AuditScope, AuditStateSummary, AuditTarget,
 };
+use super::audit_repository::{
+    AuditEventRepository, AuditRepositoryError, InMemoryAuditEventRepository,
+};
 use super::confirmed_action::{ActionStatus, ConfirmedAction};
 use super::execution_policy::{ExecutionDenied, ExecutionPolicy};
-use super::operation_ledger::{LedgerError, OperationLedger, OperationRecord, SubmitResult};
+use super::operation_ledger::{LedgerError, OperationRecord, SubmitResult};
+use super::operation_ledger_repository::{
+    InMemoryOperationLedgerRepository, OperationLedgerRepository,
+};
 use crate::domain::identity::TokenGrant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +64,7 @@ pub struct PolicyDenialReport {
 pub enum ExecutionError {
     Ledger(LedgerError),
     Adapter(AdapterError),
+    Audit(AuditRepositoryError),
     PolicyDenied(PolicyDenialReport),
 }
 
@@ -73,18 +80,32 @@ impl From<AdapterError> for ExecutionError {
     }
 }
 
-pub struct ActionExecutor<A, C = fn() -> u64>
-where
+impl From<AuditRepositoryError> for ExecutionError {
+    fn from(value: AuditRepositoryError) -> Self {
+        Self::Audit(value)
+    }
+}
+
+pub struct ActionExecutor<
+    A,
+    C = fn() -> u64,
+    L = InMemoryOperationLedgerRepository,
+    R = InMemoryAuditEventRepository,
+> where
     A: ActionAdapter,
     C: FnMut() -> u64,
+    L: OperationLedgerRepository,
+    R: AuditEventRepository,
 {
-    ledger: OperationLedger,
+    ledger: L,
+    audit: R,
     adapter: A,
     clock_ms: C,
     sequence: u64,
 }
 
-impl<A> ActionExecutor<A, fn() -> u64>
+impl<A>
+    ActionExecutor<A, fn() -> u64, InMemoryOperationLedgerRepository, InMemoryAuditEventRepository>
 where
     A: ActionAdapter,
 {
@@ -93,14 +114,32 @@ where
     }
 }
 
-impl<A, C> ActionExecutor<A, C>
+impl<A, C> ActionExecutor<A, C, InMemoryOperationLedgerRepository, InMemoryAuditEventRepository>
 where
     A: ActionAdapter,
     C: FnMut() -> u64,
 {
     pub fn with_clock(adapter: A, clock_ms: C) -> Self {
+        Self::with_repositories(
+            adapter,
+            clock_ms,
+            InMemoryOperationLedgerRepository::new(),
+            InMemoryAuditEventRepository::new(),
+        )
+    }
+}
+
+impl<A, C, L, R> ActionExecutor<A, C, L, R>
+where
+    A: ActionAdapter,
+    C: FnMut() -> u64,
+    L: OperationLedgerRepository,
+    R: AuditEventRepository,
+{
+    pub fn with_repositories(adapter: A, clock_ms: C, ledger: L, audit: R) -> Self {
         Self {
-            ledger: OperationLedger::new(),
+            ledger,
+            audit,
             adapter,
             clock_ms,
             sequence: 0,
@@ -131,6 +170,7 @@ where
     ) -> Result<ExecutionReport, ExecutionError> {
         if let Err(denial) = policy.evaluate(action, action_type, required_scope, grant) {
             let event = self.event_denied(action, &denial);
+            self.audit.append(event.clone())?;
             return Err(ExecutionError::PolicyDenied(PolicyDenialReport {
                 denial,
                 events: vec![event],
@@ -140,12 +180,16 @@ where
         self.execute_confirmed_action(action)
     }
 
-    pub fn ledger(&self) -> &OperationLedger {
+    pub fn ledger(&self) -> &L {
         &self.ledger
     }
 
     pub fn adapter(&self) -> &A {
         &self.adapter
+    }
+
+    pub fn audit(&self) -> &R {
+        &self.audit
     }
 
     fn run_new_operation(
@@ -154,10 +198,12 @@ where
         created: OperationRecord,
     ) -> Result<ExecutionReport, ExecutionError> {
         let mut events = Vec::new();
-        events.push(self.event_confirmed(action));
+        let confirmed_event = self.event_confirmed(action);
+        self.record_event(&mut events, confirmed_event)?;
 
         let dry_run = self.adapter.dry_run(action)?;
-        events.push(self.event_dry_run(action, dry_run.before, dry_run.after));
+        let dry_run_event = self.event_dry_run(action, dry_run.before, dry_run.after);
+        self.record_event(&mut events, dry_run_event)?;
 
         self.ledger.mark_executing(&action.idempotency_key)?;
         let execute_result = self.adapter.execute(action);
@@ -165,19 +211,22 @@ where
         let final_record = match execute_result {
             Ok(execution) => {
                 let record = self.ledger.mark_succeeded(&action.idempotency_key)?;
-                events.push(self.event_succeeded(
+                let succeeded_event = self.event_succeeded(
                     action,
                     execution.before,
                     execution.after,
                     execution.adapter_operation_id,
-                ));
+                );
+                self.record_event(&mut events, succeeded_event)?;
                 record
             }
             Err(error) => {
                 let record = self
                     .ledger
                     .mark_failed(&action.idempotency_key, error.message.clone())?;
-                events.push(self.event_failed(action, error.code.clone(), error.message.clone()));
+                let failed_event =
+                    self.event_failed(action, error.code.clone(), error.message.clone());
+                self.record_event(&mut events, failed_event)?;
                 return Ok(ExecutionReport {
                     operation: record,
                     events,
@@ -189,7 +238,6 @@ where
         let operation = self
             .ledger
             .get_by_idempotency_key(&action.idempotency_key)
-            .cloned()
             .unwrap_or(created);
 
         Ok(ExecutionReport {
@@ -203,9 +251,19 @@ where
         })
     }
 
+    fn record_event(
+        &self,
+        events: &mut Vec<AuditEvent>,
+        event: AuditEvent,
+    ) -> Result<(), ExecutionError> {
+        self.audit.append(event.clone())?;
+        events.push(event);
+        Ok(())
+    }
+
     fn event_confirmed(&mut self, action: &ConfirmedAction) -> AuditEvent {
         AuditEvent::confirmed_action(
-            self.next_event_id(),
+            self.next_event_id(action),
             self.trace_id(action),
             self.next_sequence(),
             self.now_ms(),
@@ -227,7 +285,7 @@ where
         after: Option<AuditStateSummary>,
     ) -> AuditEvent {
         AuditEvent::dry_run(
-            self.next_event_id(),
+            self.next_event_id(action),
             self.trace_id(action),
             self.next_sequence(),
             self.now_ms(),
@@ -247,7 +305,7 @@ where
         adapter_operation_id: String,
     ) -> AuditEvent {
         AuditEvent::execution_succeeded(
-            self.next_event_id(),
+            self.next_event_id(action),
             self.trace_id(action),
             self.next_sequence(),
             self.now_ms(),
@@ -267,7 +325,7 @@ where
         message: String,
     ) -> AuditEvent {
         AuditEvent::execution_failed(
-            self.next_event_id(),
+            self.next_event_id(action),
             self.trace_id(action),
             self.next_sequence(),
             self.now_ms(),
@@ -283,7 +341,7 @@ where
 
     fn event_denied(&mut self, action: &ConfirmedAction, denial: &ExecutionDenied) -> AuditEvent {
         AuditEvent::execution_denied(
-            self.next_event_id(),
+            self.next_event_id(action),
             self.trace_id(action),
             self.next_sequence(),
             self.now_ms(),
@@ -295,8 +353,8 @@ where
         )
     }
 
-    fn next_event_id(&mut self) -> String {
-        format!("evt-{}", self.sequence + 1)
+    fn next_event_id(&self, action: &ConfirmedAction) -> String {
+        format!("{}-evt-{}", self.trace_id(action), self.sequence + 1)
     }
 
     fn next_sequence(&mut self) -> u64 {

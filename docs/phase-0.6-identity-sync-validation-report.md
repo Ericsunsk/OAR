@@ -76,3 +76,22 @@
 2. 将阶段 0.5 的 OKR CLI 输出保存为 `LarkAdapter` fixture。
 3. 实现 `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent` 的最小状态机。
 4. 用本地并发测试模拟两个客户端同时确认同一动作，验证只写回一次。
+
+## 6. 工程实现进展
+
+更新日期：2026-05-26
+
+本地 Rust 核心已完成以下 Phase 0.6 骨架验证：
+
+- `TokenGrant` 生命周期已覆盖 refresh success、refresh missing token、revoke block refresh、debug redaction。
+- `DeviceSession` 同步模型已覆盖 cursor 前进、stale cursor 拒绝、revoke 后阻止同步。
+- `ExecutionPolicy` 已接入 `ActionExecutor` 的写入前置门禁；policy denied 不创建 ledger、不调用 adapter，并写入独立 `ExecutionDenied` 审计事件。
+- `OperationLedger` 已覆盖重复幂等、并发重复提交、状态转移、未知 idempotency key 错误一致性。
+- `AuditEventRepository` 和 `OperationLedgerRepository` 已形成内存实现和 repository 边界，执行器可通过 repository 读写 ledger/audit。
+
+仍需生产级验证：
+
+- `TokenGrant` 加密持久化和 refresh token rotation 的数据库事务。
+- Postgres 级 `OperationLedger` 唯一约束 / upsert，证明多进程并发下同一 `ConfirmedAction` 只生成一个执行记录。
+- ledger 状态变更与 audit append 的事务边界或 outbox，避免 crash window 导致账本和审计不一致。
+- macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

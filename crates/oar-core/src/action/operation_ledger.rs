@@ -29,6 +29,7 @@ pub enum LedgerError {
     },
 }
 
+#[derive(Debug)]
 pub struct OperationLedger {
     records_by_operation_id: HashMap<String, OperationRecord>,
     operation_id_by_idempotency_key: HashMap<String, String>,
