@@ -30,6 +30,12 @@ pub enum PostgresRepositoryError {
     UnknownExecutionStatus(String),
     #[error("action must be confirmed before persistence: {0:?}")]
     ActionNotConfirmed(ActionStatus),
+    #[error("tenant mismatch for {field}: expected {expected}, got {actual}")]
+    TenantMismatch {
+        field: &'static str,
+        expected: String,
+        actual: String,
+    },
     #[error("invalid signed integer for {field}: {value}")]
     NegativeInteger { field: &'static str, value: i64 },
     #[error("invalid audit JSON payload: {0}")]
@@ -61,7 +67,7 @@ pub struct AuditOutboxEnvelope {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PostgresExecutionUnitOfWorkReport {
     pub operation: OperationRecord,
-    pub outbox_id: i64,
+    pub outbox_id: Option<i64>,
     pub duplicate: bool,
 }
 
@@ -216,13 +222,19 @@ impl PostgresExecutionUnitOfWork {
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
+        validate_uow_tenant(&action.tenant_id, event, outbox)?;
+
         let mut tx = self.pool.begin().await?;
         let submit =
             submit_confirmed_action_in_tx(&mut tx, action, confirmed_at_ms, operation_id).await?;
         let (operation, duplicate) = submit_result_parts(submit);
 
-        append_audit_event_in_tx(&mut tx, event, Some(&operation.operation_id)).await?;
-        let outbox_id = enqueue_outbox_in_tx(&mut tx, outbox).await?;
+        let outbox_id = if duplicate {
+            None
+        } else {
+            append_audit_event_in_tx(&mut tx, event, Some(&operation.operation_id)).await?;
+            Some(enqueue_outbox_in_tx(&mut tx, outbox).await?)
+        };
         tx.commit().await?;
 
         Ok(PostgresExecutionUnitOfWorkReport {
@@ -230,6 +242,27 @@ impl PostgresExecutionUnitOfWork {
             outbox_id,
             duplicate,
         })
+    }
+
+    pub async fn record_dry_run(
+        &self,
+        tenant_id: &str,
+        idempotency_key: &str,
+        now_ms: u64,
+        event: &AuditEvent,
+        outbox: &AuditOutboxEnvelope,
+    ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
+        self.record_status_transition(
+            MARK_EXECUTING,
+            ActionStatus::Executing,
+            tenant_id,
+            idempotency_key,
+            None,
+            now_ms,
+            event,
+            outbox,
+        )
+        .await
     }
 
     pub async fn record_success(
@@ -240,8 +273,9 @@ impl PostgresExecutionUnitOfWork {
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        self.record_terminal_transition(
+        self.record_status_transition(
             MARK_SUCCEEDED,
+            ActionStatus::Succeeded,
             tenant_id,
             idempotency_key,
             None,
@@ -261,8 +295,9 @@ impl PostgresExecutionUnitOfWork {
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        self.record_terminal_transition(
+        self.record_status_transition(
             MARK_FAILED,
+            ActionStatus::Failed,
             tenant_id,
             idempotency_key,
             Some(error),
@@ -273,9 +308,10 @@ impl PostgresExecutionUnitOfWork {
         .await
     }
 
-    async fn record_terminal_transition(
+    async fn record_status_transition(
         &self,
         sql: &'static str,
+        target_status: ActionStatus,
         tenant_id: &str,
         idempotency_key: &str,
         error: Option<&str>,
@@ -283,18 +319,32 @@ impl PostgresExecutionUnitOfWork {
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        let mut tx = self.pool.begin().await?;
-        let operation =
-            transition_in_tx(&mut tx, sql, tenant_id, idempotency_key, error, now_ms).await?;
+        validate_uow_tenant(tenant_id, event, outbox)?;
 
-        append_audit_event_in_tx(&mut tx, event, Some(&operation.operation_id)).await?;
-        let outbox_id = enqueue_outbox_in_tx(&mut tx, outbox).await?;
+        let mut tx = self.pool.begin().await?;
+        let (operation, duplicate) = transition_in_tx(
+            &mut tx,
+            sql,
+            target_status,
+            tenant_id,
+            idempotency_key,
+            error,
+            now_ms,
+        )
+        .await?;
+
+        let outbox_id = if duplicate {
+            None
+        } else {
+            append_audit_event_in_tx(&mut tx, event, Some(&operation.operation_id)).await?;
+            Some(enqueue_outbox_in_tx(&mut tx, outbox).await?)
+        };
         tx.commit().await?;
 
         Ok(PostgresExecutionUnitOfWorkReport {
             operation,
             outbox_id,
-            duplicate: false,
+            duplicate,
         })
     }
 }
@@ -470,11 +520,12 @@ where
 async fn transition_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     sql: &'static str,
+    target_status: ActionStatus,
     tenant_id: &str,
     idempotency_key: &str,
     error: Option<&str>,
     now_ms: u64,
-) -> PgRepositoryResult<OperationRecord> {
+) -> PgRepositoryResult<(OperationRecord, bool)> {
     let row = match error {
         Some(error) => {
             sqlx::query(sql)
@@ -496,10 +547,50 @@ async fn transition_in_tx(
     };
 
     if let Some(row) = row {
-        return operation_record_from_row(&row);
+        return Ok((operation_record_from_row(&row)?, false));
     }
 
-    Err(sqlx::Error::RowNotFound.into())
+    let existing = sqlx::query(GET_BY_IDEMPOTENCY_KEY)
+        .bind(tenant_id)
+        .bind(idempotency_key)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+    match existing {
+        Some(row) => {
+            let record = operation_record_from_row(&row)?;
+            if record.status == target_status {
+                Ok((record, true))
+            } else {
+                Err(sqlx::Error::RowNotFound.into())
+            }
+        }
+        None => Err(sqlx::Error::RowNotFound.into()),
+    }
+}
+
+fn validate_uow_tenant(
+    expected_tenant_id: &str,
+    event: &AuditEvent,
+    outbox: &AuditOutboxEnvelope,
+) -> PgRepositoryResult<()> {
+    if event.scope.tenant_id != expected_tenant_id {
+        return Err(PostgresRepositoryError::TenantMismatch {
+            field: "event.scope.tenant_id",
+            expected: expected_tenant_id.to_string(),
+            actual: event.scope.tenant_id.clone(),
+        });
+    }
+
+    if outbox.tenant_id != expected_tenant_id {
+        return Err(PostgresRepositoryError::TenantMismatch {
+            field: "outbox.tenant_id",
+            expected: expected_tenant_id.to_string(),
+            actual: outbox.tenant_id.clone(),
+        });
+    }
+
+    Ok(())
 }
 
 async fn append_audit_event_in_tx(
