@@ -9,10 +9,10 @@ use crate::domain::identity::{
     TokenGrantState,
 };
 use crate::domain::token_refresh::{
-    decide_token_refresh, AuthRefreshAdapter, TokenRefreshApplyResult, TokenRefreshAttempt,
-    TokenRefreshAuditSummary, TokenRefreshBridgeError, TokenRefreshCommandKind,
-    TokenRefreshCommandSink, TokenRefreshDecisionKind, TokenRefreshGrantSnapshot,
-    TokenRefreshReportStatus, TokenRefreshRepositoryCommand, TokenRefreshServiceReport,
+    plan_token_refresh_command, token_refresh_short_circuit_report, AuthRefreshAdapter,
+    TokenRefreshApplyResult, TokenRefreshAuditSummary, TokenRefreshBridgeError,
+    TokenRefreshGrantSnapshot, TokenRefreshPlannedCommand, TokenRefreshReportStatus,
+    TokenRefreshRepositoryCommand, TokenRefreshServiceReport,
 };
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
@@ -87,12 +87,23 @@ pub enum PostgresRepositoryError {
     NegativeInteger { field: &'static str, value: i64 },
     #[error("invalid audit JSON payload: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("failed to build tokio runtime bridge: {0}")]
-    TokioRuntimeBuild(#[source] std::io::Error),
-    #[error("tokio runtime bridge thread panicked")]
-    TokioRuntimeBridgePanic,
     #[error("token refresh decision bridge failed")]
     TokenRefreshDecisionBridge(#[source] TokenRefreshBridgeError),
+    #[error("invalid operation status transition from {from:?} to {to:?}")]
+    InvalidOperationStatusTransition {
+        from: ActionStatus,
+        to: ActionStatus,
+    },
+    #[error("unknown operation idempotency key: {0}")]
+    UnknownOperationIdempotencyKey(String),
+    #[error(
+        "token refresh planned command mismatch for {field}: expected {expected}, got {actual}"
+    )]
+    TokenRefreshPlanMismatch {
+        field: &'static str,
+        expected: String,
+        actual: String,
+    },
 }
 
 pub type PgRepositoryResult<T> = Result<T, PostgresRepositoryError>;
@@ -120,6 +131,18 @@ pub struct EncryptedTokenGrantRecord {
     pub oauth_grant_key_id: String,
     pub oauth_grant_fingerprint: String,
     pub revocation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RotateEncryptedGrantRequest<'a> {
+    pub tenant_id: &'a str,
+    pub id: &'a str,
+    pub expected_fingerprint: &'a str,
+    pub expires_at_ms: Option<u64>,
+    pub refreshed_at_ms: u64,
+    pub encrypted_oauth_grant: &'a [u8],
+    pub oauth_grant_key_id: &'a str,
+    pub oauth_grant_fingerprint: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,6 +212,17 @@ pub struct PostgresExecutionUnitOfWorkReport {
     pub duplicate: bool,
 }
 
+struct StatusTransitionRequest<'a> {
+    sql: &'static str,
+    target_status: ActionStatus,
+    tenant_id: &'a str,
+    idempotency_key: &'a str,
+    error: Option<&'a str>,
+    now_ms: u64,
+    event: &'a AuditEvent,
+    outbox: &'a AuditOutboxEnvelope,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostgresTokenRefreshUnitOfWorkReport {
     pub apply_result: Option<TokenRefreshApplyResult>,
@@ -224,11 +258,6 @@ pub struct PostgresTokenRefreshSweepReport {
 #[derive(Debug, Clone)]
 pub struct PostgresTokenGrantRepository {
     pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresTokenRefreshCommandSink {
-    repository: PostgresTokenGrantRepository,
 }
 
 #[derive(Debug, Clone)]
@@ -452,16 +481,16 @@ impl PostgresTokenGrantRepository {
                 grant_key_id,
                 new_fingerprint,
             } => {
-                self.rotate_encrypted_grant(
-                    &tenant_id.0,
-                    &grant_id.0,
-                    &expected_fingerprint,
+                self.rotate_encrypted_grant(RotateEncryptedGrantRequest {
+                    tenant_id: &tenant_id.0,
+                    id: &grant_id.0,
+                    expected_fingerprint: &expected_fingerprint,
                     expires_at_ms,
                     refreshed_at_ms,
-                    &encrypted_grant_blob.0,
-                    &grant_key_id,
-                    &new_fingerprint,
-                )
+                    encrypted_oauth_grant: &encrypted_grant_blob.0,
+                    oauth_grant_key_id: &grant_key_id,
+                    oauth_grant_fingerprint: &new_fingerprint,
+                })
                 .await
             }
             crate::domain::token_refresh::TokenRefreshRepositoryCommand::MarkNeedsRefresh {
@@ -501,24 +530,17 @@ impl PostgresTokenGrantRepository {
 
     pub async fn rotate_encrypted_grant(
         &self,
-        tenant_id: &str,
-        id: &str,
-        expected_fingerprint: &str,
-        expires_at_ms: Option<u64>,
-        refreshed_at_ms: u64,
-        encrypted_oauth_grant: &[u8],
-        oauth_grant_key_id: &str,
-        oauth_grant_fingerprint: &str,
+        request: RotateEncryptedGrantRequest<'_>,
     ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
         let row = sqlx::query(ROTATE_TOKEN_GRANT)
-            .bind(tenant_id)
-            .bind(id)
-            .bind(expected_fingerprint)
-            .bind(option_u64_to_i64(expires_at_ms))
-            .bind(refreshed_at_ms as i64)
-            .bind(encrypted_oauth_grant)
-            .bind(oauth_grant_key_id)
-            .bind(oauth_grant_fingerprint)
+            .bind(request.tenant_id)
+            .bind(request.id)
+            .bind(request.expected_fingerprint)
+            .bind(option_u64_to_i64(request.expires_at_ms))
+            .bind(request.refreshed_at_ms as i64)
+            .bind(request.encrypted_oauth_grant)
+            .bind(request.oauth_grant_key_id)
+            .bind(request.oauth_grant_fingerprint)
             .fetch_optional(&self.pool)
             .await?;
         row.as_ref().map(encrypted_token_grant_from_row).transpose()
@@ -600,38 +622,6 @@ impl PostgresTokenGrantRepository {
             .await?;
 
         rows.iter().map(token_refresh_snapshot_from_row).collect()
-    }
-}
-
-impl PostgresTokenRefreshCommandSink {
-    pub fn new(repository: PostgresTokenGrantRepository) -> Self {
-        Self { repository }
-    }
-
-    pub fn from_pool(pool: PgPool) -> Self {
-        Self::new(PostgresTokenGrantRepository::new(pool))
-    }
-
-    pub fn repository(&self) -> &PostgresTokenGrantRepository {
-        &self.repository
-    }
-}
-
-impl TokenRefreshCommandSink for PostgresTokenRefreshCommandSink {
-    type Error = PostgresRepositoryError;
-
-    fn apply_refresh_command(
-        &mut self,
-        command: TokenRefreshRepositoryCommand,
-    ) -> Result<Option<TokenRefreshApplyResult>, Self::Error> {
-        let repository = self.repository.clone();
-        if tokio::runtime::Handle::try_current().is_ok() {
-            return std::thread::spawn(move || block_on_refresh_command(repository, command))
-                .join()
-                .map_err(|_| PostgresRepositoryError::TokioRuntimeBridgePanic)?;
-        }
-
-        block_on_refresh_command(repository, command)
     }
 }
 
@@ -748,7 +738,7 @@ impl PostgresLarkIdentityRepository {
                         return Err(
                             PostgresRepositoryError::LarkIdentityActorExternalBindingConflict {
                                 tenant_id: identity.tenant_id.0.clone(),
-                                actor_kind: identity.actor_kind.clone(),
+                                actor_kind: identity.actor_kind,
                                 actor_external_id: identity.actor_external_id.clone(),
                             },
                         );
@@ -1016,16 +1006,16 @@ impl PostgresExecutionUnitOfWork {
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        self.record_status_transition(
-            MARK_EXECUTING,
-            ActionStatus::Executing,
+        self.record_status_transition(StatusTransitionRequest {
+            sql: MARK_EXECUTING,
+            target_status: ActionStatus::Executing,
             tenant_id,
             idempotency_key,
-            None,
+            error: None,
             now_ms,
             event,
             outbox,
-        )
+        })
         .await
     }
 
@@ -1037,16 +1027,16 @@ impl PostgresExecutionUnitOfWork {
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        self.record_status_transition(
-            MARK_SUCCEEDED,
-            ActionStatus::Succeeded,
+        self.record_status_transition(StatusTransitionRequest {
+            sql: MARK_SUCCEEDED,
+            target_status: ActionStatus::Succeeded,
             tenant_id,
             idempotency_key,
-            None,
+            error: None,
             now_ms,
             event,
             outbox,
-        )
+        })
         .await
     }
 
@@ -1059,49 +1049,42 @@ impl PostgresExecutionUnitOfWork {
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        self.record_status_transition(
-            MARK_FAILED,
-            ActionStatus::Failed,
+        self.record_status_transition(StatusTransitionRequest {
+            sql: MARK_FAILED,
+            target_status: ActionStatus::Failed,
             tenant_id,
             idempotency_key,
-            Some(error),
+            error: Some(error),
             now_ms,
             event,
             outbox,
-        )
+        })
         .await
     }
 
     async fn record_status_transition(
         &self,
-        sql: &'static str,
-        target_status: ActionStatus,
-        tenant_id: &str,
-        idempotency_key: &str,
-        error: Option<&str>,
-        now_ms: u64,
-        event: &AuditEvent,
-        outbox: &AuditOutboxEnvelope,
+        request: StatusTransitionRequest<'_>,
     ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        validate_uow_tenant(tenant_id, event, outbox)?;
+        validate_uow_tenant(request.tenant_id, request.event, request.outbox)?;
 
         let mut tx = self.pool.begin().await?;
         let (operation, duplicate) = transition_in_tx(
             &mut tx,
-            sql,
-            target_status,
-            tenant_id,
-            idempotency_key,
-            error,
-            now_ms,
+            request.sql,
+            request.target_status,
+            request.tenant_id,
+            request.idempotency_key,
+            request.error,
+            request.now_ms,
         )
         .await?;
 
         let outbox_id = if duplicate {
             None
         } else {
-            append_audit_event_in_tx(&mut tx, event, Some(&operation.operation_id)).await?;
-            Some(enqueue_outbox_in_tx(&mut tx, outbox).await?)
+            append_audit_event_in_tx(&mut tx, request.event, Some(&operation.operation_id)).await?;
+            Some(enqueue_outbox_in_tx(&mut tx, request.outbox).await?)
         };
         tx.commit().await?;
 
@@ -1122,12 +1105,25 @@ impl PostgresTokenRefreshUnitOfWork {
         &self.pool
     }
 
-    pub async fn apply_command_with_audit(
+    pub async fn apply_planned_command_with_audit(
         &self,
-        command: TokenRefreshRepositoryCommand,
+        planned: TokenRefreshPlannedCommand,
         audit_context: TokenRefreshAuditContext,
     ) -> PgRepositoryResult<PostgresTokenRefreshUnitOfWorkReport> {
-        let summary = token_refresh_summary_from_command(command.clone());
+        validate_token_refresh_plan(&planned)?;
+        let summary = planned
+            .report
+            .audit_summary(TokenRefreshReportStatus::ConflictNoop);
+        self.apply_command_with_summary(planned.command, summary, audit_context)
+            .await
+    }
+
+    async fn apply_command_with_summary(
+        &self,
+        command: TokenRefreshRepositoryCommand,
+        summary: TokenRefreshAuditSummary,
+        audit_context: TokenRefreshAuditContext,
+    ) -> PgRepositoryResult<PostgresTokenRefreshUnitOfWorkReport> {
         let mut tx = self.pool.begin().await?;
         let apply_result = apply_refresh_command_in_tx(&mut tx, command).await?;
         let mut summary = summary;
@@ -1170,17 +1166,7 @@ where
         now: SystemTime,
         audit_context: TokenRefreshAuditContext,
     ) -> PgRepositoryResult<PostgresTokenRefreshOrchestratorReport> {
-        if let Some(reason) = snapshot.short_circuit_reason() {
-            let service_report = TokenRefreshServiceReport {
-                grant_id: snapshot.grant_id,
-                tenant_id: snapshot.tenant_id,
-                status: TokenRefreshReportStatus::ShortCircuited(reason),
-                adapter_called: false,
-                sink_called: false,
-                decision: None,
-                command: None,
-                safe_error: None,
-            };
+        if let Some(service_report) = token_refresh_short_circuit_report(&snapshot) {
             let event = token_refresh_audit_event(audit_context, &service_report.audit_summary());
             self.audit.append(&event, None).await?;
             return Ok(PostgresTokenRefreshOrchestratorReport {
@@ -1190,40 +1176,15 @@ where
         }
 
         let outcome = self.adapter.refresh(&snapshot);
-        let attempt = TokenRefreshAttempt {
-            grant_id: snapshot.grant_id.clone(),
-            tenant_id: snapshot.tenant_id.clone(),
-            expected_fingerprint: snapshot.expected_fingerprint.clone(),
-            outcome,
-        };
-        let decision = decide_token_refresh(attempt);
-        let decision_kind = decision.kind();
-        let safe_error = decision.safe_error().map(ToOwned::to_owned);
-        let command = decision
-            .into_repository_command_at(now)
+        let planned = plan_token_refresh_command(&snapshot, outcome, now)
             .map_err(PostgresRepositoryError::TokenRefreshDecisionBridge)?;
-        let command_kind = command.kind();
+        let report_template = planned.report.clone();
 
         let uow_report = self
             .uow
-            .apply_command_with_audit(command, audit_context)
+            .apply_planned_command_with_audit(planned, audit_context)
             .await?;
-        let status = if uow_report.apply_result.is_some() {
-            TokenRefreshReportStatus::Succeeded
-        } else {
-            TokenRefreshReportStatus::ConflictNoop
-        };
-
-        let service_report = TokenRefreshServiceReport {
-            grant_id: snapshot.grant_id,
-            tenant_id: snapshot.tenant_id,
-            status,
-            adapter_called: true,
-            sink_called: true,
-            decision: Some(decision_kind),
-            command: Some(command_kind),
-            safe_error,
-        };
+        let service_report = report_template.into_service_report(uow_report.apply_result.is_some());
 
         Ok(PostgresTokenRefreshOrchestratorReport {
             service_report,
@@ -1558,10 +1519,15 @@ async fn transition_in_tx(
             if record.status == target_status {
                 Ok((record, true))
             } else {
-                Err(sqlx::Error::RowNotFound.into())
+                Err(PostgresRepositoryError::InvalidOperationStatusTransition {
+                    from: record.status,
+                    to: target_status,
+                })
             }
         }
-        None => Err(sqlx::Error::RowNotFound.into()),
+        None => Err(PostgresRepositoryError::UnknownOperationIdempotencyKey(
+            idempotency_key.to_string(),
+        )),
     }
 }
 
@@ -1583,6 +1549,35 @@ fn validate_uow_tenant(
             field: "outbox.tenant_id",
             expected: expected_tenant_id.to_string(),
             actual: outbox.tenant_id.clone(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_token_refresh_plan(planned: &TokenRefreshPlannedCommand) -> PgRepositoryResult<()> {
+    let expected_command_kind = planned.command.kind();
+    if planned.report.command_kind != expected_command_kind {
+        return Err(PostgresRepositoryError::TokenRefreshPlanMismatch {
+            field: "command_kind",
+            expected: format!("{expected_command_kind:?}"),
+            actual: format!("{:?}", planned.report.command_kind),
+        });
+    }
+
+    if planned.report.tenant_id != *planned.tenant_id() {
+        return Err(PostgresRepositoryError::TokenRefreshPlanMismatch {
+            field: "tenant_id",
+            expected: planned.tenant_id().0.clone(),
+            actual: planned.report.tenant_id.0.clone(),
+        });
+    }
+
+    if planned.report.grant_id != *planned.grant_id() {
+        return Err(PostgresRepositoryError::TokenRefreshPlanMismatch {
+            field: "grant_id",
+            expected: planned.grant_id().0.clone(),
+            actual: planned.report.grant_id.0.clone(),
         });
     }
 
@@ -1766,23 +1761,6 @@ fn token_refresh_snapshot_from_row(row: &PgRow) -> PgRepositoryResult<TokenRefre
     })
 }
 
-fn block_on_refresh_command(
-    repository: PostgresTokenGrantRepository,
-    command: TokenRefreshRepositoryCommand,
-) -> PgRepositoryResult<Option<TokenRefreshApplyResult>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(PostgresRepositoryError::TokioRuntimeBuild)?;
-
-    runtime.block_on(async move {
-        repository
-            .apply_refresh_command(command)
-            .await
-            .map(|record| record.map(token_refresh_apply_result_from_record))
-    })
-}
-
 async fn apply_refresh_command_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     command: TokenRefreshRepositoryCommand,
@@ -1850,60 +1828,6 @@ async fn apply_refresh_command_in_tx(
         .map(encrypted_token_grant_from_row)
         .transpose()
         .map(|value| value.map(token_refresh_apply_result_from_record))
-}
-
-fn token_refresh_summary_from_command(
-    command: TokenRefreshRepositoryCommand,
-) -> TokenRefreshAuditSummary {
-    match command {
-        TokenRefreshRepositoryCommand::RotateGrantCas {
-            grant_id,
-            tenant_id,
-            ..
-        } => TokenRefreshAuditSummary {
-            grant_id,
-            tenant_id,
-            status: TokenRefreshReportStatus::ConflictNoop,
-            decision: Some(TokenRefreshDecisionKind::RotateGrantCas),
-            command: Some(TokenRefreshCommandKind::RotateGrantCas),
-            safe_error: None,
-        },
-        TokenRefreshRepositoryCommand::MarkNeedsRefresh {
-            grant_id,
-            tenant_id,
-            safe_error,
-            ..
-        } => TokenRefreshAuditSummary {
-            grant_id,
-            tenant_id,
-            status: TokenRefreshReportStatus::ConflictNoop,
-            decision: Some(TokenRefreshDecisionKind::MarkNeedsRefresh),
-            command: Some(TokenRefreshCommandKind::MarkNeedsRefresh),
-            safe_error: Some(sanitize_refresh_error_for_audit(&safe_error)),
-        },
-        TokenRefreshRepositoryCommand::MarkReauthRequired {
-            grant_id,
-            tenant_id,
-            safe_error,
-            ..
-        } => TokenRefreshAuditSummary {
-            grant_id,
-            tenant_id,
-            status: TokenRefreshReportStatus::ConflictNoop,
-            decision: Some(TokenRefreshDecisionKind::MarkReauthRequired),
-            command: Some(TokenRefreshCommandKind::MarkReauthRequired),
-            safe_error: Some(sanitize_refresh_error_for_audit(&safe_error)),
-        },
-    }
-}
-
-fn sanitize_refresh_error_for_audit(reason: &str) -> String {
-    match reason.trim() {
-        "invalid_grant" => "invalid_grant".to_string(),
-        "temporarily unavailable" => "temporarily unavailable".to_string(),
-        REDACTED_REFRESH_ERROR => REDACTED_REFRESH_ERROR.to_string(),
-        _ => REDACTED_REFRESH_ERROR.to_string(),
-    }
 }
 
 fn token_refresh_apply_result_from_record(

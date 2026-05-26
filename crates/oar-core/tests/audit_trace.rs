@@ -1,6 +1,6 @@
 use oar_core::action::audit_event::{
-    AuditActor, AuditActorKind, AuditEventType, AuditScope, AuditStateSummary, AuditTarget,
-    ExecutionStatus,
+    AuditActor, AuditActorKind, AuditEventType, AuditScope, AuditStateSummary, AuditSubject,
+    AuditTarget, ExecutionStatus,
 };
 use oar_core::action::audit_trace::AuditTrace;
 
@@ -35,30 +35,26 @@ fn summary(text: &str) -> AuditStateSummary {
     }
 }
 
+fn subject() -> AuditSubject {
+    AuditSubject {
+        actor: actor(),
+        scope: scope(),
+        target: target(),
+    }
+}
+
 #[test]
 fn audit_trace_allocates_sequence_and_reuses_same_trace_id() {
-    let mut trace = AuditTrace::new("trace_42");
+    let mut trace = AuditTrace::new("trace_42", subject());
 
-    let confirmed = trace.confirmed_action(
-        1_748_250_000_000,
-        actor(),
-        scope(),
-        target(),
-        summary("confirmed"),
-    );
+    let confirmed = trace.confirmed_action(1_748_250_000_000, summary("confirmed"));
     let dry_run = trace.dry_run(
         1_748_250_010_000,
-        actor(),
-        scope(),
-        target(),
         Some(summary("before")),
         Some(summary("projected")),
     );
     let succeeded = trace.execution_succeeded(
         1_748_250_020_000,
-        actor(),
-        scope(),
-        target(),
         Some(summary("before")),
         Some(summary("after")),
         "op_789",
@@ -86,20 +82,11 @@ fn audit_trace_allocates_sequence_and_reuses_same_trace_id() {
 
 #[test]
 fn audit_trace_failure_keeps_order_and_status() {
-    let mut trace = AuditTrace::new("trace_99");
+    let mut trace = AuditTrace::new("trace_99", subject());
 
-    let _confirmed = trace.confirmed_action(
-        1_748_250_100_000,
-        actor(),
-        scope(),
-        target(),
-        summary("confirmed"),
-    );
+    let _confirmed = trace.confirmed_action(1_748_250_100_000, summary("confirmed"));
     let failed = trace.execution_failed(
         1_748_250_110_000,
-        actor(),
-        scope(),
-        target(),
         Some(summary("before")),
         None,
         "adapter_timeout",
@@ -124,13 +111,10 @@ fn audit_trace_failure_keeps_order_and_status() {
 
 #[test]
 fn audit_trace_policy_denial_is_distinct_from_execution_failure() {
-    let mut trace = AuditTrace::new("trace_denied");
+    let mut trace = AuditTrace::new("trace_denied", subject());
 
     let denied = trace.execution_denied(
         1_748_250_120_000,
-        actor(),
-        scope(),
-        target(),
         "policy_denied",
         "Execution denied by policy: missing required scope okr.progress.write",
     );

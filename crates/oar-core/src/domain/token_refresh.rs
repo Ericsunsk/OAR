@@ -364,6 +364,72 @@ pub struct TokenRefreshAuditSummary {
     pub safe_error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenRefreshPlannedCommand {
+    pub command: TokenRefreshRepositoryCommand,
+    pub report: TokenRefreshCommandReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenRefreshCommandReport {
+    pub grant_id: TokenGrantId,
+    pub tenant_id: TenantId,
+    pub decision_kind: TokenRefreshDecisionKind,
+    pub command_kind: TokenRefreshCommandKind,
+    pub safe_error: Option<String>,
+}
+
+impl TokenRefreshCommandReport {
+    pub fn audit_summary(&self, status: TokenRefreshReportStatus) -> TokenRefreshAuditSummary {
+        TokenRefreshAuditSummary {
+            grant_id: self.grant_id.clone(),
+            tenant_id: self.tenant_id.clone(),
+            status,
+            decision: Some(self.decision_kind),
+            command: Some(self.command_kind),
+            safe_error: self
+                .safe_error
+                .as_deref()
+                .map(sanitize_refresh_error_for_report),
+        }
+    }
+
+    pub fn into_service_report(self, applied: bool) -> TokenRefreshServiceReport {
+        TokenRefreshServiceReport {
+            grant_id: self.grant_id,
+            tenant_id: self.tenant_id,
+            status: if applied {
+                TokenRefreshReportStatus::Succeeded
+            } else {
+                TokenRefreshReportStatus::ConflictNoop
+            },
+            adapter_called: true,
+            sink_called: true,
+            decision: Some(self.decision_kind),
+            command: Some(self.command_kind),
+            safe_error: self.safe_error,
+        }
+    }
+}
+
+impl TokenRefreshPlannedCommand {
+    pub fn grant_id(&self) -> &TokenGrantId {
+        match &self.command {
+            TokenRefreshRepositoryCommand::RotateGrantCas { grant_id, .. }
+            | TokenRefreshRepositoryCommand::MarkNeedsRefresh { grant_id, .. }
+            | TokenRefreshRepositoryCommand::MarkReauthRequired { grant_id, .. } => grant_id,
+        }
+    }
+
+    pub fn tenant_id(&self) -> &TenantId {
+        match &self.command {
+            TokenRefreshRepositoryCommand::RotateGrantCas { tenant_id, .. }
+            | TokenRefreshRepositoryCommand::MarkNeedsRefresh { tenant_id, .. }
+            | TokenRefreshRepositoryCommand::MarkReauthRequired { tenant_id, .. } => tenant_id,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum TokenRefreshServiceError<E> {
     DecisionBridge(TokenRefreshBridgeError),
@@ -440,53 +506,65 @@ where
         snapshot: TokenRefreshGrantSnapshot,
         now: SystemTime,
     ) -> Result<TokenRefreshServiceReport, TokenRefreshServiceError<S::Error>> {
-        if let Some(reason) = snapshot.short_circuit_reason() {
-            return Ok(TokenRefreshServiceReport {
-                grant_id: snapshot.grant_id,
-                tenant_id: snapshot.tenant_id,
-                status: TokenRefreshReportStatus::ShortCircuited(reason),
-                adapter_called: false,
-                sink_called: false,
-                decision: None,
-                command: None,
-                safe_error: None,
-            });
+        if let Some(report) = token_refresh_short_circuit_report(&snapshot) {
+            return Ok(report);
         }
 
         let outcome = self.adapter.refresh(&snapshot);
-        let attempt = TokenRefreshAttempt {
-            grant_id: snapshot.grant_id.clone(),
-            tenant_id: snapshot.tenant_id.clone(),
-            expected_fingerprint: snapshot.expected_fingerprint.clone(),
-            outcome,
-        };
-        let decision = decide_token_refresh(attempt);
-        let decision_kind = decision.kind();
-        let safe_error = decision.safe_error().map(ToOwned::to_owned);
-        let command = decision.into_repository_command_at(now)?;
-        let command_kind = command.kind();
+        let planned = plan_token_refresh_command(&snapshot, outcome, now)?;
         let apply_result = self
             .sink
-            .apply_refresh_command(command)
+            .apply_refresh_command(planned.command)
             .map_err(TokenRefreshServiceError::CommandSink)?;
 
-        let status = if apply_result.is_some() {
-            TokenRefreshReportStatus::Succeeded
-        } else {
-            TokenRefreshReportStatus::ConflictNoop
-        };
-
-        Ok(TokenRefreshServiceReport {
-            grant_id: snapshot.grant_id,
-            tenant_id: snapshot.tenant_id,
-            status,
-            adapter_called: true,
-            sink_called: true,
-            decision: Some(decision_kind),
-            command: Some(command_kind),
-            safe_error,
-        })
+        Ok(planned.report.into_service_report(apply_result.is_some()))
     }
+}
+
+pub fn token_refresh_short_circuit_report(
+    snapshot: &TokenRefreshGrantSnapshot,
+) -> Option<TokenRefreshServiceReport> {
+    snapshot
+        .short_circuit_reason()
+        .map(|reason| TokenRefreshServiceReport {
+            grant_id: snapshot.grant_id.clone(),
+            tenant_id: snapshot.tenant_id.clone(),
+            status: TokenRefreshReportStatus::ShortCircuited(reason),
+            adapter_called: false,
+            sink_called: false,
+            decision: None,
+            command: None,
+            safe_error: None,
+        })
+}
+
+pub fn plan_token_refresh_command(
+    snapshot: &TokenRefreshGrantSnapshot,
+    outcome: RefreshOutcome,
+    now: SystemTime,
+) -> Result<TokenRefreshPlannedCommand, TokenRefreshBridgeError> {
+    let attempt = TokenRefreshAttempt {
+        grant_id: snapshot.grant_id.clone(),
+        tenant_id: snapshot.tenant_id.clone(),
+        expected_fingerprint: snapshot.expected_fingerprint.clone(),
+        outcome,
+    };
+    let decision = decide_token_refresh(attempt);
+    let decision_kind = decision.kind();
+    let safe_error = decision.safe_error().map(ToOwned::to_owned);
+    let command = decision.into_repository_command_at(now)?;
+    let command_kind = command.kind();
+
+    Ok(TokenRefreshPlannedCommand {
+        command,
+        report: TokenRefreshCommandReport {
+            grant_id: snapshot.grant_id.clone(),
+            tenant_id: snapshot.tenant_id.clone(),
+            decision_kind,
+            command_kind,
+            safe_error,
+        },
+    })
 }
 
 impl TokenRefreshDecision {

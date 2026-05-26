@@ -1,5 +1,6 @@
 use crate::action::audit_event::{
-    AuditActor, AuditEvent, AuditScope, AuditStateSummary, AuditTarget,
+    AuditActor, AuditEvent, AuditEventContext, AuditScope, AuditStateSummary, AuditSubject,
+    AuditTarget,
 };
 use crate::domain::token_refresh::{
     TokenRefreshAuditSummary, TokenRefreshCommandKind, TokenRefreshReportStatus,
@@ -19,35 +20,32 @@ pub fn token_refresh_audit_event(
     context: TokenRefreshAuditContext,
     summary: &TokenRefreshAuditSummary,
 ) -> AuditEvent {
-    let event_id = format!("{}-evt-{}", context.trace_id, context.sequence);
     let target = token_refresh_target(summary);
-    let scope = AuditScope {
-        tenant_id: summary.tenant_id.0.clone(),
-        workspace_id: context.workspace_id.clone(),
+    let event_context = AuditEventContext {
+        event_id: format!("{}-evt-{}", context.trace_id, context.sequence),
+        trace_id: context.trace_id,
+        sequence: context.sequence,
+        occurred_at_ms: context.occurred_at_ms,
+        subject: AuditSubject {
+            actor: context.actor,
+            scope: AuditScope {
+                tenant_id: summary.tenant_id.0.clone(),
+                workspace_id: context.workspace_id,
+            },
+            target,
+        },
     };
     let adapter_operation_id = format!("token-refresh:{}", summary.grant_id.0);
 
     match &summary.status {
         TokenRefreshReportStatus::Succeeded => AuditEvent::execution_succeeded(
-            event_id,
-            context.trace_id,
-            context.sequence,
-            context.occurred_at_ms,
-            context.actor,
-            scope,
-            target,
+            event_context,
             Some(before_summary(summary)),
             Some(after_summary(summary)),
             adapter_operation_id,
         ),
         TokenRefreshReportStatus::ConflictNoop => AuditEvent::execution_failed(
-            event_id,
-            context.trace_id,
-            context.sequence,
-            context.occurred_at_ms,
-            context.actor,
-            scope,
-            target,
+            event_context,
             Some(before_summary(summary)),
             Some(after_summary(summary)),
             "token_refresh_conflict_noop",
@@ -62,17 +60,7 @@ pub fn token_refresh_audit_event(
                 }
             };
 
-            AuditEvent::execution_denied(
-                event_id,
-                context.trace_id,
-                context.sequence,
-                context.occurred_at_ms,
-                context.actor,
-                scope,
-                target,
-                error_code,
-                short_circuit_message(reason),
-            )
+            AuditEvent::execution_denied(event_context, error_code, short_circuit_message(reason))
         }
     }
 }

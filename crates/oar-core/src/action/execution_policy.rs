@@ -49,11 +49,7 @@ impl ExecutionPolicy {
             });
         }
 
-        if !self
-            .allowed_actor_kinds
-            .iter()
-            .any(|kind| *kind == grant.actor_kind)
-        {
+        if !self.allowed_actor_kinds.contains(&grant.actor_kind) {
             return Err(ExecutionDenied::ActorKindNotAllowed {
                 actor_kind: grant.actor_kind,
             });

@@ -1,6 +1,6 @@
 use oar_core::action::audit_event::{
-    AuditActor, AuditActorKind, AuditEvent, AuditEventType, AuditScope, AuditStateSummary,
-    AuditTarget,
+    AuditActor, AuditActorKind, AuditEvent, AuditEventContext, AuditEventType, AuditScope,
+    AuditStateSummary, AuditSubject, AuditTarget,
 };
 use oar_core::action::audit_repository::InMemoryAuditEventRepository;
 
@@ -35,6 +35,26 @@ fn summary(text: &str) -> AuditStateSummary {
     }
 }
 
+fn event_context(
+    event_id: &str,
+    trace_id: &str,
+    sequence: u64,
+    ts_ms: u64,
+    target_id: &str,
+) -> AuditEventContext {
+    AuditEventContext {
+        event_id: event_id.to_string(),
+        trace_id: trace_id.to_string(),
+        sequence,
+        occurred_at_ms: ts_ms,
+        subject: AuditSubject {
+            actor: actor(),
+            scope: scope(),
+            target: target(target_id),
+        },
+    }
+}
+
 fn confirmed_event(
     event_id: &str,
     trace_id: &str,
@@ -43,13 +63,7 @@ fn confirmed_event(
     target_id: &str,
 ) -> AuditEvent {
     AuditEvent::confirmed_action(
-        event_id,
-        trace_id,
-        sequence,
-        ts_ms,
-        actor(),
-        scope(),
-        target(target_id),
+        event_context(event_id, trace_id, sequence, ts_ms, target_id),
         summary("confirmed"),
     )
 }
@@ -60,13 +74,7 @@ fn appends_events_and_reads_trace_in_original_sequence_order() {
 
     let first = confirmed_event("evt_1", "trace_a", 1, 1_748_250_000_000, "progress_1");
     let second = AuditEvent::dry_run(
-        "evt_2",
-        "trace_a",
-        2,
-        1_748_250_010_000,
-        actor(),
-        scope(),
-        target("progress_1"),
+        event_context("evt_2", "trace_a", 2, 1_748_250_010_000, "progress_1"),
         Some(summary("before")),
         Some(summary("after_dry_run")),
     );
@@ -94,13 +102,13 @@ fn serialized_repository_events_do_not_expose_token_like_fields() {
     let repo = InMemoryAuditEventRepository::new();
 
     repo.append(AuditEvent::execution_failed(
-        "evt_4",
-        "trace_sensitive",
-        1,
-        1_748_250_030_000,
-        actor(),
-        scope(),
-        target("progress_3"),
+        event_context(
+            "evt_4",
+            "trace_sensitive",
+            1,
+            1_748_250_030_000,
+            "progress_3",
+        ),
         Some(summary("before")),
         None,
         "adapter_timeout",

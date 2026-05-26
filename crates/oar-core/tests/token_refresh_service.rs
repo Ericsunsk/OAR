@@ -7,12 +7,12 @@ use oar_core::domain::identity::{
     TokenGrantId, TokenGrantState,
 };
 use oar_core::domain::token_refresh::{
-    decide_token_refresh, is_refreshable, AuthRefreshAdapter, EncryptedGrantMaterial,
-    RefreshOutcome, TokenRefreshApplyResult, TokenRefreshAttempt, TokenRefreshBridgeError,
-    TokenRefreshCommandKind, TokenRefreshCommandSink, TokenRefreshDecision,
-    TokenRefreshDecisionKind, TokenRefreshGrantSnapshot, TokenRefreshReportStatus,
-    TokenRefreshRepositoryCommand, TokenRefreshService, TokenRefreshServiceError,
-    TokenRefreshShortCircuitReason,
+    decide_token_refresh, is_refreshable, plan_token_refresh_command,
+    token_refresh_short_circuit_report, AuthRefreshAdapter, EncryptedGrantMaterial, RefreshOutcome,
+    TokenRefreshApplyResult, TokenRefreshAttempt, TokenRefreshBridgeError, TokenRefreshCommandKind,
+    TokenRefreshCommandSink, TokenRefreshDecision, TokenRefreshDecisionKind,
+    TokenRefreshGrantSnapshot, TokenRefreshReportStatus, TokenRefreshRepositoryCommand,
+    TokenRefreshService, TokenRefreshServiceError, TokenRefreshShortCircuitReason,
 };
 
 fn sample_grant(state: TokenGrantState, refresh_token: Option<&str>) -> TokenGrant {
@@ -413,6 +413,67 @@ fn decision_bridge_and_blob_debug_redact_bytes() {
     assert!(debug_output.contains("[REDACTED]"));
     assert!(!debug_output.contains("9, 9, 9"));
     assert!(!debug_output.contains("8, 8, 8"));
+}
+
+#[test]
+fn plan_token_refresh_command_builds_command_and_report_from_one_decision() {
+    let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+    let planned = plan_token_refresh_command(
+        &snapshot,
+        RefreshOutcome::TransientFailure {
+            safe_error: "temporarily unavailable".to_string(),
+        },
+        SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(21),
+    )
+    .expect("planned command should be built");
+
+    assert_eq!(
+        planned.report.decision_kind,
+        TokenRefreshDecisionKind::MarkNeedsRefresh
+    );
+    assert_eq!(
+        planned.report.command_kind,
+        TokenRefreshCommandKind::MarkNeedsRefresh
+    );
+    assert_eq!(
+        planned.report.safe_error.as_deref(),
+        Some("temporarily unavailable")
+    );
+
+    match planned.command {
+        TokenRefreshRepositoryCommand::MarkNeedsRefresh {
+            grant_id,
+            tenant_id,
+            expected_fingerprint,
+            refreshed_at_ms,
+            safe_error,
+        } => {
+            assert_eq!(grant_id, TokenGrantId("grant_01".to_string()));
+            assert_eq!(tenant_id, TenantId("tenant_01".to_string()));
+            assert_eq!(expected_fingerprint, "fp_old");
+            assert_eq!(refreshed_at_ms, 21_000);
+            assert_eq!(safe_error, "temporarily unavailable");
+        }
+        other => panic!("expected MarkNeedsRefresh command, got {other:?}"),
+    }
+}
+
+#[test]
+fn short_circuit_report_is_the_standard_non_adapter_report() {
+    let grant = sample_grant(TokenGrantState::ReauthRequired, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+
+    let report = token_refresh_short_circuit_report(&snapshot).expect("should short-circuit");
+
+    assert_eq!(
+        report.status,
+        TokenRefreshReportStatus::ShortCircuited(TokenRefreshShortCircuitReason::ReauthRequired)
+    );
+    assert!(!report.adapter_called);
+    assert!(!report.sink_called);
+    assert_eq!(report.decision, None);
+    assert_eq!(report.command, None);
 }
 
 #[test]

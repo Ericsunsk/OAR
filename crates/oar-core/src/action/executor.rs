@@ -1,12 +1,14 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::audit_event::{
-    AuditActor, AuditActorKind, AuditEvent, AuditScope, AuditStateSummary, AuditTarget,
+    AuditActor, AuditActorKind, AuditEvent, AuditScope, AuditStateSummary, AuditSubject,
+    AuditTarget,
 };
 use super::audit_repository::{
     AuditEventRepository, AuditRepositoryError, InMemoryAuditEventRepository,
 };
-use super::confirmed_action::{ActionStatus, ConfirmedAction};
+use super::audit_trace::AuditTrace;
+use super::confirmed_action::ConfirmedAction;
 use super::execution_policy::{ExecutionDenied, ExecutionPolicy};
 use super::operation_ledger::{LedgerError, OperationRecord, SubmitResult};
 use super::operation_ledger_repository::{
@@ -101,7 +103,6 @@ pub struct ActionExecutor<
     audit: R,
     adapter: A,
     clock_ms: C,
-    sequence: u64,
 }
 
 impl<A>
@@ -142,7 +143,6 @@ where
             audit,
             adapter,
             clock_ms,
-            sequence: 0,
         }
     }
 
@@ -169,7 +169,8 @@ where
         policy: &ExecutionPolicy,
     ) -> Result<ExecutionReport, ExecutionError> {
         if let Err(denial) = policy.evaluate(action, action_type, required_scope, grant) {
-            let event = self.event_denied(action, &denial);
+            let mut trace = action_audit_trace(action);
+            let event = self.event_denied(&mut trace, &denial);
             self.audit.append(event.clone())?;
             return Err(ExecutionError::PolicyDenied(PolicyDenialReport {
                 denial,
@@ -197,12 +198,13 @@ where
         action: &ConfirmedAction,
         created: OperationRecord,
     ) -> Result<ExecutionReport, ExecutionError> {
+        let mut trace = action_audit_trace(action);
         let mut events = Vec::new();
-        let confirmed_event = self.event_confirmed(action);
+        let confirmed_event = self.event_confirmed(&mut trace, action);
         self.record_event(&mut events, confirmed_event)?;
 
         let dry_run = self.adapter.dry_run(action)?;
-        let dry_run_event = self.event_dry_run(action, dry_run.before, dry_run.after);
+        let dry_run_event = self.event_dry_run(&mut trace, dry_run.before, dry_run.after);
         self.record_event(&mut events, dry_run_event)?;
 
         self.ledger.mark_executing(&action.idempotency_key)?;
@@ -212,7 +214,7 @@ where
             Ok(execution) => {
                 let record = self.ledger.mark_succeeded(&action.idempotency_key)?;
                 let succeeded_event = self.event_succeeded(
-                    action,
+                    &mut trace,
                     execution.before,
                     execution.after,
                     execution.adapter_operation_id,
@@ -225,7 +227,7 @@ where
                     .ledger
                     .mark_failed(&action.idempotency_key, error.message.clone())?;
                 let failed_event =
-                    self.event_failed(action, error.code.clone(), error.message.clone());
+                    self.event_failed(&mut trace, error.code.clone(), error.message.clone());
                 self.record_event(&mut events, failed_event)?;
                 return Ok(ExecutionReport {
                     operation: record,
@@ -235,16 +237,11 @@ where
             }
         };
 
-        let operation = self
-            .ledger
-            .get_by_idempotency_key(&action.idempotency_key)
-            .unwrap_or(created);
-
         Ok(ExecutionReport {
-            operation: if operation.status == ActionStatus::Succeeded {
-                operation
-            } else {
+            operation: if final_record.operation_id == created.operation_id {
                 final_record
+            } else {
+                created
             },
             events,
             duplicate: false,
@@ -261,15 +258,10 @@ where
         Ok(())
     }
 
-    fn event_confirmed(&mut self, action: &ConfirmedAction) -> AuditEvent {
-        AuditEvent::confirmed_action(
-            self.next_event_id(action),
-            self.trace_id(action),
-            self.next_sequence(),
-            self.now_ms(),
-            self.actor(action),
-            self.scope(action),
-            self.target(action),
+    fn event_confirmed(&mut self, trace: &mut AuditTrace, action: &ConfirmedAction) -> AuditEvent {
+        let occurred_at_ms = self.now_ms();
+        trace.confirmed_action(
+            occurred_at_ms,
             AuditStateSummary {
                 summary: format!("confirmed action {}", action.action_id),
                 reference_ids: vec![action.idempotency_key.clone()],
@@ -280,117 +272,69 @@ where
 
     fn event_dry_run(
         &mut self,
-        action: &ConfirmedAction,
+        trace: &mut AuditTrace,
         before: Option<AuditStateSummary>,
         after: Option<AuditStateSummary>,
     ) -> AuditEvent {
-        AuditEvent::dry_run(
-            self.next_event_id(action),
-            self.trace_id(action),
-            self.next_sequence(),
-            self.now_ms(),
-            self.actor(action),
-            self.scope(action),
-            self.target(action),
-            before,
-            after,
-        )
+        let occurred_at_ms = self.now_ms();
+        trace.dry_run(occurred_at_ms, before, after)
     }
 
     fn event_succeeded(
         &mut self,
-        action: &ConfirmedAction,
+        trace: &mut AuditTrace,
         before: Option<AuditStateSummary>,
         after: Option<AuditStateSummary>,
         adapter_operation_id: String,
     ) -> AuditEvent {
-        AuditEvent::execution_succeeded(
-            self.next_event_id(action),
-            self.trace_id(action),
-            self.next_sequence(),
-            self.now_ms(),
-            self.actor(action),
-            self.scope(action),
-            self.target(action),
-            before,
-            after,
-            adapter_operation_id,
-        )
+        let occurred_at_ms = self.now_ms();
+        trace.execution_succeeded(occurred_at_ms, before, after, adapter_operation_id)
     }
 
     fn event_failed(
         &mut self,
-        action: &ConfirmedAction,
+        trace: &mut AuditTrace,
         error_code: String,
         message: String,
     ) -> AuditEvent {
-        AuditEvent::execution_failed(
-            self.next_event_id(action),
-            self.trace_id(action),
-            self.next_sequence(),
-            self.now_ms(),
-            self.actor(action),
-            self.scope(action),
-            self.target(action),
-            None,
-            None,
-            error_code,
-            message,
-        )
+        let occurred_at_ms = self.now_ms();
+        trace.execution_failed(occurred_at_ms, None, None, error_code, message)
     }
 
-    fn event_denied(&mut self, action: &ConfirmedAction, denial: &ExecutionDenied) -> AuditEvent {
-        AuditEvent::execution_denied(
-            self.next_event_id(action),
-            self.trace_id(action),
-            self.next_sequence(),
-            self.now_ms(),
-            self.actor(action),
-            self.scope(action),
-            self.target(action),
-            "policy_denied",
-            safe_denial_message(denial),
-        )
-    }
-
-    fn next_event_id(&self, action: &ConfirmedAction) -> String {
-        format!("{}-evt-{}", self.trace_id(action), self.sequence + 1)
-    }
-
-    fn next_sequence(&mut self) -> u64 {
-        self.sequence += 1;
-        self.sequence
+    fn event_denied(&mut self, trace: &mut AuditTrace, denial: &ExecutionDenied) -> AuditEvent {
+        let occurred_at_ms = self.now_ms();
+        trace.execution_denied(occurred_at_ms, "policy_denied", safe_denial_message(denial))
     }
 
     fn now_ms(&mut self) -> u64 {
         (self.clock_ms)()
     }
+}
 
-    fn trace_id(&self, action: &ConfirmedAction) -> String {
-        format!("trace-{}", action.idempotency_key)
-    }
+pub(crate) fn action_audit_trace(action: &ConfirmedAction) -> AuditTrace {
+    AuditTrace::new(action_trace_id(action), action_audit_subject(action))
+}
 
-    fn actor(&self, action: &ConfirmedAction) -> AuditActor {
-        AuditActor {
+pub(crate) fn action_trace_id(action: &ConfirmedAction) -> String {
+    format!("trace-{}", action.idempotency_key)
+}
+
+pub(crate) fn action_audit_subject(action: &ConfirmedAction) -> AuditSubject {
+    AuditSubject {
+        actor: AuditActor {
             kind: AuditActorKind::User,
             actor_id: action.actor_user_id.clone(),
             display_name: None,
-        }
-    }
-
-    fn scope(&self, action: &ConfirmedAction) -> AuditScope {
-        AuditScope {
+        },
+        scope: AuditScope {
             tenant_id: action.tenant_id.clone(),
             workspace_id: None,
-        }
-    }
-
-    fn target(&self, action: &ConfirmedAction) -> AuditTarget {
-        AuditTarget {
+        },
+        target: AuditTarget {
             resource_type: "confirmed_action".to_string(),
             resource_id: action.action_id.clone(),
             action_type: "execute".to_string(),
-        }
+        },
     }
 }
 

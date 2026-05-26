@@ -95,7 +95,7 @@ mod postgres_feature_api_contract {
     };
     use oar_core::domain::identity::{ActorKind, ScopeBoundary, TokenGrantState};
     use oar_core::domain::token_refresh::{
-        AuthRefreshAdapter, RefreshOutcome, TokenRefreshCommandSink, TokenRefreshGrantSnapshot,
+        AuthRefreshAdapter, RefreshOutcome, TokenRefreshGrantSnapshot,
     };
     use oar_core::lark::adapter::MockLarkAdapter;
     use oar_core::storage::postgres::audit_outbox_worker::{
@@ -108,9 +108,9 @@ mod postgres_feature_api_contract {
         PostgresExecutionUnitOfWorkReport, PostgresIdentityRepository,
         PostgresLarkIdentityRepository, PostgresOarUserRepository,
         PostgresOperationLedgerRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
-        PostgresTokenRefreshCommandSink, PostgresTokenRefreshOrchestrator,
-        PostgresTokenRefreshSweep, PostgresTokenRefreshSweepReport,
-        PostgresTokenRefreshSweepRequest, PostgresTokenRefreshUnitOfWork, StoredDeviceSession,
+        PostgresTokenRefreshOrchestrator, PostgresTokenRefreshSweep,
+        PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest,
+        PostgresTokenRefreshUnitOfWork, RotateEncryptedGrantRequest, StoredDeviceSession,
         StoredLarkIdentity, StoredOarUser, StoredTenant,
     };
     use sqlx::PgPool;
@@ -127,11 +127,6 @@ mod postgres_feature_api_contract {
             PostgresTokenRefreshUnitOfWork::new;
         let _from_pool_ctor_token_grant: fn(PgPool) -> PostgresTokenGrantRepository =
             PostgresTokenGrantRepository::new;
-        let _from_repository_ctor_refresh_sink: fn(
-            PostgresTokenGrantRepository,
-        ) -> PostgresTokenRefreshCommandSink = PostgresTokenRefreshCommandSink::new;
-        let _from_pool_ctor_refresh_sink: fn(PgPool) -> PostgresTokenRefreshCommandSink =
-            PostgresTokenRefreshCommandSink::from_pool;
         let _from_pool_ctor_device_session: fn(PgPool) -> PostgresDeviceSessionRepository =
             PostgresDeviceSessionRepository::new;
         let _from_pool_ctor_tenant: fn(PgPool) -> PostgresTenantRepository =
@@ -179,10 +174,8 @@ mod postgres_feature_api_contract {
         let _upsert_grant = PostgresTokenGrantRepository::upsert_encrypted_grant;
         let _get_grant = PostgresTokenGrantRepository::get_by_id;
         let _apply_refresh_command = PostgresTokenGrantRepository::apply_refresh_command;
-        let _apply_refresh_command_sink =
-            <PostgresTokenRefreshCommandSink as TokenRefreshCommandSink>::apply_refresh_command;
-        let _apply_refresh_command_with_audit =
-            PostgresTokenRefreshUnitOfWork::apply_command_with_audit;
+        let _apply_planned_refresh_command_with_audit =
+            PostgresTokenRefreshUnitOfWork::apply_planned_command_with_audit;
         let _token_refresh_orchestrator_ctor =
             PostgresTokenRefreshOrchestrator::<NoopRefreshAdapter>::new;
         let _token_refresh_orchestrator_refresh =
@@ -211,8 +204,6 @@ mod postgres_feature_api_contract {
         let _tenant_subrepo = PostgresIdentityRepository::tenants;
         let _user_subrepo = PostgresIdentityRepository::users;
         let _identity_subrepo = PostgresIdentityRepository::identities;
-        assert_refresh_sink_impl::<PostgresTokenRefreshCommandSink>();
-
         let _phantom_action: Option<ConfirmedAction> = None;
         let _phantom_event: Option<AuditEvent> = None;
         let _phantom_envelope: Option<AuditOutboxEnvelope> = None;
@@ -228,6 +219,7 @@ mod postgres_feature_api_contract {
         let _phantom_token_refresh_context: Option<TokenRefreshAuditContext> = None;
         let _phantom_token_refresh_sweep_request: Option<PostgresTokenRefreshSweepRequest> = None;
         let _phantom_token_refresh_sweep_report: Option<PostgresTokenRefreshSweepReport> = None;
+        let _phantom_rotate_request: Option<RotateEncryptedGrantRequest<'static>> = None;
         let _phantom_grant = Some(EncryptedTokenGrantRecord {
             id: "grant".to_string(),
             tenant_id: "tenant".to_string(),
@@ -269,11 +261,5 @@ mod postgres_feature_api_contract {
                 safe_error: "temporarily unavailable".to_string(),
             }
         }
-    }
-
-    fn assert_refresh_sink_impl<T>()
-    where
-        T: TokenRefreshCommandSink<Error = oar_core::storage::postgres::PostgresRepositoryError>,
-    {
     }
 }

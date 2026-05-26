@@ -1,6 +1,6 @@
 use oar_core::action::audit_event::{
-    AuditActor, AuditActorKind, AuditEvent, AuditEventType, AuditScope, AuditStateSummary,
-    AuditTarget, ExecutionStatus,
+    AuditActor, AuditActorKind, AuditEvent, AuditEventContext, AuditEventType, AuditScope,
+    AuditStateSummary, AuditSubject, AuditTarget, ExecutionStatus,
 };
 
 fn actor() -> AuditActor {
@@ -34,16 +34,29 @@ fn summary(text: &str) -> AuditStateSummary {
     }
 }
 
+fn event_context(
+    event_id: &str,
+    trace_id: &str,
+    sequence: u64,
+    occurred_at_ms: u64,
+) -> AuditEventContext {
+    AuditEventContext {
+        event_id: event_id.to_string(),
+        trace_id: trace_id.to_string(),
+        sequence,
+        occurred_at_ms,
+        subject: AuditSubject {
+            actor: actor(),
+            scope: scope(),
+            target: target(),
+        },
+    }
+}
+
 #[test]
 fn confirmed_action_event_is_traceable() {
     let event = AuditEvent::confirmed_action(
-        "evt_1",
-        "trace_1",
-        1,
-        1_748_250_000_000,
-        actor(),
-        scope(),
-        target(),
+        event_context("evt_1", "trace_1", 1, 1_748_250_000_000),
         summary("User confirmed +5 progress update with evidence refs"),
     );
 
@@ -60,24 +73,12 @@ fn confirmed_action_event_is_traceable() {
 #[test]
 fn dry_run_and_execution_events_keep_same_trace_and_order() {
     let dry_run = AuditEvent::dry_run(
-        "evt_2",
-        "trace_2",
-        2,
-        1_748_250_010_000,
-        actor(),
-        scope(),
-        target(),
+        event_context("evt_2", "trace_2", 2, 1_748_250_010_000),
         Some(summary("before state")),
         Some(summary("dry-run projected state")),
     );
     let succeeded = AuditEvent::execution_succeeded(
-        "evt_3",
-        "trace_2",
-        3,
-        1_748_250_020_000,
-        actor(),
-        scope(),
-        target(),
+        event_context("evt_3", "trace_2", 3, 1_748_250_020_000),
         Some(summary("before state")),
         Some(summary("applied state")),
         "op_789",
@@ -105,13 +106,7 @@ fn dry_run_and_execution_events_keep_same_trace_and_order() {
 #[test]
 fn policy_denied_event_is_traceable_without_adapter_operation() {
     let denied = AuditEvent::execution_denied(
-        "evt_denied",
-        "trace_policy",
-        2,
-        1_748_250_025_000,
-        actor(),
-        scope(),
-        target(),
+        event_context("evt_denied", "trace_policy", 2, 1_748_250_025_000),
         "policy_denied",
         "Execution denied by policy: missing required scope okr.progress.write",
     );
@@ -141,13 +136,7 @@ fn policy_denied_event_is_traceable_without_adapter_operation() {
 #[test]
 fn serialized_event_contains_no_secret_or_token_fields() {
     let failed = AuditEvent::execution_failed(
-        "evt_4",
-        "trace_3",
-        4,
-        1_748_250_030_000,
-        actor(),
-        scope(),
-        target(),
+        event_context("evt_4", "trace_3", 4, 1_748_250_030_000),
         Some(summary("before state")),
         None,
         "adapter_timeout",

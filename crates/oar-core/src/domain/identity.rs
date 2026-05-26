@@ -121,30 +121,3 @@ pub struct TokenGrant {
     pub tokens: OAuthTokens,
     pub revocation_reason: Option<String>,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceType {
-    MacDesktop,
-    IosCompanion,
-    Web,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyncCursor {
-    pub stream: String,
-    pub cursor: String,
-    pub updated_at: SystemTime,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeviceSession {
-    pub id: DeviceSessionId,
-    pub tenant_id: TenantId,
-    pub user_id: OarUserId,
-    pub device_type: DeviceType,
-    pub device_label: String,
-    pub session_identity: String,
-    pub sync_cursor: SyncCursor,
-    pub last_seen_at: SystemTime,
-    pub revoked_at: Option<SystemTime>,
-}

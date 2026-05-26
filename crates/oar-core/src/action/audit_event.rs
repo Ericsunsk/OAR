@@ -54,6 +54,22 @@ pub struct AuditTarget {
     pub action_type: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditSubject {
+    pub actor: AuditActor,
+    pub scope: AuditScope,
+    pub target: AuditTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditEventContext {
+    pub event_id: String,
+    pub trace_id: String,
+    pub sequence: u64,
+    pub occurred_at_ms: u64,
+    pub subject: AuditSubject,
+}
+
 /// Structured, non-sensitive summary only. Do not store raw tokens/secrets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditStateSummary {
@@ -79,25 +95,16 @@ pub struct ExecutionResult {
 }
 
 impl AuditEvent {
-    pub fn confirmed_action(
-        event_id: impl Into<String>,
-        trace_id: impl Into<String>,
-        sequence: u64,
-        occurred_at_ms: u64,
-        actor: AuditActor,
-        scope: AuditScope,
-        target: AuditTarget,
-        after: AuditStateSummary,
-    ) -> Self {
+    pub fn confirmed_action(context: AuditEventContext, after: AuditStateSummary) -> Self {
         Self {
-            event_id: event_id.into(),
-            trace_id: trace_id.into(),
-            sequence,
-            occurred_at_ms,
+            event_id: context.event_id,
+            trace_id: context.trace_id,
+            sequence: context.sequence,
+            occurred_at_ms: context.occurred_at_ms,
             event_type: AuditEventType::ConfirmedActionRecorded,
-            actor,
-            scope,
-            target,
+            actor: context.subject.actor,
+            scope: context.subject.scope,
+            target: context.subject.target,
             before: None,
             after: Some(after),
             execution: None,
@@ -105,25 +112,19 @@ impl AuditEvent {
     }
 
     pub fn dry_run(
-        event_id: impl Into<String>,
-        trace_id: impl Into<String>,
-        sequence: u64,
-        occurred_at_ms: u64,
-        actor: AuditActor,
-        scope: AuditScope,
-        target: AuditTarget,
+        context: AuditEventContext,
         before: Option<AuditStateSummary>,
         after: Option<AuditStateSummary>,
     ) -> Self {
         Self {
-            event_id: event_id.into(),
-            trace_id: trace_id.into(),
-            sequence,
-            occurred_at_ms,
+            event_id: context.event_id,
+            trace_id: context.trace_id,
+            sequence: context.sequence,
+            occurred_at_ms: context.occurred_at_ms,
             event_type: AuditEventType::DryRunExecuted,
-            actor,
-            scope,
-            target,
+            actor: context.subject.actor,
+            scope: context.subject.scope,
+            target: context.subject.target,
             before,
             after,
             execution: Some(ExecutionResult {
@@ -136,26 +137,20 @@ impl AuditEvent {
     }
 
     pub fn execution_succeeded(
-        event_id: impl Into<String>,
-        trace_id: impl Into<String>,
-        sequence: u64,
-        occurred_at_ms: u64,
-        actor: AuditActor,
-        scope: AuditScope,
-        target: AuditTarget,
+        context: AuditEventContext,
         before: Option<AuditStateSummary>,
         after: Option<AuditStateSummary>,
         adapter_operation_id: impl Into<String>,
     ) -> Self {
         Self {
-            event_id: event_id.into(),
-            trace_id: trace_id.into(),
-            sequence,
-            occurred_at_ms,
+            event_id: context.event_id,
+            trace_id: context.trace_id,
+            sequence: context.sequence,
+            occurred_at_ms: context.occurred_at_ms,
             event_type: AuditEventType::ExecutionSucceeded,
-            actor,
-            scope,
-            target,
+            actor: context.subject.actor,
+            scope: context.subject.scope,
+            target: context.subject.target,
             before,
             after,
             execution: Some(ExecutionResult {
@@ -168,25 +163,19 @@ impl AuditEvent {
     }
 
     pub fn execution_denied(
-        event_id: impl Into<String>,
-        trace_id: impl Into<String>,
-        sequence: u64,
-        occurred_at_ms: u64,
-        actor: AuditActor,
-        scope: AuditScope,
-        target: AuditTarget,
+        context: AuditEventContext,
         error_code: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
         Self {
-            event_id: event_id.into(),
-            trace_id: trace_id.into(),
-            sequence,
-            occurred_at_ms,
+            event_id: context.event_id,
+            trace_id: context.trace_id,
+            sequence: context.sequence,
+            occurred_at_ms: context.occurred_at_ms,
             event_type: AuditEventType::ExecutionDenied,
-            actor,
-            scope,
-            target,
+            actor: context.subject.actor,
+            scope: context.subject.scope,
+            target: context.subject.target,
             before: None,
             after: None,
             execution: Some(ExecutionResult {
@@ -199,27 +188,21 @@ impl AuditEvent {
     }
 
     pub fn execution_failed(
-        event_id: impl Into<String>,
-        trace_id: impl Into<String>,
-        sequence: u64,
-        occurred_at_ms: u64,
-        actor: AuditActor,
-        scope: AuditScope,
-        target: AuditTarget,
+        context: AuditEventContext,
         before: Option<AuditStateSummary>,
         after: Option<AuditStateSummary>,
         error_code: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
         Self {
-            event_id: event_id.into(),
-            trace_id: trace_id.into(),
-            sequence,
-            occurred_at_ms,
+            event_id: context.event_id,
+            trace_id: context.trace_id,
+            sequence: context.sequence,
+            occurred_at_ms: context.occurred_at_ms,
             event_type: AuditEventType::ExecutionFailed,
-            actor,
-            scope,
-            target,
+            actor: context.subject.actor,
+            scope: context.subject.scope,
+            target: context.subject.target,
             before,
             after,
             execution: Some(ExecutionResult {
