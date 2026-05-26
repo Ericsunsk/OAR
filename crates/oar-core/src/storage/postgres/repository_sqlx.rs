@@ -3,7 +3,10 @@ use crate::action::audit_event::{
 };
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::action::operation_ledger::{LedgerError, OperationRecord, SubmitResult};
-use crate::domain::identity::{ActorKind, ScopeBoundary, TokenGrantState};
+use crate::domain::identity::{
+    ActorKind, LarkIdentity, OarUser, OarUserStatus, ScopeBoundary, Tenant, TenantStatus,
+    TokenGrantState,
+};
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
     MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
@@ -13,6 +16,10 @@ use crate::storage::postgres::audit_sql::{
 use crate::storage::postgres::device_session_sql::{
     ADVANCE_DEVICE_SESSION_CURSOR_CAS, EXPIRE_DEVICE_SESSION, GET_DEVICE_SESSION_BY_ID,
     REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
+};
+use crate::storage::postgres::identity_sql::{
+    GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_OAR_USER_BY_ID,
+    GET_TENANT_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_OAR_USER, UPSERT_TENANT,
 };
 use crate::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
@@ -46,6 +53,10 @@ pub enum PostgresRepositoryError {
     UnknownDeviceSessionState(String),
     #[error("unknown token grant state from database: {0}")]
     UnknownTokenGrantState(String),
+    #[error("unknown tenant status from database: {0}")]
+    UnknownTenantStatus(String),
+    #[error("unknown oar user status from database: {0}")]
+    UnknownOarUserStatus(String),
     #[error("unknown identity actor kind from database: {0}")]
     UnknownIdentityActorKind(String),
     #[error("unknown scope boundary from database: {0}")]
@@ -58,6 +69,12 @@ pub enum PostgresRepositoryError {
         expected: String,
         actual: String,
     },
+    #[error("lark identity actor external binding conflict")]
+    LarkIdentityActorExternalBindingConflict {
+        tenant_id: String,
+        actor_kind: ActorKind,
+        actor_external_id: String,
+    },
     #[error("invalid signed integer for {field}: {value}")]
     NegativeInteger { field: &'static str, value: i64 },
     #[error("invalid audit JSON payload: {0}")]
@@ -65,6 +82,8 @@ pub enum PostgresRepositoryError {
 }
 
 pub type PgRepositoryResult<T> = Result<T, PostgresRepositoryError>;
+
+const REDACTED_TENANT_ACTUAL: &str = "<redacted>";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncryptedTokenGrantRecord {
@@ -85,6 +104,30 @@ pub struct EncryptedTokenGrantRecord {
     pub oauth_grant_key_id: String,
     pub oauth_grant_fingerprint: String,
     pub revocation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredTenant {
+    pub id: String,
+    pub display_name: String,
+    pub status: TenantStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredOarUser {
+    pub id: String,
+    pub tenant_id: String,
+    pub display_name: String,
+    pub status: OarUserStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredLarkIdentity {
+    pub id: String,
+    pub tenant_id: String,
+    pub actor_kind: ActorKind,
+    pub actor_external_id: String,
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +183,26 @@ pub struct PostgresDeviceSessionRepository {
     pool: PgPool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PostgresTenantRepository {
+    pool: PgPool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PostgresOarUserRepository {
+    pool: PgPool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PostgresLarkIdentityRepository {
+    pool: PgPool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PostgresIdentityRepository {
+    pool: PgPool,
+}
+
 impl PostgresDeviceSessionRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -173,18 +236,16 @@ impl PostgresDeviceSessionRepository {
             return stored_device_session_from_row(row);
         }
 
-        let conflicting_tenant =
-            sqlx::query("SELECT tenant_id FROM device_sessions WHERE id = $1 LIMIT 1")
-                .bind(&session.id.0)
-                .fetch_optional(&self.pool)
-                .await?;
+        let conflicting_tenant = sqlx::query("SELECT 1 FROM device_sessions WHERE id = $1 LIMIT 1")
+            .bind(&session.id.0)
+            .fetch_optional(&self.pool)
+            .await?;
 
-        if let Some(conflict_row) = conflicting_tenant {
-            let actual_tenant: String = conflict_row.try_get("tenant_id")?;
+        if conflicting_tenant.is_some() {
             return Err(PostgresRepositoryError::TenantMismatch {
                 field: "tenant_id",
                 expected: session.tenant_id.0.clone(),
-                actual: actual_tenant,
+                actual: redacted_tenant_actual(),
             });
         }
 
@@ -382,6 +443,201 @@ impl PostgresTokenGrantRepository {
             .fetch_optional(&self.pool)
             .await?;
         row.as_ref().map(encrypted_token_grant_from_row).transpose()
+    }
+}
+
+impl PostgresTenantRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    pub async fn upsert(&self, tenant: &Tenant) -> PgRepositoryResult<StoredTenant> {
+        let row = sqlx::query(UPSERT_TENANT)
+            .bind(&tenant.id.0)
+            .bind(&tenant.display_name)
+            .bind(tenant_status_to_db(&tenant.status))
+            .fetch_one(&self.pool)
+            .await?;
+        stored_tenant_from_row(&row)
+    }
+
+    pub async fn get_by_id(&self, tenant_id: &str) -> PgRepositoryResult<Option<StoredTenant>> {
+        let row = sqlx::query(GET_TENANT_BY_ID)
+            .bind(tenant_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_tenant_from_row).transpose()
+    }
+}
+
+impl PostgresOarUserRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    pub async fn upsert(&self, user: &OarUser) -> PgRepositoryResult<StoredOarUser> {
+        let row = sqlx::query(UPSERT_OAR_USER)
+            .bind(&user.id.0)
+            .bind(&user.tenant_id.0)
+            .bind(&user.display_name)
+            .bind(oar_user_status_to_db(&user.status))
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(row) = row.as_ref() {
+            return stored_oar_user_from_row(row);
+        }
+
+        let conflicting_tenant = sqlx::query("SELECT 1 FROM oar_users WHERE id = $1 LIMIT 1")
+            .bind(&user.id.0)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if conflicting_tenant.is_some() {
+            return Err(PostgresRepositoryError::TenantMismatch {
+                field: "tenant_id",
+                expected: user.tenant_id.0.clone(),
+                actual: redacted_tenant_actual(),
+            });
+        }
+
+        Err(sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn get_by_id(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+    ) -> PgRepositoryResult<Option<StoredOarUser>> {
+        let row = sqlx::query(GET_OAR_USER_BY_ID)
+            .bind(tenant_id)
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_oar_user_from_row).transpose()
+    }
+}
+
+impl PostgresLarkIdentityRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    pub async fn upsert(&self, identity: &LarkIdentity) -> PgRepositoryResult<StoredLarkIdentity> {
+        let row = match sqlx::query(UPSERT_LARK_IDENTITY)
+            .bind(&identity.id.0)
+            .bind(&identity.tenant_id.0)
+            .bind(actor_kind_to_db(&identity.actor_kind))
+            .bind(&identity.actor_external_id)
+            .bind(&identity.display_name)
+            .fetch_optional(&self.pool)
+            .await
+        {
+            Ok(row) => row,
+            Err(error) if is_unique_violation(&error) => {
+                let conflicting_row = sqlx::query(GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL)
+                    .bind(&identity.tenant_id.0)
+                    .bind(actor_kind_to_db(&identity.actor_kind))
+                    .bind(&identity.actor_external_id)
+                    .fetch_optional(&self.pool)
+                    .await?;
+
+                if let Some(conflicting_row) = conflicting_row.as_ref() {
+                    let conflicting = stored_lark_identity_from_row(conflicting_row)?;
+                    if conflicting.id != identity.id.0 {
+                        return Err(
+                            PostgresRepositoryError::LarkIdentityActorExternalBindingConflict {
+                                tenant_id: identity.tenant_id.0.clone(),
+                                actor_kind: identity.actor_kind.clone(),
+                                actor_external_id: identity.actor_external_id.clone(),
+                            },
+                        );
+                    }
+                }
+
+                return Err(error.into());
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if let Some(row) = row.as_ref() {
+            return stored_lark_identity_from_row(row);
+        }
+
+        let conflicting_tenant = sqlx::query("SELECT 1 FROM lark_identities WHERE id = $1 LIMIT 1")
+            .bind(&identity.id.0)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if conflicting_tenant.is_some() {
+            return Err(PostgresRepositoryError::TenantMismatch {
+                field: "tenant_id",
+                expected: identity.tenant_id.0.clone(),
+                actual: redacted_tenant_actual(),
+            });
+        }
+
+        Err(sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn get_by_id(
+        &self,
+        tenant_id: &str,
+        identity_id: &str,
+    ) -> PgRepositoryResult<Option<StoredLarkIdentity>> {
+        let row = sqlx::query(GET_LARK_IDENTITY_BY_ID)
+            .bind(tenant_id)
+            .bind(identity_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_lark_identity_from_row).transpose()
+    }
+
+    pub async fn get_by_actor_external_id(
+        &self,
+        tenant_id: &str,
+        actor_kind: ActorKind,
+        actor_external_id: &str,
+    ) -> PgRepositoryResult<Option<StoredLarkIdentity>> {
+        let row = sqlx::query(GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL)
+            .bind(tenant_id)
+            .bind(actor_kind_to_db(&actor_kind))
+            .bind(actor_external_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_lark_identity_from_row).transpose()
+    }
+}
+
+impl PostgresIdentityRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    pub fn tenants(&self) -> PostgresTenantRepository {
+        PostgresTenantRepository::new(self.pool.clone())
+    }
+
+    pub fn users(&self) -> PostgresOarUserRepository {
+        PostgresOarUserRepository::new(self.pool.clone())
+    }
+
+    pub fn identities(&self) -> PostgresLarkIdentityRepository {
+        PostgresLarkIdentityRepository::new(self.pool.clone())
     }
 }
 
@@ -1118,6 +1374,36 @@ fn encrypted_token_grant_from_row(row: &PgRow) -> PgRepositoryResult<EncryptedTo
     })
 }
 
+fn stored_tenant_from_row(row: &PgRow) -> PgRepositoryResult<StoredTenant> {
+    let status: String = row.try_get("status")?;
+    Ok(StoredTenant {
+        id: row.try_get("id")?,
+        display_name: row.try_get("display_name")?,
+        status: tenant_status_from_db(&status)?,
+    })
+}
+
+fn stored_oar_user_from_row(row: &PgRow) -> PgRepositoryResult<StoredOarUser> {
+    let status: String = row.try_get("status")?;
+    Ok(StoredOarUser {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        display_name: row.try_get("display_name")?,
+        status: oar_user_status_from_db(&status)?,
+    })
+}
+
+fn stored_lark_identity_from_row(row: &PgRow) -> PgRepositoryResult<StoredLarkIdentity> {
+    let actor_kind: String = row.try_get("actor_kind")?;
+    Ok(StoredLarkIdentity {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        actor_kind: identity_actor_kind_from_db(&actor_kind)?,
+        actor_external_id: row.try_get("actor_external_id")?,
+        display_name: row.try_get("display_name")?,
+    })
+}
+
 fn stored_device_session_from_row(row: &PgRow) -> PgRepositoryResult<StoredDeviceSession> {
     let entry_point: String = row.try_get("entry_point")?;
     let state: String = row.try_get("state")?;
@@ -1239,6 +1525,40 @@ fn token_grant_state_from_db(value: &str) -> PgRepositoryResult<TokenGrantState>
         "revoked" => Ok(TokenGrantState::Revoked),
         "reauth_required" => Ok(TokenGrantState::ReauthRequired),
         other => Err(PostgresRepositoryError::UnknownTokenGrantState(
+            other.to_string(),
+        )),
+    }
+}
+
+fn tenant_status_to_db(status: &TenantStatus) -> &'static str {
+    match status {
+        TenantStatus::Active => "active",
+        TenantStatus::Suspended => "suspended",
+    }
+}
+
+fn tenant_status_from_db(value: &str) -> PgRepositoryResult<TenantStatus> {
+    match value {
+        "active" => Ok(TenantStatus::Active),
+        "suspended" => Ok(TenantStatus::Suspended),
+        other => Err(PostgresRepositoryError::UnknownTenantStatus(
+            other.to_string(),
+        )),
+    }
+}
+
+fn oar_user_status_to_db(status: &OarUserStatus) -> &'static str {
+    match status {
+        OarUserStatus::Active => "active",
+        OarUserStatus::Disabled => "disabled",
+    }
+}
+
+fn oar_user_status_from_db(value: &str) -> PgRepositoryResult<OarUserStatus> {
+    match value {
+        "active" => Ok(OarUserStatus::Active),
+        "disabled" => Ok(OarUserStatus::Disabled),
+        other => Err(PostgresRepositoryError::UnknownOarUserStatus(
             other.to_string(),
         )),
     }
@@ -1369,4 +1689,18 @@ fn option_system_time_to_i64_ms(value: Option<SystemTime>) -> PgRepositoryResult
 
 fn ms_to_system_time(value: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_millis(value)
+}
+
+fn redacted_tenant_actual() -> String {
+    REDACTED_TENANT_ACTUAL.to_string()
+}
+
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    match error.as_database_error() {
+        Some(db_error) => db_error
+            .code()
+            .map(|code| code.as_ref() == "23505")
+            .unwrap_or(false),
+        None => false,
+    }
 }

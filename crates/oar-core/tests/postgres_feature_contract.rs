@@ -8,6 +8,10 @@ use oar_core::storage::postgres::device_session_sql::{
     ADVANCE_DEVICE_SESSION_CURSOR_CAS, EXPIRE_DEVICE_SESSION, GET_DEVICE_SESSION_BY_ID,
     REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
 };
+use oar_core::storage::postgres::identity_sql::{
+    GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_OAR_USER_BY_ID,
+    GET_TENANT_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_OAR_USER, UPSERT_TENANT,
+};
 use oar_core::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
@@ -32,6 +36,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let claim_outbox_sql = compact(CLAIM_AUDIT_OUTBOX);
     let rotate_grant_sql = compact(ROTATE_TOKEN_GRANT);
     let device_session_sql = compact(UPSERT_DEVICE_SESSION);
+    let tenant_sql = compact(UPSERT_TENANT);
 
     assert!(operation_sql.contains("insert into confirmed_actions"));
     assert!(operation_sql.contains("insert into operation_ledger"));
@@ -46,6 +51,8 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     assert!(rotate_grant_sql.contains("reauth_required_at is null"));
     assert!(device_session_sql.contains("insert into device_sessions"));
     assert!(device_session_sql.contains("session_identity_hash"));
+    assert!(tenant_sql.contains("insert into tenants"));
+    assert!(tenant_sql.contains("on conflict (id) do update"));
 
     // Touch all constants to lock import visibility for default builds.
     let _ = MARK_SUCCEEDED;
@@ -68,6 +75,13 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let _ = GET_DEVICE_SESSION_BY_ID;
     let _ = REVOKE_DEVICE_SESSION;
     let _ = EXPIRE_DEVICE_SESSION;
+    let _ = UPSERT_TENANT;
+    let _ = GET_TENANT_BY_ID;
+    let _ = UPSERT_OAR_USER;
+    let _ = GET_OAR_USER_BY_ID;
+    let _ = UPSERT_LARK_IDENTITY;
+    let _ = GET_LARK_IDENTITY_BY_ID;
+    let _ = GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL;
 }
 
 #[cfg(feature = "postgres")]
@@ -85,8 +99,10 @@ mod postgres_feature_api_contract {
     use oar_core::storage::postgres::{
         AuditOutboxEnvelope, EncryptedTokenGrantRecord, PostgresAuditEventRepository,
         PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
-        PostgresExecutionUnitOfWorkReport, PostgresOperationLedgerRepository,
-        PostgresTokenGrantRepository, StoredDeviceSession,
+        PostgresExecutionUnitOfWorkReport, PostgresIdentityRepository,
+        PostgresLarkIdentityRepository, PostgresOarUserRepository,
+        PostgresOperationLedgerRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
+        StoredDeviceSession, StoredLarkIdentity, StoredOarUser, StoredTenant,
     };
     use sqlx::PgPool;
 
@@ -102,6 +118,14 @@ mod postgres_feature_api_contract {
             PostgresTokenGrantRepository::new;
         let _from_pool_ctor_device_session: fn(PgPool) -> PostgresDeviceSessionRepository =
             PostgresDeviceSessionRepository::new;
+        let _from_pool_ctor_tenant: fn(PgPool) -> PostgresTenantRepository =
+            PostgresTenantRepository::new;
+        let _from_pool_ctor_oar_user: fn(PgPool) -> PostgresOarUserRepository =
+            PostgresOarUserRepository::new;
+        let _from_pool_ctor_lark_identity: fn(PgPool) -> PostgresLarkIdentityRepository =
+            PostgresLarkIdentityRepository::new;
+        let _from_pool_ctor_identity_repo: fn(PgPool) -> PostgresIdentityRepository =
+            PostgresIdentityRepository::new;
 
         // Keep SQL constants reachable under the feature build too.
         let _ = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
@@ -144,6 +168,16 @@ mod postgres_feature_api_contract {
         let _advance_session = PostgresDeviceSessionRepository::advance_cursor_cas;
         let _revoke_session = PostgresDeviceSessionRepository::revoke;
         let _expire_session = PostgresDeviceSessionRepository::expire;
+        let _upsert_tenant = PostgresTenantRepository::upsert;
+        let _get_tenant = PostgresTenantRepository::get_by_id;
+        let _upsert_oar_user = PostgresOarUserRepository::upsert;
+        let _get_oar_user = PostgresOarUserRepository::get_by_id;
+        let _upsert_lark_identity = PostgresLarkIdentityRepository::upsert;
+        let _get_lark_identity = PostgresLarkIdentityRepository::get_by_id;
+        let _get_lark_identity_external = PostgresLarkIdentityRepository::get_by_actor_external_id;
+        let _tenant_subrepo = PostgresIdentityRepository::tenants;
+        let _user_subrepo = PostgresIdentityRepository::users;
+        let _identity_subrepo = PostgresIdentityRepository::identities;
 
         let _phantom_action: Option<ConfirmedAction> = None;
         let _phantom_event: Option<AuditEvent> = None;
@@ -154,6 +188,9 @@ mod postgres_feature_api_contract {
         let _phantom_config: Option<AuditOutboxDrainConfig> = None;
         let _phantom_worker: Option<PostgresAuditOutboxWorker<NoopDispatcher, fn() -> u64>> = None;
         let _phantom_session: Option<StoredDeviceSession> = None;
+        let _phantom_tenant: Option<StoredTenant> = None;
+        let _phantom_oar_user: Option<StoredOarUser> = None;
+        let _phantom_lark_identity: Option<StoredLarkIdentity> = None;
         let _phantom_grant = Some(EncryptedTokenGrantRecord {
             id: "grant".to_string(),
             tenant_id: "tenant".to_string(),

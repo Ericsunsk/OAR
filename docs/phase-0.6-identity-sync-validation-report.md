@@ -26,7 +26,9 @@
 
 以下事项必须等 OAR 后端落地并完成集成验证：
 
+- `Tenant`、`OarUser`、`LarkIdentity` 的 Postgres repository 是否完成租户隔离、唯一约束与冲突语义验证。
 - `TokenGrant` 是否仅以加密授权包持久化，并在 repository 边界禁止明文 token 进出。
+- `TokenRefreshDecision` 是否通过 persistence bridge 安全映射为 CAS rotation、needs-refresh 或 reauth-required 持久化命令，并在 revoked / reauth-required grant 下阻断 refresh。
 - refresh token rotation 是否通过 SQL CAS 原子更新（`tenant_id + grant_id + expected_fingerprint + state guard`）。
 - revoked / reauth-required grant 是否在 SQL 层直接阻断 rotation。
 - token revoke 后后台 worker 是否停止执行。
@@ -67,6 +69,8 @@
 | I2 | 用户身份读取 scope | 已通过 | `auth check --scope "auth:user.id:read"` 返回 ok |
 | I3 | token refresh 前置条件 | 部分通过 | refresh 到期时间存在，token 从 needs_refresh 变为 valid |
 | I4 | 后端 `TokenGrant` 存储 | 进行中 | token 加密存储，refresh rotation 原子更新且受 SQL guard 约束 |
+| I4a | identity repositories（`Tenant`/`OarUser`/`LarkIdentity`） | 进行中 | 租户隔离、绑定唯一性、冲突语义和审计字段在 Postgres 下可验证 |
+| I4b | `TokenRefreshDecision` persistence bridge | 进行中 | `RotateGrantCas` / `MarkNeedsRefresh` / `MarkReauthRequired` 到持久化命令的映射可审计，且 revoked / reauth-required grant 会阻断 refresh |
 | I5 | 多端 `DeviceSession` 同步 | 进行中 | cursor 单调推进、stale/revoked 会话被拒绝且多端看到同一 action 状态 |
 | I6 | `OperationLedger` 幂等执行 | 部分通过 | 同一 `ConfirmedAction` 并发确认只执行一次 |
 | I7 | 后台 worker | 未开始 | 无客户端在线时仍可按计划生成复盘 |
@@ -76,9 +80,11 @@
 
 下一验证切片（进行中）：
 
-1. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
-2. `TokenRefreshService` 编排边界验证：仅处理加密授权包、refresh SQL CAS rotation、revoke/reauth 短路、全链路审计。
-3. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
+1. `Tenant` / `OarUser` / `LarkIdentity` Postgres repositories 语义验证：`tenant_id` 隔离、identity 绑定唯一约束、冲突可恢复语义、最小审计字段落库。
+2. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
+3. `TokenRefreshDecision` persistence bridge 验证：`RotateGrantCas` / `MarkNeedsRefresh` / `MarkReauthRequired` 到 repository 操作映射一致，revoked / reauth-required grant 的 refresh 短路可观测。
+4. `TokenRefreshService` 编排边界验证：仅处理加密授权包、refresh SQL CAS rotation、revoke/reauth 短路、全链路审计。
+5. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
 
 并行工作项：
 
@@ -109,7 +115,9 @@
 
 仍需生产级验证：
 
+- `Tenant` / `OarUser` / `LarkIdentity` Postgres repositories 集成验证：租户隔离、唯一约束冲突路径、identity 绑定幂等恢复与审计可追溯。
 - `TokenGrant` Postgres 持久化集成验证：repository 仅处理加密授权包，不接受/返回明文 token。
+- `TokenRefreshDecision` persistence bridge 集成验证：决策映射与持久化动作一致，revoked / reauth-required grant 下 refresh 写路径被稳定阻断并可审计。
 - refresh rotation SQL CAS 集成验证：`tenant_id + grant_id + expected_fingerprint`、状态白名单（`valid` / `needs_refresh` / `expired`）和 `revoked_at IS NULL` / `reauth_required_at IS NULL` guard 全部生效。
 - revoked / reauth-required grant 的 rotation 阻断需在真实数据库和并发场景下持续验证。
 - `DeviceSession` Postgres repository 需补齐真实数据库并发验证：cursor 只前进不回退、revoked/expired 门禁、跨设备冲突可观测。

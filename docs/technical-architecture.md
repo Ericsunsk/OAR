@@ -172,9 +172,17 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - `postgres` / `postgres-sqlx` feature 可编译 `sqlx` 版 Postgres repository 类型；默认构建仍不拉起数据库运行时依赖。
 - 下一步需要接入真实后台调度、外部审计投递 sink、crash recovery，以及更接近生产的并发压力测试。
 
-## 6.2 Phase 0.6 下一切片：DeviceSession + TokenRefreshService
+## 6.2 Phase 0.6 下一切片：Identity Repositories + TokenRefreshDecision Bridge
 
 状态声明：以下语义为当前实现/验证方向，属于进行中；只有在代码与集成测试覆盖后才可视为生产完成。
+
+### Tenant / OarUser / LarkIdentity Postgres repositories（进行中）
+
+- `tenants`、`oar_users`、`lark_identities` 作为身份主干表，所有读写均以 `tenant_id` 作为隔离前提。
+- `LarkIdentity` 绑定只允许经 adapter 层写入，业务层不直接拼接飞书身份字段，避免绕开审计与策略边界。
+- repository 需提供显式的唯一性与冲突语义（如同租户下 identity 重复绑定），供上层流程做幂等恢复。
+- identity repository 不持久化明文 token；授权材料仍只经 `TokenGrant` 加密字段边界流转。
+- identity 变更必须可审计：至少记录 actor、绑定目标、变更前后摘要和 trace 关联。
 
 ### DeviceSession Postgres repository 语义（进行中）
 
@@ -192,6 +200,14 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - grant 处于 revoked 或 reauth-required 时，service 必须短路并返回可恢复错误，不触发后台写操作。
 - service 不直接调用任意 CLI/OpenAPI；与飞书交互必须经 `LarkAdapter/AuthAdapter` 封装路径，保留 dry-run/审计一致性。
 - service 仅处理授权材料与状态，不直接执行 OKR 写回；业务写回仍必须走 `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent`。
+
+### TokenRefreshDecision persistence bridge（进行中）
+
+- 引入 `TokenRefreshDecision` 作为 refresh 编排与持久化之间的显式桥接对象，用于表达 CAS rotation、needs-refresh 和 reauth-required 等持久化意图。
+- bridge 的责任是把决策安全映射到 repository 可执行操作（如 CAS rotation、标记 needs-refresh、标记 reauth-required），并保留后续日志/审计所需的最小上下文。
+- bridge 不承载明文 token，不向外暴露授权原文；仅携带指纹、状态、时间窗口和错误分类等最小必要元数据。
+- 当 grant 已 revoked 或 reauth-required 时，refresh 编排必须在生成写入命令前短路，并输出可恢复错误给上层。
+- bridge 只覆盖授权生命周期，不改变业务写回门禁：任何 OKR 写操作仍必须来自 `ConfirmedAction`，并通过 `OperationLedger` 与 `AuditEvent` 留痕。
 
 ## 7. 智能体运行时与模型配置
 
