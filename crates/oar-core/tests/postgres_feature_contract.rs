@@ -46,7 +46,8 @@ mod postgres_feature_api_contract {
     use oar_core::action::audit_event::AuditEvent;
     use oar_core::action::confirmed_action::ConfirmedAction;
     use oar_core::storage::postgres::{
-        PostgresAuditEventRepository, PostgresOperationLedgerRepository,
+        AuditOutboxEnvelope, PostgresAuditEventRepository, PostgresExecutionUnitOfWork,
+        PostgresExecutionUnitOfWorkReport, PostgresOperationLedgerRepository,
     };
     use sqlx::PgPool;
 
@@ -56,6 +57,8 @@ mod postgres_feature_api_contract {
             PostgresOperationLedgerRepository::new;
         let _from_pool_ctor_audit: fn(PgPool) -> PostgresAuditEventRepository =
             PostgresAuditEventRepository::new;
+        let _from_pool_ctor_uow: fn(PgPool) -> PostgresExecutionUnitOfWork =
+            PostgresExecutionUnitOfWork::new;
 
         // Keep SQL constants reachable under the feature build too.
         let _ = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
@@ -75,8 +78,13 @@ mod postgres_feature_api_contract {
         let _sent = PostgresAuditEventRepository::mark_outbox_sent;
         let _retryable = PostgresAuditEventRepository::mark_outbox_retryable;
         let _failed = PostgresAuditEventRepository::mark_outbox_failed;
+        let _record_confirmation = PostgresExecutionUnitOfWork::record_confirmation;
+        let _record_success = PostgresExecutionUnitOfWork::record_success;
+        let _record_failure = PostgresExecutionUnitOfWork::record_failure;
 
         let _phantom_action: Option<ConfirmedAction> = None;
         let _phantom_event: Option<AuditEvent> = None;
+        let _phantom_envelope: Option<AuditOutboxEnvelope> = None;
+        let _phantom_report: Option<PostgresExecutionUnitOfWorkReport> = None;
     }
 }

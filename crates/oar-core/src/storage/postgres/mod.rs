@@ -6,5 +6,7 @@ mod repository_sqlx;
 
 #[cfg(feature = "postgres")]
 pub use repository_sqlx::{
-    AuditOutboxMessage, PostgresAuditEventRepository, PostgresOperationLedgerRepository,
+    AuditOutboxEnvelope, AuditOutboxMessage, PostgresAuditEventRepository,
+    PostgresExecutionUnitOfWork, PostgresExecutionUnitOfWorkReport,
+    PostgresOperationLedgerRepository,
 };

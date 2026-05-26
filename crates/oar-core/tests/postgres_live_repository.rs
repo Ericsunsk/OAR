@@ -11,7 +11,8 @@ use oar_core::action::audit_event::{
 use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use oar_core::action::operation_ledger::{LedgerError, SubmitResult};
 use oar_core::storage::postgres::{
-    PostgresAuditEventRepository, PostgresOperationLedgerRepository,
+    AuditOutboxEnvelope, PostgresAuditEventRepository, PostgresExecutionUnitOfWork,
+    PostgresOperationLedgerRepository,
 };
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -68,6 +69,20 @@ fn summary(text: &str) -> AuditStateSummary {
         summary: text.to_string(),
         reference_ids: vec!["evidence_1".to_string()],
         content_hash: Some("sha256:abc123".to_string()),
+    }
+}
+
+fn outbox_envelope(
+    tenant_id: &str,
+    trace_id: &str,
+    next_attempt_at_ms: u64,
+) -> AuditOutboxEnvelope {
+    AuditOutboxEnvelope {
+        tenant_id: tenant_id.to_string(),
+        stream: "audit-events".to_string(),
+        aggregate_id: trace_id.to_string(),
+        payload: json!({ "trace_id": trace_id }),
+        next_attempt_at_ms,
     }
 }
 
@@ -551,6 +566,133 @@ fn postgres_live_audit_outbox_claims_and_marks_delivery_states() {
                 (future_id, "failed".to_string())
             ]
         );
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_execution_uow_commits_ledger_audit_and_outbox_atomically() {
+    run_live_postgres_test("execution_uow_commit", |pool| async move {
+        seed_user(&pool, "tenant_uow", "user_uow").await?;
+
+        let uow = PostgresExecutionUnitOfWork::new(pool.clone());
+        let ledger = PostgresOperationLedgerRepository::new(pool.clone());
+        let audit = PostgresAuditEventRepository::new(pool.clone());
+        let action = confirmed_action("action_uow", "tenant_uow", "user_uow", "idem_uow");
+        let event = AuditEvent::confirmed_action(
+            "evt_uow_1",
+            "trace_uow",
+            1,
+            1_748_250_001_000,
+            actor("user_uow"),
+            scope("tenant_uow"),
+            target("progress_uow"),
+            summary("confirmed by reviewer"),
+        );
+        let outbox = outbox_envelope("tenant_uow", "trace_uow", 1_748_250_010_000);
+
+        let report = uow
+            .record_confirmation(&action, 1_748_250_000_000, "op_uow", &event, &outbox)
+            .await?;
+
+        assert_eq!(report.operation.operation_id, "op_uow");
+        assert!(!report.duplicate);
+        assert!(report.outbox_id > 0);
+
+        let operation = ledger
+            .get_by_idempotency_key("tenant_uow", "idem_uow")
+            .await?
+            .expect("operation should commit");
+        assert_eq!(operation.operation_id, "op_uow");
+
+        let events = audit.find_by_trace_id("trace_uow").await?;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id, "evt_uow_1");
+
+        let outbox_row = sqlx::query(
+            r#"
+            SELECT aggregate_id, status
+            FROM audit_outbox
+            WHERE id = $1
+            "#,
+        )
+        .bind(report.outbox_id)
+        .fetch_one(&pool)
+        .await?;
+        let aggregate_id: String = outbox_row.try_get("aggregate_id")?;
+        let status: String = outbox_row.try_get("status")?;
+        assert_eq!(aggregate_id, "trace_uow");
+        assert_eq!(status, "pending");
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_execution_uow_rolls_back_when_audit_append_fails() {
+    run_live_postgres_test("execution_uow_rollback", |pool| async move {
+        seed_user(&pool, "tenant_uow_rollback", "user_uow_rollback").await?;
+
+        let uow = PostgresExecutionUnitOfWork::new(pool.clone());
+        let ledger = PostgresOperationLedgerRepository::new(pool.clone());
+        let audit = PostgresAuditEventRepository::new(pool.clone());
+        let action = confirmed_action(
+            "action_uow_rollback",
+            "tenant_uow_rollback",
+            "user_uow_rollback",
+            "idem_uow_rollback",
+        );
+        let event = AuditEvent::confirmed_action(
+            "evt_duplicate",
+            "trace_uow_rollback",
+            1,
+            1_748_250_001_000,
+            actor("user_uow_rollback"),
+            scope("tenant_uow_rollback"),
+            target("progress_uow_rollback"),
+            summary("confirmed by reviewer"),
+        );
+
+        audit.append(&event, None).await?;
+
+        let result = uow
+            .record_confirmation(
+                &action,
+                1_748_250_000_000,
+                "op_uow_rollback",
+                &event,
+                &outbox_envelope(
+                    "tenant_uow_rollback",
+                    "trace_uow_rollback",
+                    1_748_250_010_000,
+                ),
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "duplicate audit event id should fail the whole transaction"
+        );
+
+        let operation = ledger
+            .get_by_idempotency_key("tenant_uow_rollback", "idem_uow_rollback")
+            .await?;
+        assert_eq!(
+            operation, None,
+            "ledger insert must roll back when audit append fails"
+        );
+
+        let outbox_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM audit_outbox
+            WHERE tenant_id = $1
+            "#,
+        )
+        .bind("tenant_uow_rollback")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(outbox_count, 0, "outbox enqueue must roll back too");
 
         Ok(())
     });

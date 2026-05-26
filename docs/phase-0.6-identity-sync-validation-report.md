@@ -92,11 +92,12 @@
 - `storage::postgres` 已加入 SQL contract，覆盖 confirmed action / ledger 幂等 upsert、状态转移 guard、audit append、outbox enqueue 和 outbox claim/sent/retry/failed 状态更新。
 - `postgres` / `postgres-sqlx` feature 已加入可选 `sqlx` repository 类型和 async 方法，已完成编译级验证。
 - 已加入 `DATABASE_URL` gated live Postgres repository tests，可在本机或 CI 提供 Postgres 时验证 migration bootstrap、tenant-scoped ledger lookup、幂等状态转移、audit append-only trigger、outbox enqueue 默认值和 outbox claim/mark 状态机；未提供 `DATABASE_URL` 时默认跳过。
+- 已加入 Postgres `PostgresExecutionUnitOfWork` storage 边界，可在一个 DB transaction 内提交 ledger + audit + outbox，并通过 live tests 验证 commit 与 audit append 失败回滚。
 - Postgres ledger submit 已改为显式返回 `created` 标记，避免用 `operation_id` 推断新建/复用；未确认 action 会在 DB 写入前被拒绝。
 
 仍需生产级验证：
 
 - `TokenGrant` 加密持久化和 refresh token rotation 的数据库事务。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
-- ledger 状态变更、audit append 和 outbox enqueue 的 unit-of-work 事务边界尚未接入运行时。
+- Postgres UoW 尚未接入 `ActionExecutor` / 后台 worker 运行时。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。
