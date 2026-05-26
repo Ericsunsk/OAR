@@ -135,7 +135,7 @@ update_progress(confirmed_action_id, request) -> ProgressRecord
 
 Phase 0.6 的首版 Postgres migration 草案位于：
 
-[`../crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql`](../crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql)
+[`../../crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql`](../../crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql)
 
 覆盖对象：
 
@@ -175,6 +175,11 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 ## 6.2 Phase 0.6 下一切片：Identity Repositories + TokenRefreshDecision Bridge
 
 状态声明：以下语义为当前实现/验证方向，属于进行中；只有在代码与集成测试覆盖后才可视为生产完成。
+
+模块边界约定（当前实现）：
+
+- `domain::token_refresh` 与 `lark::auth` 已移除 root `pub use` / facade 兼容。
+- 新代码与文档示例应使用真实子模块路径：`domain::token_refresh::{bridge,decision,service,types}` 与 `lark::auth::{adapter,parser,types}`。
 
 Phase 0.6 refresh 集成状态按三层区分（不得混写为“已生产就绪”）：
 

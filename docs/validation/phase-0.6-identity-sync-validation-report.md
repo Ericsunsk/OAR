@@ -102,10 +102,10 @@
 
 并行工作项：
 
-1. 定义 `TokenGrant`、`DeviceSession`、`OperationLedger`、`AuditEvent` schema。
-2. 将阶段 0.5 的 OKR CLI 输出保存为 `LarkAdapter` fixture。
-3. 实现 `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent` 的最小状态机。
-4. 用本地并发测试模拟两个客户端同时确认同一动作，验证只写回一次。
+1. 接入真实 `AuthAdapter` / client，打通真实 refresh 输出到 `RefreshOutcome` 的安全解析与编排链路。
+2. 接入后台 scheduler/daemon，补齐无人值守 refresh 与失败重试的触发语义验证。
+3. 补齐多端真实联调（macOS / iOS / 飞书卡片）下 `DeviceSession` 一致性与冲突恢复验证。
+4. 在真实 adapter + scheduler 路径下持续验证审计脱敏与 append-only 落库边界。
 
 ## 6. 工程实现进展
 
@@ -134,6 +134,7 @@
 - 已加入 `PostgresTokenRefreshOrchestrator` 编排边界：短路路径不调用 adapter / UoW，只写 denied audit；可 refresh 路径调用 fake `AuthRefreshAdapter`、生成 domain decision，并经 transactional UoW 同事务写状态与 audit。live DB tests 覆盖 rotation success、stale conflict noop、transient failure redaction 和 revoked short-circuit。
 - 已补齐 scheduler 前置查询能力：新增 Postgres 租户级 refresh due-candidate 选择语义（仅返回 `due` / `needs_refresh` / `expired` 候选），并在查询层排除 `revoked` 与 `reauth_required` grant；候选快照仅包含 grant id、tenant id、状态、refresh material 存在性和 CAS fingerprint 等最小必要元数据，不返回 `encrypted_oauth_grant` 或任何明文 token，fingerprint 不得进入日志或审计。
 - 已在候选筛选与 orchestrator 之间增加单次 refresh sweep（`run_once`）切片：显式触发后对候选逐 grant 调用既有 `PostgresTokenRefreshOrchestrator`，沿用每 grant 的 UoW/audit 事务语义；已加入 `DATABASE_URL`-gated live tests 覆盖成功批次、顺序审计、候选过滤继承、`limit = 0` 不调用 adapter 且不写 audit；当前不是后台 daemon，不提供无人值守循环能力，也不把整轮 sweep 作为单个跨 grant 大事务。
+- `token_refresh` / `auth` 已迁移到真实子模块路径并移除 root facade 兼容层，refresh 编排不再经根层转发入口。
 
 仍需生产级验证：
 

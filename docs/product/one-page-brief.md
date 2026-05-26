@@ -101,21 +101,21 @@ MVP 不做：
 
 OAR 当前处于阶段 0.6：身份与同步验证。阶段 0.5 已确认 `lark-okr` 可以作为 OKR 只读主路径和 progress 创建 / 更新写回路径。
 
-当前最大不确定性已经从 OKR CLI 能力转向生产级身份、安全执行和用户习惯：
+当前最大不确定性已经从 OKR CLI 能力转向“生产闭环仍未完成”的过渡态风险：
 
-- `TokenGrant` 能否安全保存、刷新和撤销。
-- `OperationLedger` 能否保证同一确认动作只执行一次。
-- macOS、iOS 和飞书入口能否看到一致的动作状态。
-- 后台 worker 能否在客户端离线时可靠运行。
-- 用户是否愿意每周打开复盘收件箱并处理建议动作。
+- token refresh service 已部分验证，但真实 `AuthAdapter` / client 与撤销链路还需补齐。
+- Postgres UoW、audit 写入、`run_once` 幂等链路已跑通部分场景，但失败恢复覆盖不足。
+- macOS、iOS 和飞书入口的多端状态同步仍需在真实复盘流程中回归验证。
+- 后台 scheduler / daemon 在客户端离线时的持续运行能力仍在验证中。
+- 用户是否愿意每周打开复盘收件箱并处理建议动作，仍需真实团队连续观察。
 
 ## 9. 接下来 7 天
 
-1. 固化阶段 0.5 的 CLI 输出，作为 `LarkAdapter` parser 和 fixture 的回归样本。
-2. 设计 `TokenGrant`、`DeviceSession`、`OperationLedger` 和 `AuditEvent` 的最小 schema。
-3. 实现 `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent` 的最小状态机。
-4. 用并发测试验证两个入口同时确认同一动作时只写回一次。
-5. 用假数据搭建复盘收件箱原型，验证用户是否理解“风险队列 + 证据链 + 待确认动作”。
+1. 把 token refresh + revoke 链路推进到真实调用路径，补齐 `AuthAdapter` / client 过渡缺口。
+2. 扩展 Postgres UoW + `run_once` 的并发与重试验证，确保相同确认动作不会重复写回。
+3. 收敛审计事件结构和落库策略，补足关键失败场景的可追溯性。
+4. 接入后台 scheduler / daemon 到真实任务流，验证离线期间的任务连续性。
+5. 组织真实团队复盘原型回归，验证 macOS / iOS / 飞书入口状态同步与每周使用习惯。
 
 ## 10. 成功信号
 

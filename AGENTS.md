@@ -97,6 +97,7 @@ For MVP, prefer Postgres tables and relation tables over a graph database. Store
 - Keep CLI/OpenAPI parsing isolated behind adapters.
 - Add fixtures and regression tests whenever encoding known Lark CLI behavior.
 - Do not introduce broad platform abstractions until Phase 0.6 state and audit semantics are proven.
+- For Phase 0.6 auth work, implement token refresh and auth flows against real submodule paths; do not route new code through root facade/re-export shortcuts.
 - If adding frontend code, preserve the review inbox as the main surface and avoid making chat the primary workflow.
 
 ## Git And Documentation Hygiene

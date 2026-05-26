@@ -97,7 +97,7 @@ MVP 默认不允许：
 
 阶段 0.5 已完成，`lark-okr` 主路径通过。
 
-下一步进入阶段 0.6：
+下一步进入阶段 0.6（历史快照 / 当时结论）：
 
 - 验证 `offline_access` 和 refresh 前置条件。
 - 设计 `TokenGrant` 加密存储与 refresh token rotation。
