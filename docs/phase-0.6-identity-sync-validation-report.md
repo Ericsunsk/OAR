@@ -66,7 +66,7 @@
 | I3 | token refresh 前置条件 | 部分通过 | refresh 到期时间存在，token 从 needs_refresh 变为 valid |
 | I4 | 后端 `TokenGrant` 存储 | 未开始 | token 加密存储，refresh rotation 原子更新 |
 | I5 | 多端 `DeviceSession` 同步 | 未开始 | 多端看到同一 action 状态 |
-| I6 | `OperationLedger` 幂等执行 | 未开始 | 同一 `ConfirmedAction` 并发确认只执行一次 |
+| I6 | `OperationLedger` 幂等执行 | 部分通过 | 同一 `ConfirmedAction` 并发确认只执行一次 |
 | I7 | 后台 worker | 未开始 | 无客户端在线时仍可按计划生成复盘 |
 | I8 | revoke / reauth | 未开始 | 授权撤销后停止执行并提示重新授权 |
 
@@ -93,11 +93,12 @@
 - `postgres` / `postgres-sqlx` feature 已加入可选 `sqlx` repository 类型和 async 方法，已完成编译级验证。
 - 已加入 `DATABASE_URL` gated live Postgres repository tests，可在本机或 CI 提供 Postgres 时验证 migration bootstrap、tenant-scoped ledger lookup、幂等状态转移、audit append-only trigger、outbox enqueue 默认值和 outbox claim/mark 状态机；未提供 `DATABASE_URL` 时默认跳过。
 - 已加入 Postgres `PostgresExecutionUnitOfWork` storage 边界，可在一个 DB transaction 内提交 ledger + audit + outbox，并通过 live tests 验证 commit 与 audit append 失败回滚。
+- 已加入 feature-gated async `PostgresActionExecutor`，用 Postgres UoW 串起确认记录、dry-run、adapter execute、终态 ledger、audit event 和 outbox；live tests 覆盖成功、重复幂等、adapter failure 和 policy denied。
 - Postgres ledger submit 已改为显式返回 `created` 标记，避免用 `operation_id` 推断新建/复用；未确认 action 会在 DB 写入前被拒绝。
 
 仍需生产级验证：
 
 - `TokenGrant` 加密持久化和 refresh token rotation 的数据库事务。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
-- Postgres UoW 尚未接入 `ActionExecutor` / 后台 worker 运行时。
+- Postgres executor 尚未接入后台 worker 调度、crash recovery 和 outbox drain。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

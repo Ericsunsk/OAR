@@ -8,5 +8,5 @@ mod repository_sqlx;
 pub use repository_sqlx::{
     AuditOutboxEnvelope, AuditOutboxMessage, PostgresAuditEventRepository,
     PostgresExecutionUnitOfWork, PostgresExecutionUnitOfWorkReport,
-    PostgresOperationLedgerRepository,
+    PostgresOperationLedgerRepository, PostgresRepositoryError,
 };

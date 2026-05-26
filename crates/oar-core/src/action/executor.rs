@@ -394,7 +394,7 @@ where
     }
 }
 
-fn safe_denial_message(denial: &ExecutionDenied) -> String {
+pub(crate) fn safe_denial_message(denial: &ExecutionDenied) -> String {
     match denial {
         ExecutionDenied::TenantMismatch { .. } => {
             "Execution denied by policy: action and token grant belong to different tenants"

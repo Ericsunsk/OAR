@@ -6,3 +6,6 @@ pub mod execution_policy;
 pub mod executor;
 pub mod operation_ledger;
 pub mod operation_ledger_repository;
+
+#[cfg(feature = "postgres")]
+pub mod postgres_executor;

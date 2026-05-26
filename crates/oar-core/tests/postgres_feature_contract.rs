@@ -45,6 +45,8 @@ mod postgres_feature_api_contract {
     use super::*;
     use oar_core::action::audit_event::AuditEvent;
     use oar_core::action::confirmed_action::ConfirmedAction;
+    use oar_core::action::postgres_executor::PostgresActionExecutor;
+    use oar_core::lark::adapter::MockLarkAdapter;
     use oar_core::storage::postgres::{
         AuditOutboxEnvelope, PostgresAuditEventRepository, PostgresExecutionUnitOfWork,
         PostgresExecutionUnitOfWorkReport, PostgresOperationLedgerRepository,
@@ -79,8 +81,13 @@ mod postgres_feature_api_contract {
         let _retryable = PostgresAuditEventRepository::mark_outbox_retryable;
         let _failed = PostgresAuditEventRepository::mark_outbox_failed;
         let _record_confirmation = PostgresExecutionUnitOfWork::record_confirmation;
+        let _record_dry_run = PostgresExecutionUnitOfWork::record_dry_run;
         let _record_success = PostgresExecutionUnitOfWork::record_success;
         let _record_failure = PostgresExecutionUnitOfWork::record_failure;
+        let _execute =
+            PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action;
+        let _execute_with_policy =
+            PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action_with_policy;
 
         let _phantom_action: Option<ConfirmedAction> = None;
         let _phantom_event: Option<AuditEvent> = None;
