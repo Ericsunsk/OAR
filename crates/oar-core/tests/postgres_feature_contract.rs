@@ -1,5 +1,6 @@
 use oar_core::storage::postgres::audit_sql::{
-    APPEND_AUDIT_EVENT, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
+    APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
+    MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_RETRYABLE, MARK_AUDIT_OUTBOX_SENT,
 };
 use oar_core::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
@@ -18,6 +19,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let operation_sql = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
     let transition_sql = compact(MARK_EXECUTING);
     let audit_sql = compact(APPEND_AUDIT_EVENT);
+    let claim_outbox_sql = compact(CLAIM_AUDIT_OUTBOX);
 
     assert!(operation_sql.contains("insert into confirmed_actions"));
     assert!(operation_sql.contains("insert into operation_ledger"));
@@ -25,6 +27,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     assert!(operation_sql.contains("false as created"));
     assert!(transition_sql.contains("update operation_ledger"));
     assert!(audit_sql.contains("insert into audit_events"));
+    assert!(claim_outbox_sql.contains("for update skip locked"));
 
     // Touch all constants to lock import visibility for default builds.
     let _ = MARK_SUCCEEDED;
@@ -32,6 +35,9 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let _ = GET_BY_IDEMPOTENCY_KEY;
     let _ = FIND_AUDIT_EVENTS_BY_TRACE_ID;
     let _ = ENQUEUE_AUDIT_OUTBOX;
+    let _ = MARK_AUDIT_OUTBOX_SENT;
+    let _ = MARK_AUDIT_OUTBOX_RETRYABLE;
+    let _ = MARK_AUDIT_OUTBOX_FAILED;
 }
 
 #[cfg(feature = "postgres")]
@@ -65,6 +71,10 @@ mod postgres_feature_api_contract {
         let _append = PostgresAuditEventRepository::append;
         let _find = PostgresAuditEventRepository::find_by_trace_id;
         let _enqueue = PostgresAuditEventRepository::enqueue_outbox;
+        let _claim = PostgresAuditEventRepository::claim_outbox;
+        let _sent = PostgresAuditEventRepository::mark_outbox_sent;
+        let _retryable = PostgresAuditEventRepository::mark_outbox_retryable;
+        let _failed = PostgresAuditEventRepository::mark_outbox_failed;
 
         let _phantom_action: Option<ConfirmedAction> = None;
         let _phantom_event: Option<AuditEvent> = None;

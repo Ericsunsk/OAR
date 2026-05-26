@@ -4,7 +4,8 @@ use crate::action::audit_event::{
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::action::operation_ledger::{LedgerError, OperationRecord, SubmitResult};
 use crate::storage::postgres::audit_sql::{
-    APPEND_AUDIT_EVENT, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
+    APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
+    MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_RETRYABLE, MARK_AUDIT_OUTBOX_SENT,
 };
 use crate::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
@@ -36,6 +37,17 @@ pub enum PostgresRepositoryError {
 }
 
 pub type PgRepositoryResult<T> = Result<T, PostgresRepositoryError>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AuditOutboxMessage {
+    pub id: i64,
+    pub tenant_id: String,
+    pub stream: String,
+    pub aggregate_id: String,
+    pub payload: Value,
+    pub attempt_count: i32,
+    pub next_attempt_at_ms: Option<i64>,
+}
 
 #[derive(Debug, Clone)]
 pub struct PostgresOperationLedgerRepository {
@@ -248,6 +260,64 @@ impl PostgresAuditEventRepository {
             .await?;
         Ok(row.try_get("id")?)
     }
+
+    pub async fn claim_outbox(
+        &self,
+        tenant_id: &str,
+        stream: &str,
+        now_ms: u64,
+        limit: i64,
+        lease_until_ms: u64,
+    ) -> PgRepositoryResult<Vec<AuditOutboxMessage>> {
+        let rows = sqlx::query(CLAIM_AUDIT_OUTBOX)
+            .bind(tenant_id)
+            .bind(stream)
+            .bind(now_ms as i64)
+            .bind(limit)
+            .bind(lease_until_ms as i64)
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(audit_outbox_message_from_row).collect()
+    }
+
+    pub async fn mark_outbox_sent(
+        &self,
+        tenant_id: &str,
+        id: i64,
+        sent_at_ms: u64,
+    ) -> PgRepositoryResult<bool> {
+        let row = sqlx::query(MARK_AUDIT_OUTBOX_SENT)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(sent_at_ms as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.is_some())
+    }
+
+    pub async fn mark_outbox_retryable(
+        &self,
+        tenant_id: &str,
+        id: i64,
+        next_attempt_at_ms: u64,
+    ) -> PgRepositoryResult<bool> {
+        let row = sqlx::query(MARK_AUDIT_OUTBOX_RETRYABLE)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(next_attempt_at_ms as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.is_some())
+    }
+
+    pub async fn mark_outbox_failed(&self, tenant_id: &str, id: i64) -> PgRepositoryResult<bool> {
+        let row = sqlx::query(MARK_AUDIT_OUTBOX_FAILED)
+            .bind(tenant_id)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.is_some())
+    }
 }
 
 fn operation_record_from_row(row: &PgRow) -> PgRepositoryResult<OperationRecord> {
@@ -304,6 +374,18 @@ fn audit_event_from_row(row: &PgRow) -> PgRepositoryResult<AuditEvent> {
         before: json_value_option(row.try_get("before_summary")?)?,
         after: json_value_option(row.try_get("after_summary")?)?,
         execution: json_value_option(row.try_get("execution_result")?)?,
+    })
+}
+
+fn audit_outbox_message_from_row(row: &PgRow) -> PgRepositoryResult<AuditOutboxMessage> {
+    Ok(AuditOutboxMessage {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        stream: row.try_get("stream")?,
+        aggregate_id: row.try_get("aggregate_id")?,
+        payload: row.try_get("payload")?,
+        attempt_count: row.try_get("attempt_count")?,
+        next_attempt_at_ms: row.try_get("next_attempt_at_ms")?,
     })
 }
 

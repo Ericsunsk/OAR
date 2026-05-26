@@ -1,5 +1,6 @@
 use oar_core::storage::postgres::audit_sql::{
-    APPEND_AUDIT_EVENT, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
+    APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
+    MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_RETRYABLE, MARK_AUDIT_OUTBOX_SENT,
 };
 use oar_core::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
@@ -83,4 +84,37 @@ fn audit_outbox_enqueue_records_pending_retry_payload() {
     assert!(sql.contains("'pending'"));
     assert!(sql.contains("attempt_count"));
     assert!(sql.contains("returning id"));
+}
+
+#[test]
+fn audit_outbox_claim_uses_due_pending_rows_with_skip_locked_lease() {
+    let sql = compact(CLAIM_AUDIT_OUTBOX);
+
+    assert!(sql.contains("from audit_outbox"));
+    assert!(sql.contains("status = 'pending'"));
+    assert!(sql.contains("next_attempt_at is null or next_attempt_at <="));
+    assert!(sql.contains("for update skip locked"));
+    assert!(sql.contains("attempt_count = attempt_count + 1"));
+    assert!(sql.contains("next_attempt_at = to_timestamp($5::double precision / 1000.0)"));
+}
+
+#[test]
+fn audit_outbox_terminal_updates_are_tenant_scoped_and_guarded() {
+    let sent = compact(MARK_AUDIT_OUTBOX_SENT);
+    let retryable = compact(MARK_AUDIT_OUTBOX_RETRYABLE);
+    let failed = compact(MARK_AUDIT_OUTBOX_FAILED);
+
+    assert!(sent.contains("update audit_outbox"));
+    assert!(sent.contains("where tenant_id = $1"));
+    assert!(sent.contains("and id = $2"));
+    assert!(sent.contains("status in ('pending', 'sent')"));
+    assert!(sent.contains("set status = 'sent'"));
+
+    assert!(retryable.contains("set status = 'pending'"));
+    assert!(retryable.contains("and status = 'pending'"));
+    assert!(retryable.contains("next_attempt_at = to_timestamp($3::double precision / 1000.0)"));
+
+    assert!(failed.contains("set status = 'failed'"));
+    assert!(failed.contains("and status in ('pending', 'failed')"));
+    assert!(failed.contains("next_attempt_at = null"));
 }
