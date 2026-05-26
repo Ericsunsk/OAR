@@ -204,7 +204,16 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - refresh 审计事件只记录 grant id、tenant id、状态分类、命令分类和已脱敏 `safe_error`；不得记录明文 token、授权包、fingerprint、encrypted blob、raw CLI stdout/stderr 或 sink 内部错误。
 - 当前已在 Postgres live tests 验证 refresh 状态更新 + audit append 的事务化 UoW 语义（同事务提交、审计失败整体回滚）。
 - `PostgresTokenRefreshOrchestrator` 已验证 fake `AuthRefreshAdapter` -> domain decision -> transactional UoW -> audit 的编排边界；短路路径不调用 adapter / UoW，只写 denied audit。
-- 真实 `AuthAdapter` 接入与后台 scheduler 编排尚未完成，因此该路径暂不构成生产闭环。
+- Auth refresh 的真实 `lark-cli` / OpenAPI client 尚未接入，后台 scheduler 也尚未连通；当前仅验证 contract + fixture + orchestration 边界，不构成生产 refresh 闭环。
+
+### Auth refresh adapter contract / parser fixture 安全边界（下一切片，进行中）
+
+- `AuthAdapter` refresh 路径当前只对接“安全解析边界”，输入/输出以 fixture 驱动验证，不直接信任原始 CLI/OpenAPI 输出。
+- parser 边界仅接受“加密授权包 envelope”（如 `encrypted_oauth_grant`、`oauth_grant_key_id`、`oauth_grant_fingerprint` 及最小状态元数据），不接受明文 token 字段穿透到 domain。
+- parser 必须拒绝任何 plaintext token-like 输出：包含 access token、refresh token、authorization code 或等价敏感片段时，直接返回安全错误并停止后续 refresh 编排。
+- parser 输出必须映射为领域 `RefreshOutcome`（`Success` / `TransientFailure` / `ReauthFailure`），再由 `TokenRefreshDecision` bridge 映射到持久化命令。
+- 安全错误仅允许输出 allowlist 摘要（`safe_error`）；不得记录或暴露 access token、refresh token、authorization code、raw CLI stdout/stderr、完整 adapter 原始响应。
+- 该边界只解决“可安全消费的 refresh 结果建模”；真实 refresh 请求发送、重试节奏和调度生命周期仍待后续接入真实 `AuthAdapter` client + 后台 scheduler。
 
 ### TokenRefreshDecision persistence bridge（进行中）
 

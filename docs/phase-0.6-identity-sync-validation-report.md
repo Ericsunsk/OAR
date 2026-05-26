@@ -29,6 +29,7 @@
 - `Tenant`、`OarUser`、`LarkIdentity` 的 Postgres repository 是否完成租户隔离、唯一约束与冲突语义验证。
 - `TokenGrant` 是否仅以加密授权包持久化，并在 repository 边界禁止明文 token 进出。
 - `TokenRefreshDecision` 是否通过 persistence bridge 安全映射为 CAS rotation、needs-refresh 或 reauth-required 持久化命令，并在 revoked / reauth-required grant 下阻断 refresh。
+- Auth refresh parser 边界是否只接受加密授权包 envelope，并拒绝任何 plaintext token-like 输出后再进入 `RefreshOutcome` 映射。
 - refresh token rotation 是否通过 SQL CAS 原子更新（`tenant_id + grant_id + expected_fingerprint + state guard`）。
 - revoked / reauth-required grant 是否在 SQL 层直接阻断 rotation。
 - token revoke 后后台 worker 是否停止执行。
@@ -71,6 +72,7 @@
 | I4 | 后端 `TokenGrant` 存储 | 进行中 | token 加密存储，refresh rotation 原子更新且受 SQL guard 约束 |
 | I4a | identity repositories（`Tenant`/`OarUser`/`LarkIdentity`） | 进行中 | 租户隔离、绑定唯一性、冲突语义和审计字段在 Postgres 下可验证 |
 | I4b | `TokenRefreshDecision` persistence bridge | 部分通过 | service 层已串起 refresh outcome、decision、repository command sink 和 allowlist 安全错误摘要；`PostgresTokenRefreshOrchestrator` 已验证 fake `AuthRefreshAdapter` -> domain decision -> transactional UoW -> append-only audit 的编排边界（live DB tests 覆盖 rotation success、stale conflict noop、transient failure redaction 和 revoked short-circuit）；真实 `AuthAdapter` 与后台 scheduler 尚未接入 |
+| I4c | Auth refresh adapter contract / safe parser fixture boundary | 部分通过 | parser 仅接受加密授权包 envelope，检测到 access token / refresh token / authorization code 等 plaintext token-like 片段即拒绝；parser 输出已映射到领域 `RefreshOutcome`，并继续走 decision bridge 与审计脱敏路径；真实 `lark-cli` / OpenAPI refresh client 尚未接入 |
 | I5 | 多端 `DeviceSession` 同步 | 进行中 | cursor 单调推进、stale/revoked 会话被拒绝且多端看到同一 action 状态 |
 | I6 | `OperationLedger` 幂等执行 | 部分通过 | 同一 `ConfirmedAction` 并发确认只执行一次 |
 | I7 | 后台 worker | 未开始 | 无客户端在线时仍可按计划生成复盘 |
@@ -83,8 +85,9 @@
 1. `Tenant` / `OarUser` / `LarkIdentity` Postgres repositories 语义验证：`tenant_id` 隔离、identity 绑定唯一约束、冲突可恢复语义、最小审计字段落库。
 2. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
 3. 将 `PostgresTokenRefreshOrchestrator` 接入真实 `AuthAdapter` 与后台调度，验证从 refresh attempt 到 Postgres CAS + audit 事务边界的生产路径。
-4. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露明文 token、sink 内部错误或 encrypted blob。
+4. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露 access token、refresh token、authorization code、sink 内部错误或 encrypted blob。
 5. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
+6. 以真实 adapter 输出回放 fixture，持续验证 safe parser 边界：只接受 encrypted envelope，拒绝 plaintext token-like 输出，再映射到 `RefreshOutcome`。
 
 并行工作项：
 
@@ -124,6 +127,7 @@
 - `Tenant` / `OarUser` / `LarkIdentity` Postgres repositories 集成验证：租户隔离、唯一约束冲突路径、identity 绑定幂等恢复与审计可追溯。
 - `TokenGrant` Postgres 持久化集成验证：repository 仅处理加密授权包，不接受/返回明文 token。
 - `TokenRefreshService` 与 repository command sink 的领域编排已覆盖，refresh audit 事件映射、Postgres roundtrip 和 fake adapter 下的 transactional orchestrator 已验证；仍需接入真实 `AuthAdapter` 与后台调度，并在真实 adapter 路径下持续验证同一事务边界。
+- Auth refresh adapter contract / safe parser fixture 边界已建立：当前仅在 fixture/fake adapter 下验证“加密 envelope -> `RefreshOutcome` -> decision bridge”链路；真实 `lark-cli` / OpenAPI client 输出尚未连通。
 - refresh rotation SQL CAS 集成验证：`tenant_id + grant_id + expected_fingerprint`、状态白名单（`valid` / `needs_refresh` / `expired`）和 `revoked_at IS NULL` / `reauth_required_at IS NULL` guard 全部生效。
 - revoked / reauth-required grant 的 rotation 阻断需在真实数据库和并发场景下持续验证。
 - `DeviceSession` Postgres repository 需补齐真实数据库并发验证：cursor 只前进不回退、revoked/expired 门禁、跨设备冲突可观测。

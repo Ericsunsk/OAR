@@ -47,3 +47,34 @@ pub const PROGRESS_LIST_JSON: &str = r#"{
     ]
   }
 }"#;
+
+pub const AUTH_REFRESH_ROTATED_ENCRYPTED_JSON: &str = r#"{
+  "outcome": "success",
+  "encrypted_primary": [1, 2, 3, 4, 5],
+  "encrypted_renewal": [6, 7, 8, 9, 10],
+  "key_id": "kms-key-2026-05",
+  "new_fingerprint": "fp_rotated_v2",
+  "refreshed_at_ms": 1779465600000,
+  "expires_at_ms": 1779472800000
+}"#;
+
+pub const AUTH_REFRESH_REAUTH_REQUIRED_JSON: &str = r#"{
+  "outcome": "reauth_required",
+  "safe_error": "invalid_grant"
+}"#;
+
+pub const AUTH_REFRESH_TRANSIENT_FAILURE_JSON: &str = r#"{
+  "outcome": "transient_failure",
+  "safe_error": "temporarily unavailable"
+}"#;
+
+pub const AUTH_REFRESH_PLAINTEXT_TOKEN_LEAK_JSON: &str = r#"{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "tok_access_live_should_never_parse",
+    "refresh_token": "tok_refresh_live_should_never_parse",
+    "token_type": "Bearer",
+    "note": "refresh_token=tok_refresh_live_should_never_parse"
+  }
+}"#;
