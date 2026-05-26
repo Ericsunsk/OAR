@@ -5,7 +5,9 @@ use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::action::operation_ledger::{LedgerError, OperationRecord, SubmitResult};
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
-    MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_RETRYABLE, MARK_AUDIT_OUTBOX_SENT,
+    MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
+    MARK_AUDIT_OUTBOX_RETRYABLE_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_SENT,
+    MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT,
 };
 use crate::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
@@ -451,6 +453,25 @@ impl PostgresAuditEventRepository {
         Ok(row.is_some())
     }
 
+    pub async fn mark_outbox_sent_for_attempt(
+        &self,
+        tenant_id: &str,
+        id: i64,
+        attempt_count: i32,
+        lease_until_ms: u64,
+        sent_at_ms: u64,
+    ) -> PgRepositoryResult<bool> {
+        let row = sqlx::query(MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(attempt_count)
+            .bind(lease_until_ms as i64)
+            .bind(sent_at_ms as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.is_some())
+    }
+
     pub async fn mark_outbox_retryable(
         &self,
         tenant_id: &str,
@@ -466,10 +487,46 @@ impl PostgresAuditEventRepository {
         Ok(row.is_some())
     }
 
+    pub async fn mark_outbox_retryable_for_attempt(
+        &self,
+        tenant_id: &str,
+        id: i64,
+        attempt_count: i32,
+        lease_until_ms: u64,
+        next_attempt_at_ms: u64,
+    ) -> PgRepositoryResult<bool> {
+        let row = sqlx::query(MARK_AUDIT_OUTBOX_RETRYABLE_FOR_ATTEMPT)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(attempt_count)
+            .bind(lease_until_ms as i64)
+            .bind(next_attempt_at_ms as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.is_some())
+    }
+
     pub async fn mark_outbox_failed(&self, tenant_id: &str, id: i64) -> PgRepositoryResult<bool> {
         let row = sqlx::query(MARK_AUDIT_OUTBOX_FAILED)
             .bind(tenant_id)
             .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.is_some())
+    }
+
+    pub async fn mark_outbox_failed_for_attempt(
+        &self,
+        tenant_id: &str,
+        id: i64,
+        attempt_count: i32,
+        lease_until_ms: u64,
+    ) -> PgRepositoryResult<bool> {
+        let row = sqlx::query(MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(attempt_count)
+            .bind(lease_until_ms as i64)
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.is_some())

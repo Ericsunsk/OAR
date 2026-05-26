@@ -165,8 +165,9 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - Rust core 已新增 `storage::postgres` SQL 边界，覆盖 confirmed action / ledger upsert、guarded status transition、audit append、audit outbox enqueue 和 outbox claim/sent/retry/failed 状态更新。
 - Rust core 已新增 Postgres `PostgresExecutionUnitOfWork` storage 边界，可在一个 DB transaction 内提交 ledger + audit + outbox，并用 live tests 验证 audit append 失败时 ledger/outbox 一起回滚。
 - Rust core 已新增 feature-gated async `PostgresActionExecutor` 运行时路径，覆盖 `ConfirmedAction -> dry-run -> execute -> terminal audit/outbox`，重复执行会跳过 adapter 和重复 side effects。
+- Rust core 已新增 feature-gated `PostgresAuditOutboxWorker` 最小 drain 路径，使用 `attempt_count + lease_until` guard 防止陈旧 worker 误标 sent/retry/failed。
 - `postgres` / `postgres-sqlx` feature 可编译 `sqlx` 版 Postgres repository 类型；默认构建仍不拉起数据库运行时依赖。
-- 下一步需要补 outbox worker drain、crash recovery、attempt lease 防陈旧 ack，以及更接近生产的并发压力测试。
+- 下一步需要接入真实后台调度、外部审计投递 sink、crash recovery，以及更接近生产的并发压力测试。
 
 ## 7. 智能体运行时与模型配置
 

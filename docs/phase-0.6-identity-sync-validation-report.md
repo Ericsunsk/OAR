@@ -94,11 +94,12 @@
 - 已加入 `DATABASE_URL` gated live Postgres repository tests，可在本机或 CI 提供 Postgres 时验证 migration bootstrap、tenant-scoped ledger lookup、幂等状态转移、audit append-only trigger、outbox enqueue 默认值和 outbox claim/mark 状态机；未提供 `DATABASE_URL` 时默认跳过。
 - 已加入 Postgres `PostgresExecutionUnitOfWork` storage 边界，可在一个 DB transaction 内提交 ledger + audit + outbox，并通过 live tests 验证 commit 与 audit append 失败回滚。
 - 已加入 feature-gated async `PostgresActionExecutor`，用 Postgres UoW 串起确认记录、dry-run、adapter execute、终态 ledger、audit event 和 outbox；live tests 覆盖成功、重复幂等、adapter failure 和 policy denied。
+- 已加入 feature-gated `PostgresAuditOutboxWorker` 最小 drain 路径，outbox mark sent/retry/failed 支持 `attempt_count + lease_until` guard；live tests 覆盖 lease 过期后二次 claim 时陈旧 worker 不能误标 sent，以及 sent/retry/failed 混合投递。
 - Postgres ledger submit 已改为显式返回 `created` 标记，避免用 `operation_id` 推断新建/复用；未确认 action 会在 DB 写入前被拒绝。
 
 仍需生产级验证：
 
 - `TokenGrant` 加密持久化和 refresh token rotation 的数据库事务。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
-- Postgres executor 尚未接入后台 worker 调度、crash recovery 和 outbox drain。
+- Postgres executor / outbox worker 尚未接入真实后台调度、外部审计投递 sink 和 crash recovery。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

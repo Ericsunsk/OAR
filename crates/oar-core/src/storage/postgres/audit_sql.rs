@@ -117,12 +117,36 @@ WHERE tenant_id = $1
 RETURNING id
 "#;
 
+pub const MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT: &str = r#"
+UPDATE audit_outbox
+SET status = 'sent',
+    sent_at = COALESCE(sent_at, to_timestamp($5::double precision / 1000.0))
+WHERE tenant_id = $1
+  AND id = $2
+  AND attempt_count = $3
+  AND next_attempt_at = to_timestamp($4::double precision / 1000.0)
+  AND status = 'pending'
+RETURNING id
+"#;
+
 pub const MARK_AUDIT_OUTBOX_RETRYABLE: &str = r#"
 UPDATE audit_outbox
 SET status = 'pending',
     next_attempt_at = to_timestamp($3::double precision / 1000.0)
 WHERE tenant_id = $1
   AND id = $2
+  AND status = 'pending'
+RETURNING id
+"#;
+
+pub const MARK_AUDIT_OUTBOX_RETRYABLE_FOR_ATTEMPT: &str = r#"
+UPDATE audit_outbox
+SET status = 'pending',
+    next_attempt_at = to_timestamp($5::double precision / 1000.0)
+WHERE tenant_id = $1
+  AND id = $2
+  AND attempt_count = $3
+  AND next_attempt_at = to_timestamp($4::double precision / 1000.0)
   AND status = 'pending'
 RETURNING id
 "#;
@@ -134,5 +158,17 @@ SET status = 'failed',
 WHERE tenant_id = $1
   AND id = $2
   AND status IN ('pending', 'failed')
+RETURNING id
+"#;
+
+pub const MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT: &str = r#"
+UPDATE audit_outbox
+SET status = 'failed',
+    next_attempt_at = NULL
+WHERE tenant_id = $1
+  AND id = $2
+  AND attempt_count = $3
+  AND next_attempt_at = to_timestamp($4::double precision / 1000.0)
+  AND status = 'pending'
 RETURNING id
 "#;

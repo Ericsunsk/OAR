@@ -21,9 +21,12 @@ use oar_core::domain::identity::{
     ActorKind, LarkIdentityId, OAuthTokens, ScopeBoundary, SecretString, TenantId, TokenGrant,
     TokenGrantId, TokenGrantState,
 };
+use oar_core::storage::postgres::audit_outbox_worker::{
+    AuditOutboxDelivery, AuditOutboxDispatcher, AuditOutboxDrainConfig, PostgresAuditOutboxWorker,
+};
 use oar_core::storage::postgres::{
-    AuditOutboxEnvelope, PostgresAuditEventRepository, PostgresExecutionUnitOfWork,
-    PostgresOperationLedgerRepository,
+    AuditOutboxEnvelope, AuditOutboxMessage, PostgresAuditEventRepository,
+    PostgresExecutionUnitOfWork, PostgresOperationLedgerRepository,
 };
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -89,6 +92,35 @@ impl ActionAdapter for LiveMockAdapter {
             before: Some(summary("before")),
             after: Some(summary("applied")),
         })
+    }
+}
+
+#[derive(Clone)]
+struct LiveOutboxDispatcher {
+    outcomes: Arc<Mutex<Vec<AuditOutboxDelivery>>>,
+}
+
+impl LiveOutboxDispatcher {
+    fn new(outcomes: impl IntoIterator<Item = AuditOutboxDelivery>) -> Self {
+        Self {
+            outcomes: Arc::new(Mutex::new(outcomes.into_iter().collect())),
+        }
+    }
+}
+
+impl AuditOutboxDispatcher for LiveOutboxDispatcher {
+    type Error = ();
+
+    async fn deliver(
+        &mut self,
+        _message: &AuditOutboxMessage,
+    ) -> Result<AuditOutboxDelivery, Self::Error> {
+        let mut outcomes = self.outcomes.lock().expect("outbox dispatcher mutex");
+        if outcomes.is_empty() {
+            return Ok(AuditOutboxDelivery::Sent);
+        }
+
+        Ok(outcomes.remove(0))
     }
 }
 
@@ -999,6 +1031,190 @@ fn postgres_live_audit_outbox_claims_and_marks_delivery_states() {
                 (first_id, "sent".to_string()),
                 (second_id, "pending".to_string()),
                 (future_id, "failed".to_string())
+            ]
+        );
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_audit_outbox_guarded_mark_rejects_stale_claim_after_reclaim() {
+    run_live_postgres_test("audit_outbox_guarded_stale", |pool| async move {
+        seed_user(&pool, "tenant_outbox_guard", "user_outbox_guard").await?;
+
+        let repository = PostgresAuditEventRepository::new(pool.clone());
+        let message_id = repository
+            .enqueue_outbox(
+                "tenant_outbox_guard",
+                "audit-events",
+                "trace_guarded",
+                &json!({ "trace_id": "trace_guarded" }),
+                1_000,
+            )
+            .await?;
+
+        let first_claim = repository
+            .claim_outbox("tenant_outbox_guard", "audit-events", 5_000, 1, 8_000)
+            .await?;
+        assert_eq!(first_claim.len(), 1);
+        assert_eq!(first_claim[0].id, message_id);
+        assert_eq!(first_claim[0].attempt_count, 1);
+
+        let second_claim = repository
+            .claim_outbox("tenant_outbox_guard", "audit-events", 9_000, 1, 12_000)
+            .await?;
+        assert_eq!(second_claim.len(), 1);
+        assert_eq!(second_claim[0].id, message_id);
+        assert_eq!(second_claim[0].attempt_count, 2);
+
+        assert!(
+            !repository
+                .mark_outbox_sent_for_attempt(
+                    "tenant_outbox_guard",
+                    message_id,
+                    first_claim[0].attempt_count,
+                    8_000,
+                    9_500,
+                )
+                .await?,
+            "stale worker must not be able to mark a re-claimed message sent"
+        );
+
+        let row = sqlx::query(
+            r#"
+            SELECT status, attempt_count
+            FROM audit_outbox
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(row.try_get::<String, _>("status")?, "pending");
+        assert_eq!(row.try_get::<i32, _>("attempt_count")?, 2);
+
+        assert!(
+            repository
+                .mark_outbox_sent_for_attempt(
+                    "tenant_outbox_guard",
+                    message_id,
+                    second_claim[0].attempt_count,
+                    12_000,
+                    12_500,
+                )
+                .await?,
+            "current claimant should be able to finalize delivery"
+        );
+
+        assert!(
+            !repository
+                .mark_outbox_retryable_for_attempt(
+                    "tenant_outbox_guard",
+                    message_id,
+                    second_claim[0].attempt_count,
+                    12_000,
+                    13_000,
+                )
+                .await?,
+            "terminal sent messages should not be reopened as retryable"
+        );
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_audit_outbox_worker_drains_mixed_delivery_outcomes() {
+    run_live_postgres_test("audit_outbox_worker_mixed", |pool| async move {
+        seed_user(&pool, "tenant_outbox_worker", "user_outbox_worker").await?;
+
+        let repository = PostgresAuditEventRepository::new(pool.clone());
+        repository
+            .enqueue_outbox(
+                "tenant_outbox_worker",
+                "audit-events",
+                "trace_sent",
+                &json!({ "trace_id": "trace_sent" }),
+                1_000,
+            )
+            .await?;
+        repository
+            .enqueue_outbox(
+                "tenant_outbox_worker",
+                "audit-events",
+                "trace_retry",
+                &json!({ "trace_id": "trace_retry" }),
+                1_000,
+            )
+            .await?;
+        repository
+            .enqueue_outbox(
+                "tenant_outbox_worker",
+                "audit-events",
+                "trace_failed",
+                &json!({ "trace_id": "trace_failed" }),
+                1_000,
+            )
+            .await?;
+
+        let dispatcher = LiveOutboxDispatcher::new([
+            AuditOutboxDelivery::Sent,
+            AuditOutboxDelivery::Retryable,
+            AuditOutboxDelivery::Failed,
+        ]);
+        let mut ticks = vec![5_000_u64, 5_100, 5_200];
+        ticks.reverse();
+        let mut worker = PostgresAuditOutboxWorker::new(
+            repository,
+            dispatcher,
+            move || ticks.pop().unwrap_or(5_999),
+            AuditOutboxDrainConfig::new("tenant_outbox_worker", "audit-events", 10, 3_000, 7_000),
+        );
+
+        let report = worker.drain_once().await?;
+
+        assert_eq!(report.claimed, 3);
+        assert_eq!(report.sent, 1);
+        assert_eq!(report.retryable, 1);
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.stale, 0);
+
+        let rows = sqlx::query(
+            r#"
+            SELECT aggregate_id, status, attempt_count,
+                   floor(extract(epoch from next_attempt_at) * 1000)::bigint AS next_attempt_at_ms
+            FROM audit_outbox
+            WHERE tenant_id = $1
+            ORDER BY id ASC
+            "#,
+        )
+        .bind("tenant_outbox_worker")
+        .fetch_all(&pool)
+        .await?;
+        let states: Vec<(String, String, i32, Option<i64>)> = rows
+            .iter()
+            .map(|row| {
+                Ok((
+                    row.try_get("aggregate_id")?,
+                    row.try_get("status")?,
+                    row.try_get("attempt_count")?,
+                    row.try_get("next_attempt_at_ms")?,
+                ))
+            })
+            .collect::<Result<_, sqlx::Error>>()?;
+
+        assert_eq!(
+            states,
+            vec![
+                ("trace_sent".to_string(), "sent".to_string(), 1, Some(8_000)),
+                (
+                    "trace_retry".to_string(),
+                    "pending".to_string(),
+                    1,
+                    Some(12_200)
+                ),
+                ("trace_failed".to_string(), "failed".to_string(), 1, None),
             ]
         );
 
