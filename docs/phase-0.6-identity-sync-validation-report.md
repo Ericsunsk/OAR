@@ -89,6 +89,7 @@
 - `OperationLedger` 已覆盖重复幂等、并发重复提交、状态转移、未知 idempotency key 错误一致性。
 - `AuditEventRepository` 和 `OperationLedgerRepository` 已形成内存实现和 repository 边界，执行器可通过 repository 读写 ledger/audit。
 - Postgres migration 草案已加入 `crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql`，并通过 schema contract 测试覆盖关键唯一约束、append-only 审计、token 字段命名安全和 sync cursor 字段。
+- `storage::postgres` 已加入 SQL contract，覆盖 confirmed action / ledger 幂等 upsert、状态转移 guard、audit append 和 outbox enqueue；当前仍未接入 live DB。
 
 仍需生产级验证：
 
