@@ -94,7 +94,9 @@ mod postgres_feature_api_contract {
         token_refresh_audit_event, TokenRefreshAuditContext,
     };
     use oar_core::domain::identity::{ActorKind, ScopeBoundary, TokenGrantState};
-    use oar_core::domain::token_refresh::TokenRefreshCommandSink;
+    use oar_core::domain::token_refresh::{
+        AuthRefreshAdapter, RefreshOutcome, TokenRefreshCommandSink, TokenRefreshGrantSnapshot,
+    };
     use oar_core::lark::adapter::MockLarkAdapter;
     use oar_core::storage::postgres::audit_outbox_worker::{
         AuditOutboxDelivery, AuditOutboxDispatcher, AuditOutboxDrainConfig, AuditOutboxDrainReport,
@@ -106,8 +108,9 @@ mod postgres_feature_api_contract {
         PostgresExecutionUnitOfWorkReport, PostgresIdentityRepository,
         PostgresLarkIdentityRepository, PostgresOarUserRepository,
         PostgresOperationLedgerRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
-        PostgresTokenRefreshCommandSink, PostgresTokenRefreshUnitOfWork, StoredDeviceSession,
-        StoredLarkIdentity, StoredOarUser, StoredTenant,
+        PostgresTokenRefreshCommandSink, PostgresTokenRefreshOrchestrator,
+        PostgresTokenRefreshUnitOfWork, StoredDeviceSession, StoredLarkIdentity, StoredOarUser,
+        StoredTenant,
     };
     use sqlx::PgPool;
 
@@ -179,6 +182,10 @@ mod postgres_feature_api_contract {
             <PostgresTokenRefreshCommandSink as TokenRefreshCommandSink>::apply_refresh_command;
         let _apply_refresh_command_with_audit =
             PostgresTokenRefreshUnitOfWork::apply_command_with_audit;
+        let _token_refresh_orchestrator_ctor =
+            PostgresTokenRefreshOrchestrator::<NoopRefreshAdapter>::new;
+        let _token_refresh_orchestrator_refresh =
+            PostgresTokenRefreshOrchestrator::<NoopRefreshAdapter>::refresh_grant_with_audit;
         let _rotate_grant = PostgresTokenGrantRepository::rotate_encrypted_grant;
         let _mark_refresh_failed = PostgresTokenGrantRepository::mark_refresh_failed;
         let _mark_reauth_required = PostgresTokenGrantRepository::mark_reauth_required;
@@ -235,6 +242,7 @@ mod postgres_feature_api_contract {
     }
 
     struct NoopDispatcher;
+    struct NoopRefreshAdapter;
 
     impl AuditOutboxDispatcher for NoopDispatcher {
         type Error = ();
@@ -244,6 +252,14 @@ mod postgres_feature_api_contract {
             _message: &oar_core::storage::postgres::AuditOutboxMessage,
         ) -> Result<AuditOutboxDelivery, ()> {
             Ok(AuditOutboxDelivery::Sent)
+        }
+    }
+
+    impl AuthRefreshAdapter for NoopRefreshAdapter {
+        fn refresh(&mut self, _snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
+            RefreshOutcome::TransientFailure {
+                safe_error: "temporarily unavailable".to_string(),
+            }
         }
     }
 

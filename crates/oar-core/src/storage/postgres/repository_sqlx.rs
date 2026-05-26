@@ -9,9 +9,10 @@ use crate::domain::identity::{
     TokenGrantState,
 };
 use crate::domain::token_refresh::{
-    TokenRefreshApplyResult, TokenRefreshAuditSummary, TokenRefreshCommandKind,
-    TokenRefreshCommandSink, TokenRefreshDecisionKind, TokenRefreshReportStatus,
-    TokenRefreshRepositoryCommand,
+    decide_token_refresh, AuthRefreshAdapter, TokenRefreshApplyResult, TokenRefreshAttempt,
+    TokenRefreshAuditSummary, TokenRefreshBridgeError, TokenRefreshCommandKind,
+    TokenRefreshCommandSink, TokenRefreshDecisionKind, TokenRefreshGrantSnapshot,
+    TokenRefreshReportStatus, TokenRefreshRepositoryCommand, TokenRefreshServiceReport,
 };
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
@@ -89,6 +90,8 @@ pub enum PostgresRepositoryError {
     TokioRuntimeBuild(#[source] std::io::Error),
     #[error("tokio runtime bridge thread panicked")]
     TokioRuntimeBridgePanic,
+    #[error("token refresh decision bridge failed")]
+    TokenRefreshDecisionBridge(#[source] TokenRefreshBridgeError),
 }
 
 pub type PgRepositoryResult<T> = Result<T, PostgresRepositoryError>;
@@ -191,6 +194,12 @@ pub struct PostgresTokenRefreshUnitOfWorkReport {
     pub event: AuditEvent,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostgresTokenRefreshOrchestratorReport {
+    pub service_report: TokenRefreshServiceReport,
+    pub event: AuditEvent,
+}
+
 #[derive(Debug, Clone)]
 pub struct PostgresTokenGrantRepository {
     pool: PgPool,
@@ -199,6 +208,16 @@ pub struct PostgresTokenGrantRepository {
 #[derive(Debug, Clone)]
 pub struct PostgresTokenRefreshCommandSink {
     repository: PostgresTokenGrantRepository,
+}
+
+#[derive(Debug, Clone)]
+pub struct PostgresTokenRefreshOrchestrator<A>
+where
+    A: AuthRefreshAdapter,
+{
+    adapter: A,
+    uow: PostgresTokenRefreshUnitOfWork,
+    audit: PostgresAuditEventRepository,
 }
 
 #[derive(Debug, Clone)]
@@ -1074,6 +1093,90 @@ impl PostgresTokenRefreshUnitOfWork {
         Ok(PostgresTokenRefreshUnitOfWorkReport {
             apply_result,
             event,
+        })
+    }
+}
+
+impl<A> PostgresTokenRefreshOrchestrator<A>
+where
+    A: AuthRefreshAdapter,
+{
+    pub fn new(pool: PgPool, adapter: A) -> Self {
+        Self {
+            adapter,
+            uow: PostgresTokenRefreshUnitOfWork::new(pool.clone()),
+            audit: PostgresAuditEventRepository::new(pool),
+        }
+    }
+
+    pub fn adapter(&self) -> &A {
+        &self.adapter
+    }
+
+    pub async fn refresh_grant_with_audit(
+        &mut self,
+        snapshot: TokenRefreshGrantSnapshot,
+        now: SystemTime,
+        audit_context: TokenRefreshAuditContext,
+    ) -> PgRepositoryResult<PostgresTokenRefreshOrchestratorReport> {
+        if let Some(reason) = snapshot.short_circuit_reason() {
+            let service_report = TokenRefreshServiceReport {
+                grant_id: snapshot.grant_id,
+                tenant_id: snapshot.tenant_id,
+                status: TokenRefreshReportStatus::ShortCircuited(reason),
+                adapter_called: false,
+                sink_called: false,
+                decision: None,
+                command: None,
+                safe_error: None,
+            };
+            let event = token_refresh_audit_event(audit_context, &service_report.audit_summary());
+            self.audit.append(&event, None).await?;
+            return Ok(PostgresTokenRefreshOrchestratorReport {
+                service_report,
+                event,
+            });
+        }
+
+        let outcome = self.adapter.refresh(&snapshot);
+        let attempt = TokenRefreshAttempt {
+            grant_id: snapshot.grant_id.clone(),
+            tenant_id: snapshot.tenant_id.clone(),
+            expected_fingerprint: snapshot.expected_fingerprint.clone(),
+            outcome,
+        };
+        let decision = decide_token_refresh(attempt);
+        let decision_kind = decision.kind();
+        let safe_error = decision.safe_error().map(ToOwned::to_owned);
+        let command = decision
+            .into_repository_command_at(now)
+            .map_err(PostgresRepositoryError::TokenRefreshDecisionBridge)?;
+        let command_kind = command.kind();
+
+        let uow_report = self
+            .uow
+            .apply_command_with_audit(command, audit_context)
+            .await?;
+        let status = if uow_report.apply_result.is_some() {
+            TokenRefreshReportStatus::Succeeded
+        } else {
+            TokenRefreshReportStatus::ConflictNoop
+        };
+
+        let service_report = TokenRefreshServiceReport {
+            grant_id: snapshot.grant_id,
+            tenant_id: snapshot.tenant_id,
+            status,
+            adapter_called: true,
+            sink_called: true,
+            decision: Some(decision_kind),
+            command: Some(command_kind),
+            safe_error,
+        };
+
+        Ok(PostgresTokenRefreshOrchestratorReport {
+            service_report,
+            event: uow_report.event,
         })
     }
 }
