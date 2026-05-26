@@ -116,6 +116,7 @@
 - 默认构建已加入 storage-agnostic `TokenRefreshService`，通过 `AuthRefreshAdapter` 与 `TokenRefreshCommandSink` 串联 refresh outcome、decision、repository command 和 allowlist 安全错误摘要；revoked / reauth-required / missing refresh material 会短路且不调用 adapter/sink。
 - `postgres` feature 已加入 `PostgresTokenRefreshCommandSink`，将 storage-agnostic `TokenRefreshService` 接到 `PostgresTokenGrantRepository::apply_refresh_command`；live DB tests 已覆盖 rotation success、stale fingerprint conflict noop、report/audit debug redaction，以及 service error 输出不展开 sink 内部错误。
 - 已加入 token refresh audit 映射边界：`TokenRefreshAuditSummary` 可映射为 append-only `AuditEvent`，复用现有 execution event types 并以 `target.resource_type = token_grant` / 稳定 `action_type` 区分 refresh 场景；默认测试覆盖 success、conflict noop、short-circuit 和 safe error redaction，Postgres live test 覆盖 audit roundtrip。
+- 已验证 token refresh 场景下的 Postgres 事务化 UoW：refresh 状态更新与 audit append 可在同一 DB transaction 内提交，且审计写入失败会触发整体回滚；该验证当前仍限于 repository/UoW 与 live DB tests。
 
 仍需生产级验证：
 

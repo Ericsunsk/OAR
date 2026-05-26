@@ -37,7 +37,7 @@ use oar_core::storage::postgres::{
     PostgresAuditEventRepository, PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
     PostgresLarkIdentityRepository, PostgresOarUserRepository, PostgresOperationLedgerRepository,
     PostgresRepositoryError, PostgresTenantRepository, PostgresTokenGrantRepository,
-    PostgresTokenRefreshCommandSink,
+    PostgresTokenRefreshCommandSink, PostgresTokenRefreshUnitOfWork,
 };
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -2598,6 +2598,342 @@ fn postgres_live_token_refresh_service_with_sink_stale_fingerprint_noop() {
         assert_eq!(stored.oauth_grant_fingerprint, "fp-current");
         assert_eq!(stored.oauth_grant_key_id, "key-v1");
         assert_eq!(stored.encrypted_oauth_grant, vec![0x01, 0x02, 0x03]);
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_token_refresh_uow_rotate_success() {
+    run_live_postgres_test("token_refresh_uow_rotate_success", |pool| async move {
+        seed_user(&pool, "tenant_tr_uow_success", "user_tr_uow_success").await?;
+        seed_identity(&pool, "tenant_tr_uow_success", "identity_tr_uow_success").await?;
+
+        let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
+        grant_repo
+            .upsert_encrypted_grant(&encrypted_token_grant_record(
+                "tenant_tr_uow_success",
+                "grant_tr_uow_success",
+                "identity_tr_uow_success",
+                TokenGrantState::NeedsRefresh,
+                "fp-uow-old",
+            ))
+            .await?;
+
+        let uow = PostgresTokenRefreshUnitOfWork::new(pool.clone());
+        let report = uow
+            .apply_command_with_audit(
+                TokenRefreshRepositoryCommand::RotateGrantCas {
+                    grant_id: TokenGrantId("grant_tr_uow_success".to_string()),
+                    tenant_id: TenantId("tenant_tr_uow_success".to_string()),
+                    expected_fingerprint: "fp-uow-old".to_string(),
+                    expires_at_ms: Some(1_748_480_000_000),
+                    refreshed_at_ms: 1_748_470_000_000,
+                    encrypted_grant_blob: EncryptedGrantBlob(vec![0x11, 0x22, 0x33]),
+                    grant_key_id: "key-uow-v2".to_string(),
+                    new_fingerprint: "fp-uow-new".to_string(),
+                },
+                TokenRefreshAuditContext {
+                    trace_id: "trace_token_refresh_uow_success".to_string(),
+                    sequence: 11,
+                    occurred_at_ms: 1_748_470_000_001,
+                    actor: actor("user_tr_uow_success"),
+                    workspace_id: None,
+                },
+            )
+            .await?;
+
+        assert_eq!(
+            report
+                .apply_result
+                .expect("rotate should apply")
+                .fingerprint,
+            "fp-uow-new"
+        );
+        assert_eq!(report.event.target.action_type, "token_refresh.rotate");
+
+        let stored = grant_repo
+            .get_by_id("tenant_tr_uow_success", "grant_tr_uow_success")
+            .await?
+            .expect("grant should exist");
+        assert_eq!(stored.oauth_grant_fingerprint, "fp-uow-new");
+        assert_eq!(stored.state, TokenGrantState::Valid);
+
+        let events = PostgresAuditEventRepository::new(pool.clone())
+            .find_by_trace_id("trace_token_refresh_uow_success")
+            .await?;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target.action_type, "token_refresh.rotate");
+
+        let payload: serde_json::Value = sqlx::query_scalar(
+            r#"
+            SELECT payload
+            FROM audit_events
+            WHERE event_id = $1
+            "#,
+        )
+        .bind(&report.event.event_id)
+        .fetch_one(&pool)
+        .await?;
+        let payload_text = payload.to_string().to_lowercase();
+        assert!(!payload_text.contains("access_token"));
+        assert!(!payload_text.contains("refresh_token"));
+        assert!(!payload_text.contains("authorization"));
+        assert!(!payload_text.contains("fingerprint"));
+        assert!(!payload_text.contains("encrypted"));
+        assert!(!payload_text.contains("9, 9, 9"));
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_token_refresh_uow_stale_fingerprint_conflict_noop() {
+    run_live_postgres_test("token_refresh_uow_stale_fingerprint", |pool| async move {
+        seed_user(&pool, "tenant_tr_uow_noop", "user_tr_uow_noop").await?;
+        seed_identity(&pool, "tenant_tr_uow_noop", "identity_tr_uow_noop").await?;
+
+        let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
+        grant_repo
+            .upsert_encrypted_grant(&encrypted_token_grant_record(
+                "tenant_tr_uow_noop",
+                "grant_tr_uow_noop",
+                "identity_tr_uow_noop",
+                TokenGrantState::NeedsRefresh,
+                "fp-current",
+            ))
+            .await?;
+
+        let uow = PostgresTokenRefreshUnitOfWork::new(pool.clone());
+        let report = uow
+            .apply_command_with_audit(
+                TokenRefreshRepositoryCommand::RotateGrantCas {
+                    grant_id: TokenGrantId("grant_tr_uow_noop".to_string()),
+                    tenant_id: TenantId("tenant_tr_uow_noop".to_string()),
+                    expected_fingerprint: "fp-stale".to_string(),
+                    expires_at_ms: Some(1_748_490_000_000),
+                    refreshed_at_ms: 1_748_480_000_000,
+                    encrypted_grant_blob: EncryptedGrantBlob(vec![9, 9, 9]),
+                    grant_key_id: "key-uow-v2".to_string(),
+                    new_fingerprint: "fp-noop-new".to_string(),
+                },
+                TokenRefreshAuditContext {
+                    trace_id: "trace_token_refresh_uow_noop".to_string(),
+                    sequence: 12,
+                    occurred_at_ms: 1_748_480_000_001,
+                    actor: actor("user_tr_uow_noop"),
+                    workspace_id: None,
+                },
+            )
+            .await?;
+
+        assert_eq!(report.apply_result, None);
+        assert_eq!(report.event.event_type, AuditEventType::ExecutionFailed);
+        assert_eq!(
+            report
+                .event
+                .execution
+                .as_ref()
+                .and_then(|execution| execution.error_code.as_deref()),
+            Some("token_refresh_conflict_noop")
+        );
+
+        let stored = grant_repo
+            .get_by_id("tenant_tr_uow_noop", "grant_tr_uow_noop")
+            .await?
+            .expect("grant should remain");
+        assert_eq!(stored.oauth_grant_fingerprint, "fp-current");
+        assert_eq!(stored.oauth_grant_key_id, "key-v1");
+        assert_eq!(stored.encrypted_oauth_grant, vec![0x01, 0x02, 0x03]);
+
+        let events = PostgresAuditEventRepository::new(pool.clone())
+            .find_by_trace_id("trace_token_refresh_uow_noop")
+            .await?;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, AuditEventType::ExecutionFailed);
+        assert_eq!(
+            events[0]
+                .execution
+                .as_ref()
+                .and_then(|execution| execution.error_code.as_deref()),
+            Some("token_refresh_conflict_noop")
+        );
+
+        let payload: serde_json::Value = sqlx::query_scalar(
+            r#"
+            SELECT payload
+            FROM audit_events
+            WHERE event_id = $1
+            "#,
+        )
+        .bind(&report.event.event_id)
+        .fetch_one(&pool)
+        .await?;
+        let payload_text = payload.to_string().to_lowercase();
+        assert!(!payload_text.contains("access_token"));
+        assert!(!payload_text.contains("refresh_token"));
+        assert!(!payload_text.contains("authorization"));
+        assert!(!payload_text.contains("fingerprint"));
+        assert!(!payload_text.contains("encrypted"));
+        assert!(!payload_text.contains("9, 9, 9"));
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_token_refresh_uow_mark_needs_refresh_redacts_audit_error() {
+    run_live_postgres_test("token_refresh_uow_mark_needs_redacts", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_tr_uow_needs_redact",
+            "user_tr_uow_needs_redact",
+        )
+        .await?;
+        seed_identity(
+            &pool,
+            "tenant_tr_uow_needs_redact",
+            "identity_tr_uow_needs_redact",
+        )
+        .await?;
+
+        let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
+        grant_repo
+            .upsert_encrypted_grant(&encrypted_token_grant_record(
+                "tenant_tr_uow_needs_redact",
+                "grant_tr_uow_needs_redact",
+                "identity_tr_uow_needs_redact",
+                TokenGrantState::Valid,
+                "fp-uow-needs-redact",
+            ))
+            .await?;
+
+        let report = PostgresTokenRefreshUnitOfWork::new(pool.clone())
+            .apply_command_with_audit(
+                TokenRefreshRepositoryCommand::MarkNeedsRefresh {
+                    grant_id: TokenGrantId("grant_tr_uow_needs_redact".to_string()),
+                    tenant_id: TenantId("tenant_tr_uow_needs_redact".to_string()),
+                    expected_fingerprint: "fp-uow-needs-redact".to_string(),
+                    refreshed_at_ms: 1_748_485_000_000,
+                    safe_error: "refresh_token=rt_fake Authorization: Bearer at_fake".to_string(),
+                },
+                TokenRefreshAuditContext {
+                    trace_id: "trace_token_refresh_uow_needs_redact".to_string(),
+                    sequence: 13,
+                    occurred_at_ms: 1_748_485_000_001,
+                    actor: actor("user_tr_uow_needs_redact"),
+                    workspace_id: None,
+                },
+            )
+            .await?;
+
+        let updated = grant_repo
+            .get_by_id("tenant_tr_uow_needs_redact", "grant_tr_uow_needs_redact")
+            .await?
+            .expect("grant should exist after needs-refresh mark");
+        assert_eq!(updated.state, TokenGrantState::NeedsRefresh);
+        assert_eq!(
+            updated.last_refresh_error.as_deref(),
+            Some("<redacted refresh error>")
+        );
+
+        let payload: serde_json::Value = sqlx::query_scalar(
+            r#"
+            SELECT payload
+            FROM audit_events
+            WHERE event_id = $1
+            "#,
+        )
+        .bind(&report.event.event_id)
+        .fetch_one(&pool)
+        .await?;
+        let payload_text = payload.to_string().to_lowercase();
+        assert!(payload_text.contains("<redacted refresh error>"));
+        assert!(!payload_text.contains("refresh_token"));
+        assert!(!payload_text.contains("authorization"));
+        assert!(!payload_text.contains("bearer"));
+        assert!(!payload_text.contains("rt_fake"));
+        assert!(!payload_text.contains("at_fake"));
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_token_refresh_uow_rolls_back_when_audit_append_fails() {
+    run_live_postgres_test("token_refresh_uow_rollback", |pool| async move {
+        seed_user(&pool, "tenant_tr_uow_rollback", "user_tr_uow_rollback").await?;
+        seed_identity(&pool, "tenant_tr_uow_rollback", "identity_tr_uow_rollback").await?;
+
+        let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
+        grant_repo
+            .upsert_encrypted_grant(&encrypted_token_grant_record(
+                "tenant_tr_uow_rollback",
+                "grant_tr_uow_rollback",
+                "identity_tr_uow_rollback",
+                TokenGrantState::NeedsRefresh,
+                "fp-uow-rollback-old",
+            ))
+            .await?;
+
+        let audit = PostgresAuditEventRepository::new(pool.clone());
+        let duplicate_event = AuditEvent::execution_succeeded(
+            "trace_token_refresh_uow_rollback-evt-100",
+            "trace_token_refresh_uow_rollback",
+            100,
+            1_748_499_999_000,
+            actor("user_tr_uow_rollback"),
+            scope("tenant_tr_uow_rollback"),
+            AuditTarget {
+                resource_type: "token_grant".to_string(),
+                resource_id: "grant_tr_uow_rollback".to_string(),
+                action_type: "token_refresh.rotate".to_string(),
+            },
+            None,
+            Some(summary("duplicate guard")),
+            "noop",
+        );
+        audit.append(&duplicate_event, None).await?;
+
+        let uow = PostgresTokenRefreshUnitOfWork::new(pool.clone());
+        let result = uow
+            .apply_command_with_audit(
+                TokenRefreshRepositoryCommand::RotateGrantCas {
+                    grant_id: TokenGrantId("grant_tr_uow_rollback".to_string()),
+                    tenant_id: TenantId("tenant_tr_uow_rollback".to_string()),
+                    expected_fingerprint: "fp-uow-rollback-old".to_string(),
+                    expires_at_ms: Some(1_748_500_000_000),
+                    refreshed_at_ms: 1_748_490_000_000,
+                    encrypted_grant_blob: EncryptedGrantBlob(vec![0x44, 0x55, 0x66]),
+                    grant_key_id: "key-uow-v3".to_string(),
+                    new_fingerprint: "fp-uow-rollback-new".to_string(),
+                },
+                TokenRefreshAuditContext {
+                    trace_id: "trace_token_refresh_uow_rollback".to_string(),
+                    sequence: 100,
+                    occurred_at_ms: 1_748_490_000_001,
+                    actor: AuditActor {
+                        kind: AuditActorKind::Service,
+                        actor_id: "svc_token_refresher".to_string(),
+                        display_name: Some("Token Refresher".to_string()),
+                    },
+                    workspace_id: None,
+                },
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "duplicate audit event id should roll back grant mutation"
+        );
+
+        let stored = grant_repo
+            .get_by_id("tenant_tr_uow_rollback", "grant_tr_uow_rollback")
+            .await?
+            .expect("grant should still exist after rollback");
+        assert_eq!(stored.oauth_grant_fingerprint, "fp-uow-rollback-old");
+        assert_eq!(stored.oauth_grant_key_id, "key-v1");
+        assert_eq!(stored.encrypted_oauth_grant, vec![0x01, 0x02, 0x03]);
+        assert_eq!(stored.state, TokenGrantState::NeedsRefresh);
 
         Ok(())
     });

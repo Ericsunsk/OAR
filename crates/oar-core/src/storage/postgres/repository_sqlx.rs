@@ -3,12 +3,15 @@ use crate::action::audit_event::{
 };
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::action::operation_ledger::{LedgerError, OperationRecord, SubmitResult};
+use crate::action::token_refresh_audit::{token_refresh_audit_event, TokenRefreshAuditContext};
 use crate::domain::identity::{
     ActorKind, LarkIdentity, OarUser, OarUserStatus, ScopeBoundary, Tenant, TenantStatus,
     TokenGrantState,
 };
 use crate::domain::token_refresh::{
-    TokenRefreshApplyResult, TokenRefreshCommandSink, TokenRefreshRepositoryCommand,
+    TokenRefreshApplyResult, TokenRefreshAuditSummary, TokenRefreshCommandKind,
+    TokenRefreshCommandSink, TokenRefreshDecisionKind, TokenRefreshReportStatus,
+    TokenRefreshRepositoryCommand,
 };
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
@@ -180,6 +183,12 @@ pub struct PostgresExecutionUnitOfWorkReport {
     pub operation: OperationRecord,
     pub outbox_id: Option<i64>,
     pub duplicate: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostgresTokenRefreshUnitOfWorkReport {
+    pub apply_result: Option<TokenRefreshApplyResult>,
+    pub event: AuditEvent,
 }
 
 #[derive(Debug, Clone)]
@@ -885,6 +894,11 @@ pub struct PostgresExecutionUnitOfWork {
     pool: PgPool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PostgresTokenRefreshUnitOfWork {
+    pool: PgPool,
+}
+
 impl PostgresExecutionUnitOfWork {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -1025,6 +1039,41 @@ impl PostgresExecutionUnitOfWork {
             operation,
             outbox_id,
             duplicate,
+        })
+    }
+}
+
+impl PostgresTokenRefreshUnitOfWork {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    pub async fn apply_command_with_audit(
+        &self,
+        command: TokenRefreshRepositoryCommand,
+        audit_context: TokenRefreshAuditContext,
+    ) -> PgRepositoryResult<PostgresTokenRefreshUnitOfWorkReport> {
+        let summary = token_refresh_summary_from_command(command.clone());
+        let mut tx = self.pool.begin().await?;
+        let apply_result = apply_refresh_command_in_tx(&mut tx, command).await?;
+        let mut summary = summary;
+        summary.status = if apply_result.is_some() {
+            TokenRefreshReportStatus::Succeeded
+        } else {
+            TokenRefreshReportStatus::ConflictNoop
+        };
+
+        let event = token_refresh_audit_event(audit_context, &summary);
+        append_audit_event_in_tx(&mut tx, &event, None).await?;
+        tx.commit().await?;
+
+        Ok(PostgresTokenRefreshUnitOfWorkReport {
+            apply_result,
+            event,
         })
     }
 }
@@ -1499,6 +1548,129 @@ fn block_on_refresh_command(
             .await
             .map(|record| record.map(token_refresh_apply_result_from_record))
     })
+}
+
+async fn apply_refresh_command_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    command: TokenRefreshRepositoryCommand,
+) -> PgRepositoryResult<Option<TokenRefreshApplyResult>> {
+    let row = match command {
+        TokenRefreshRepositoryCommand::RotateGrantCas {
+            grant_id,
+            tenant_id,
+            expected_fingerprint,
+            expires_at_ms,
+            refreshed_at_ms,
+            encrypted_grant_blob,
+            grant_key_id,
+            new_fingerprint,
+        } => {
+            sqlx::query(ROTATE_TOKEN_GRANT)
+                .bind(&tenant_id.0)
+                .bind(&grant_id.0)
+                .bind(&expected_fingerprint)
+                .bind(option_u64_to_i64(expires_at_ms))
+                .bind(refreshed_at_ms as i64)
+                .bind(&encrypted_grant_blob.0)
+                .bind(&grant_key_id)
+                .bind(&new_fingerprint)
+                .fetch_optional(&mut **tx)
+                .await?
+        }
+        TokenRefreshRepositoryCommand::MarkNeedsRefresh {
+            grant_id,
+            tenant_id,
+            expected_fingerprint,
+            refreshed_at_ms,
+            safe_error,
+        } => {
+            let safe_error = sanitize_refresh_error_for_storage(&safe_error);
+            sqlx::query(MARK_TOKEN_GRANT_REFRESH_FAILED)
+                .bind(&tenant_id.0)
+                .bind(&grant_id.0)
+                .bind(&expected_fingerprint)
+                .bind(refreshed_at_ms as i64)
+                .bind(&safe_error)
+                .fetch_optional(&mut **tx)
+                .await?
+        }
+        TokenRefreshRepositoryCommand::MarkReauthRequired {
+            grant_id,
+            tenant_id,
+            expected_fingerprint,
+            reauth_required_at_ms,
+            safe_error,
+        } => {
+            let safe_error = sanitize_refresh_error_for_storage(&safe_error);
+            sqlx::query(MARK_TOKEN_GRANT_REAUTH_REQUIRED)
+                .bind(&tenant_id.0)
+                .bind(&grant_id.0)
+                .bind(&expected_fingerprint)
+                .bind(reauth_required_at_ms as i64)
+                .bind(&safe_error)
+                .fetch_optional(&mut **tx)
+                .await?
+        }
+    };
+
+    row.as_ref()
+        .map(encrypted_token_grant_from_row)
+        .transpose()
+        .map(|value| value.map(token_refresh_apply_result_from_record))
+}
+
+fn token_refresh_summary_from_command(
+    command: TokenRefreshRepositoryCommand,
+) -> TokenRefreshAuditSummary {
+    match command {
+        TokenRefreshRepositoryCommand::RotateGrantCas {
+            grant_id,
+            tenant_id,
+            ..
+        } => TokenRefreshAuditSummary {
+            grant_id,
+            tenant_id,
+            status: TokenRefreshReportStatus::ConflictNoop,
+            decision: Some(TokenRefreshDecisionKind::RotateGrantCas),
+            command: Some(TokenRefreshCommandKind::RotateGrantCas),
+            safe_error: None,
+        },
+        TokenRefreshRepositoryCommand::MarkNeedsRefresh {
+            grant_id,
+            tenant_id,
+            safe_error,
+            ..
+        } => TokenRefreshAuditSummary {
+            grant_id,
+            tenant_id,
+            status: TokenRefreshReportStatus::ConflictNoop,
+            decision: Some(TokenRefreshDecisionKind::MarkNeedsRefresh),
+            command: Some(TokenRefreshCommandKind::MarkNeedsRefresh),
+            safe_error: Some(sanitize_refresh_error_for_audit(&safe_error)),
+        },
+        TokenRefreshRepositoryCommand::MarkReauthRequired {
+            grant_id,
+            tenant_id,
+            safe_error,
+            ..
+        } => TokenRefreshAuditSummary {
+            grant_id,
+            tenant_id,
+            status: TokenRefreshReportStatus::ConflictNoop,
+            decision: Some(TokenRefreshDecisionKind::MarkReauthRequired),
+            command: Some(TokenRefreshCommandKind::MarkReauthRequired),
+            safe_error: Some(sanitize_refresh_error_for_audit(&safe_error)),
+        },
+    }
+}
+
+fn sanitize_refresh_error_for_audit(reason: &str) -> String {
+    match reason.trim() {
+        "invalid_grant" => "invalid_grant".to_string(),
+        "temporarily unavailable" => "temporarily unavailable".to_string(),
+        REDACTED_REFRESH_ERROR => REDACTED_REFRESH_ERROR.to_string(),
+        _ => REDACTED_REFRESH_ERROR.to_string(),
+    }
 }
 
 fn token_refresh_apply_result_from_record(

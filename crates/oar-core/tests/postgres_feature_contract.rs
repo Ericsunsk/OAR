@@ -106,8 +106,8 @@ mod postgres_feature_api_contract {
         PostgresExecutionUnitOfWorkReport, PostgresIdentityRepository,
         PostgresLarkIdentityRepository, PostgresOarUserRepository,
         PostgresOperationLedgerRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
-        PostgresTokenRefreshCommandSink, StoredDeviceSession, StoredLarkIdentity, StoredOarUser,
-        StoredTenant,
+        PostgresTokenRefreshCommandSink, PostgresTokenRefreshUnitOfWork, StoredDeviceSession,
+        StoredLarkIdentity, StoredOarUser, StoredTenant,
     };
     use sqlx::PgPool;
 
@@ -119,6 +119,8 @@ mod postgres_feature_api_contract {
             PostgresAuditEventRepository::new;
         let _from_pool_ctor_uow: fn(PgPool) -> PostgresExecutionUnitOfWork =
             PostgresExecutionUnitOfWork::new;
+        let _from_pool_ctor_token_refresh_uow: fn(PgPool) -> PostgresTokenRefreshUnitOfWork =
+            PostgresTokenRefreshUnitOfWork::new;
         let _from_pool_ctor_token_grant: fn(PgPool) -> PostgresTokenGrantRepository =
             PostgresTokenGrantRepository::new;
         let _from_repository_ctor_refresh_sink: fn(
@@ -175,6 +177,8 @@ mod postgres_feature_api_contract {
         let _apply_refresh_command = PostgresTokenGrantRepository::apply_refresh_command;
         let _apply_refresh_command_sink =
             <PostgresTokenRefreshCommandSink as TokenRefreshCommandSink>::apply_refresh_command;
+        let _apply_refresh_command_with_audit =
+            PostgresTokenRefreshUnitOfWork::apply_command_with_audit;
         let _rotate_grant = PostgresTokenGrantRepository::rotate_encrypted_grant;
         let _mark_refresh_failed = PostgresTokenGrantRepository::mark_refresh_failed;
         let _mark_reauth_required = PostgresTokenGrantRepository::mark_reauth_required;
