@@ -6,6 +6,7 @@ pub mod execution_policy;
 pub mod executor;
 pub mod operation_ledger;
 pub mod operation_ledger_repository;
+pub mod token_refresh_audit;
 
 #[cfg(feature = "postgres")]
 pub mod postgres_executor;

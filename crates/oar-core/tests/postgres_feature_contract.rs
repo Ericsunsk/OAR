@@ -90,6 +90,9 @@ mod postgres_feature_api_contract {
     use oar_core::action::audit_event::AuditEvent;
     use oar_core::action::confirmed_action::ConfirmedAction;
     use oar_core::action::postgres_executor::PostgresActionExecutor;
+    use oar_core::action::token_refresh_audit::{
+        token_refresh_audit_event, TokenRefreshAuditContext,
+    };
     use oar_core::domain::identity::{ActorKind, ScopeBoundary, TokenGrantState};
     use oar_core::domain::token_refresh::TokenRefreshCommandSink;
     use oar_core::lark::adapter::MockLarkAdapter;
@@ -156,6 +159,9 @@ mod postgres_feature_api_contract {
             PostgresAuditEventRepository::mark_outbox_retryable_for_attempt;
         let _failed = PostgresAuditEventRepository::mark_outbox_failed;
         let _failed_for_attempt = PostgresAuditEventRepository::mark_outbox_failed_for_attempt;
+        let _token_refresh_mapping = token_refresh_audit_event;
+        let _token_refresh_append = PostgresAuditEventRepository::append;
+        let _token_refresh_audit_pipeline = (_token_refresh_mapping, _token_refresh_append);
         let _record_confirmation = PostgresExecutionUnitOfWork::record_confirmation;
         let _record_dry_run = PostgresExecutionUnitOfWork::record_dry_run;
         let _record_success = PostgresExecutionUnitOfWork::record_success;
@@ -202,6 +208,7 @@ mod postgres_feature_api_contract {
         let _phantom_tenant: Option<StoredTenant> = None;
         let _phantom_oar_user: Option<StoredOarUser> = None;
         let _phantom_lark_identity: Option<StoredLarkIdentity> = None;
+        let _phantom_token_refresh_context: Option<TokenRefreshAuditContext> = None;
         let _phantom_grant = Some(EncryptedTokenGrantRecord {
             id: "grant".to_string(),
             tenant_id: "tenant".to_string(),

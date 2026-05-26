@@ -70,7 +70,7 @@
 | I3 | token refresh 前置条件 | 部分通过 | refresh 到期时间存在，token 从 needs_refresh 变为 valid |
 | I4 | 后端 `TokenGrant` 存储 | 进行中 | token 加密存储，refresh rotation 原子更新且受 SQL guard 约束 |
 | I4a | identity repositories（`Tenant`/`OarUser`/`LarkIdentity`） | 进行中 | 租户隔离、绑定唯一性、冲突语义和审计字段在 Postgres 下可验证 |
-| I4b | `TokenRefreshDecision` persistence bridge | 部分通过 | service 层已串起 refresh outcome、decision、repository command sink 和 allowlist 安全错误摘要；feature-gated `PostgresTokenRefreshCommandSink` 已接入 `PostgresTokenGrantRepository` 的 CAS 持久化入口，并通过 live DB tests 覆盖 rotation success 与 stale fingerprint conflict noop；真实 AuthAdapter、调度与 append-only audit 集成仍待完成 |
+| I4b | `TokenRefreshDecision` persistence bridge | 部分通过 | service 层已串起 refresh outcome、decision、repository command sink 和 allowlist 安全错误摘要；feature-gated `PostgresTokenRefreshCommandSink` 已接入 `PostgresTokenGrantRepository` 的 CAS 持久化入口，并通过 live DB tests 覆盖 rotation success 与 stale fingerprint conflict noop；refresh audit 映射与 Postgres roundtrip 已验证，真实 AuthAdapter、后台调度与事务化编排仍待完成 |
 | I5 | 多端 `DeviceSession` 同步 | 进行中 | cursor 单调推进、stale/revoked 会话被拒绝且多端看到同一 action 状态 |
 | I6 | `OperationLedger` 幂等执行 | 部分通过 | 同一 `ConfirmedAction` 并发确认只执行一次 |
 | I7 | 后台 worker | 未开始 | 无客户端在线时仍可按计划生成复盘 |
@@ -112,15 +112,16 @@
 - 已加入 feature-gated async `PostgresActionExecutor`，用 Postgres UoW 串起确认记录、dry-run、adapter execute、终态 ledger、audit event 和 outbox；live tests 覆盖成功、重复幂等、adapter failure 和 policy denied。
 - 已加入 feature-gated `PostgresAuditOutboxWorker` 最小 drain 路径，outbox mark sent/retry/failed 支持 `attempt_count + lease_until` guard；live tests 覆盖 lease 过期后二次 claim 时陈旧 worker 不能误标 sent、同一 claim 只能终态一次、retry 后重新 claim 的 attempt 单调递增，以及 sent/retry/failed 混合投递。
 - Postgres ledger submit 已改为显式返回 `created` 标记，避免用 `operation_id` 推断新建/复用；未确认 action 会在 DB 写入前被拒绝。
-- repository 层已支持 `TokenRefreshDecision` 通过 `PostgresTokenGrantRepository::apply_refresh_command` 分发到 `rotate_encrypted_grant`、`mark_refresh_failed`、`mark_reauth_required`，并复用现有 SQL CAS / state guard；真实 AuthAdapter、后台调度和 append-only audit 编排仍未闭环。
+- repository 层已支持 `TokenRefreshDecision` 通过 `PostgresTokenGrantRepository::apply_refresh_command` 分发到 `rotate_encrypted_grant`、`mark_refresh_failed`、`mark_reauth_required`，并复用现有 SQL CAS / state guard；真实 AuthAdapter、后台调度和事务化 audit 编排仍未闭环。
 - 默认构建已加入 storage-agnostic `TokenRefreshService`，通过 `AuthRefreshAdapter` 与 `TokenRefreshCommandSink` 串联 refresh outcome、decision、repository command 和 allowlist 安全错误摘要；revoked / reauth-required / missing refresh material 会短路且不调用 adapter/sink。
 - `postgres` feature 已加入 `PostgresTokenRefreshCommandSink`，将 storage-agnostic `TokenRefreshService` 接到 `PostgresTokenGrantRepository::apply_refresh_command`；live DB tests 已覆盖 rotation success、stale fingerprint conflict noop、report/audit debug redaction，以及 service error 输出不展开 sink 内部错误。
+- 已加入 token refresh audit 映射边界：`TokenRefreshAuditSummary` 可映射为 append-only `AuditEvent`，复用现有 execution event types 并以 `target.resource_type = token_grant` / 稳定 `action_type` 区分 refresh 场景；默认测试覆盖 success、conflict noop、short-circuit 和 safe error redaction，Postgres live test 覆盖 audit roundtrip。
 
 仍需生产级验证：
 
 - `Tenant` / `OarUser` / `LarkIdentity` Postgres repositories 集成验证：租户隔离、唯一约束冲突路径、identity 绑定幂等恢复与审计可追溯。
 - `TokenGrant` Postgres 持久化集成验证：repository 仅处理加密授权包，不接受/返回明文 token。
-- `TokenRefreshService` 与 repository command sink 的领域编排已覆盖；仍需接入真实 `AuthAdapter`、后台调度，并补齐 append-only 审计事件上下文。
+- `TokenRefreshService` 与 repository command sink 的领域编排已覆盖，refresh audit 事件映射与 Postgres roundtrip 已验证；仍需接入真实 `AuthAdapter`、后台调度，并把 refresh 状态更新与审计写入纳入同一生产编排/事务边界。
 - refresh rotation SQL CAS 集成验证：`tenant_id + grant_id + expected_fingerprint`、状态白名单（`valid` / `needs_refresh` / `expired`）和 `revoked_at IS NULL` / `reauth_required_at IS NULL` guard 全部生效。
 - revoked / reauth-required grant 的 rotation 阻断需在真实数据库和并发场景下持续验证。
 - `DeviceSession` Postgres repository 需补齐真实数据库并发验证：cursor 只前进不回退、revoked/expired 门禁、跨设备冲突可观测。

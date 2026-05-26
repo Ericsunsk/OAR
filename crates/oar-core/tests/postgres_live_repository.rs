@@ -17,6 +17,7 @@ use oar_core::action::executor::{
 };
 use oar_core::action::operation_ledger::{LedgerError, SubmitResult};
 use oar_core::action::postgres_executor::PostgresActionExecutor;
+use oar_core::action::token_refresh_audit::{token_refresh_audit_event, TokenRefreshAuditContext};
 use oar_core::domain::device_sync::{DeviceEntryPoint, DeviceSession, SessionState};
 use oar_core::domain::identity::{
     ActorKind, DeviceSessionId, LarkIdentity, LarkIdentityId, OAuthTokens, OarUser, OarUserId,
@@ -25,8 +26,8 @@ use oar_core::domain::identity::{
 };
 use oar_core::domain::token_refresh::{
     AuthRefreshAdapter, EncryptedGrantBlob, EncryptedGrantMaterial, RefreshOutcome,
-    TokenRefreshGrantSnapshot, TokenRefreshReportStatus, TokenRefreshRepositoryCommand,
-    TokenRefreshService,
+    TokenRefreshAuditSummary, TokenRefreshCommandKind, TokenRefreshGrantSnapshot,
+    TokenRefreshReportStatus, TokenRefreshRepositoryCommand, TokenRefreshService,
 };
 use oar_core::storage::postgres::audit_outbox_worker::{
     AuditOutboxDelivery, AuditOutboxDispatcher, AuditOutboxDrainConfig, PostgresAuditOutboxWorker,
@@ -988,6 +989,65 @@ fn postgres_live_audit_repository_orders_events_and_enforces_append_only() {
             update_result.is_err(),
             "audit_events update trigger should enforce append-only storage"
         );
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_token_refresh_audit_roundtrip() {
+    run_live_postgres_test("token_refresh_audit_roundtrip", |pool| async move {
+        seed_user(&pool, "tenant_refresh_audit", "user_refresh_audit").await?;
+
+        let repository = PostgresAuditEventRepository::new(pool.clone());
+        let event = token_refresh_audit_event(
+            TokenRefreshAuditContext {
+                trace_id: "trace_token_refresh_audit".to_string(),
+                sequence: 7,
+                occurred_at_ms: 1_748_250_007_000,
+                actor: actor("user_refresh_audit"),
+                workspace_id: None,
+            },
+            &TokenRefreshAuditSummary {
+                grant_id: TokenGrantId("grant_refresh_audit".to_string()),
+                tenant_id: TenantId("tenant_refresh_audit".to_string()),
+                status: TokenRefreshReportStatus::Succeeded,
+                decision: None,
+                command: Some(TokenRefreshCommandKind::RotateGrantCas),
+                safe_error: None,
+            },
+        );
+
+        repository.append(&event, None).await?;
+
+        let events = repository
+            .find_by_trace_id("trace_token_refresh_audit")
+            .await?;
+        assert_eq!(events.len(), 1);
+
+        let persisted = &events[0];
+        assert_eq!(persisted.event_type, AuditEventType::ExecutionSucceeded);
+        assert_eq!(persisted.scope.tenant_id, "tenant_refresh_audit");
+        assert_eq!(persisted.target.resource_type, "token_grant");
+        assert_eq!(persisted.target.action_type, "token_refresh.rotate");
+
+        let payload: serde_json::Value = sqlx::query_scalar(
+            r#"
+            SELECT payload
+            FROM audit_events
+            WHERE event_id = $1
+            "#,
+        )
+        .bind(&event.event_id)
+        .fetch_one(&pool)
+        .await?;
+        let payload_text = payload.to_string().to_lowercase();
+        assert!(!payload_text.contains("access_token"));
+        assert!(!payload_text.contains("refresh_token"));
+        assert!(!payload_text.contains("authorization"));
+        assert!(!payload_text.contains("fingerprint"));
+        assert!(!payload_text.contains("encrypted"));
+        assert!(!payload_text.contains("9, 9, 9"));
 
         Ok(())
     });
