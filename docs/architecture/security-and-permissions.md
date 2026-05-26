@@ -107,6 +107,41 @@ OAR 的默认安全原则：
 - 未经授权读取跨团队/跨部门 OKR。
 - 在日志中输出 access token、refresh token、完整会议原文或敏感人事结论。
 
+### 4.1 TokenGrant 与 refresh 边界
+
+`TokenGrant` 只表达授权生命周期，不表达业务写回许可。refresh 成功只能更新授权材料和状态，不能绕过 `ConfirmedAction` 直接执行 OKR 写回。
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Client as 客户端
+    participant OAR as OAR 后端
+    participant Auth as AuthAdapter
+    participant Repo as TokenGrant Repository
+    participant Lark as 飞书 OAuth/OpenAPI
+
+    User->>Client: 登录并授予 scope
+    Client->>OAR: auth code + OAR session
+    OAR->>Auth: exchange / refresh 请求
+    Auth->>Lark: OAuth 调用
+    Lark-->>Auth: OAuth response
+    Auth-->>OAR: RefreshOutcome 或 safe_error
+    OAR->>Repo: 加密授权包 + key id + fingerprint
+    Repo-->>OAR: grant 状态快照
+    Note over Client,Repo: 客户端只保存 OAR session；明文 token 不跨 repository 边界
+
+    OAR->>Repo: 选择 due / needs_refresh / expired 候选
+    Repo-->>OAR: 最小候选快照
+    OAR->>Auth: 显式 run_once refresh
+    Auth->>Lark: refresh 调用
+    Lark-->>Auth: OAuth response
+    Auth-->>OAR: RefreshOutcome 或 safe_error
+    OAR->>Repo: CAS rotation / needs_refresh / reauth_required
+    OAR->>Repo: append-only AuditEvent
+```
+
+当前已验证的是安全 parser、领域决策、Postgres CAS / audit 编排和显式 `run_once` sweep 前置能力；真实 `AuthAdapter` client 与后台 scheduler/daemon 仍未完成。
+
 ## 5. A2A 策略
 
 引入 A2A 后，OAR 的长期形态是 **OKR 智能体中枢**。

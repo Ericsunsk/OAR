@@ -79,6 +79,34 @@ update_progress(confirmed_action_id, request) -> ProgressRecord
 
 所有写方法必须接收 `confirmed_action_id`，并写入 `AuditEvent`。
 
+### 4.1 ConfirmedAction 执行链路
+
+当前 Phase 0.6 要证明的核心链路是：同一个确认动作只能进入一次外部写回路径，且每次结果都能被审计追溯。
+
+```mermaid
+flowchart TD
+    PA["ProposedAction<br/>建议动作"] -->|用户确认或编辑后确认| CA["ConfirmedAction<br/>用户承诺"]
+    CA -->|tenant_id + idempotency_key| LEDGER{"OperationLedger<br/>获取执行权"}
+    LEDGER -->|已存在 terminal 记录| SKIP["返回既有结果<br/>跳过 adapter side effect"]
+    LEDGER -->|新建或锁定成功| DRY["LarkAdapter dry-run<br/>预演请求"]
+    DRY -->|不通过| DENIED["ExecutionDenied<br/>记录安全错误摘要"]
+    DRY -->|通过| EXEC["LarkAdapter execute<br/>allowlist 写回"]
+    EXEC -->|成功| TERMINAL["写入 terminal ledger<br/>AuditEvent + audit_outbox"]
+    EXEC -->|失败或超时| FAILED["ExecutionFailed<br/>safe_error + retry policy"]
+    TERMINAL --> OUTBOX["AuditOutboxWorker<br/>投递外部审计 sink"]
+
+    classDef pending fill:#eef6ff,stroke:#4078c0,color:#111;
+    classDef guard fill:#fff7e6,stroke:#b7791f,color:#111;
+    classDef terminal fill:#eefaf0,stroke:#2f855a,color:#111;
+    classDef failure fill:#fff1f2,stroke:#c53030,color:#111;
+    class PA,CA,DRY,EXEC pending;
+    class LEDGER guard;
+    class SKIP,TERMINAL,OUTBOX terminal;
+    class DENIED,FAILED failure;
+```
+
+注意：外部写回是不可回滚 side effect。`audit_outbox` 用来缩小“adapter 已成功但外部审计投递失败”的窗口；真实 crash recovery 和外部 sink 集成仍是 Phase 0.6 后续验证点。
+
 ## 5. 账号、身份与 7x24
 
 账号模型：

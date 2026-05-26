@@ -30,6 +30,68 @@ OAR 不是通用 OKR SaaS，不替代飞书 OKR，也不是绩效评价系统。
 
 核心判断是：manager 和 PMO 不需要另一个创建 OKR 的地方，他们需要一个可靠的每周队列来运营已经存在的 OKR。
 
+## 产品蓝图 (Product Blueprint)
+
+OAR 的长期愿景不仅是“飞书外挂”，而是要成为飞书租户内的**目标执行智能运营系统**，以及飞书 OKR 的 **AI 幕僚长和受控智能体网关**。
+
+### 每周复盘主链路
+
+```mermaid
+flowchart LR
+    subgraph Lark["飞书权威数据源"]
+        OKR["OKR"]
+        EvidenceSource["Docs / Tasks / Meetings / IM"]
+    end
+
+    subgraph Core["OAR 后端 / Rust core"]
+        Sync["同步证据<br/>摘要、引用、hash"]
+        Risk["风险检测<br/>长期未更新 / 低进度 / 缺证据"]
+        Proposed["ProposedAction<br/>建议动作 + Evidence chain"]
+        Ledger["OperationLedger<br/>幂等执行账本"]
+        Audit["AuditEvent / Outbox<br/>append-only 审计"]
+    end
+
+    subgraph Inbox["复盘收件箱"]
+        Queue["Weekly Inbox<br/>风险与待确认动作"]
+        Gate{"人工门禁<br/>确认 / 编辑后确认 / 拒绝"}
+    end
+
+    subgraph Writeback["受控写回"]
+        DryRun["dry-run<br/>展示预演结果"]
+        Adapter["LarkAdapter<br/>allowlist CLI / OpenAPI"]
+    end
+
+    OKR --> Sync
+    EvidenceSource --> Sync
+    Sync --> Risk --> Proposed --> Queue --> Gate
+    Gate -->|拒绝| Audit
+    Gate -->|确认或编辑后确认| Ledger --> DryRun --> Adapter
+    Adapter -->|progress / 评论| OKR
+    Adapter --> Audit
+    Audit -.审计时间线.-> Queue
+
+    classDef source fill:#eef6ff,stroke:#4078c0,color:#111;
+    classDef core fill:#f7f7f7,stroke:#8a8f98,color:#111;
+    classDef inbox fill:#fff7e6,stroke:#b7791f,color:#111;
+    classDef guard fill:#fff1f2,stroke:#c53030,color:#111;
+    classDef audit fill:#eefaf0,stroke:#2f855a,color:#111;
+    class OKR,EvidenceSource source;
+    class Sync,Risk,Proposed,Ledger,DryRun,Adapter core;
+    class Queue inbox;
+    class Gate guard;
+    class Audit audit;
+```
+
+### 四大核心支柱
+
+1. **高频复盘收件箱 (Weekly Inbox)**：不帮用户“创建/写 OKR”，而是通过精准的风险模型，帮助用户每周用 **10 分钟** 处理并清空 OKR 执行风险和待确认动作队列。
+2. **可解释证据链 (Evidence Chain)**：绝不依赖黑盒生成。目标状态下，每一条智能体给出的风险警报与改动建议，都必须绑定来自 Docs、Tasks、IM 和妙记的脱敏证据引用与 Hash。当前实现仍处在 Phase 0.6 骨架验证阶段；证据存储、retention 和原文处理策略需要在后续 schema 中继续落地。
+3. **严格人机门禁 (Human-in-the-Loop)**：将智能体能力控制在受限范围。L1（观察）、L2（诊断）、L3（建议）可以由后台自动准备；L4（执行写回）**必须由人类用户显式确认**；第一阶段坚决不做 L5（完全自主执行）。客户端离线时只能编辑草稿，不能离线确认真实写回；离线草稿和 `sync_cursor` 原子推进仍属于多端同步待验证能力。
+4. **从“复盘工具”到“智能体网关” (A2A Roadmap)**：
+   * **Phase 1-2**：深耕飞书 OKR 收件箱，闭环体验与强类型受控工具层。
+   * **Phase 3**：对外提供只读 `A2A Server`，作为受控的飞书 OKR 智能体安全物理边界。
+   * **Phase 4**：允许外部智能体提交 `ProposedAction`，但最后写回门禁依旧收口在 OAR 控制台，由人类确认执行。
+
 ## 安全模型
 
 OAR 默认保守：
