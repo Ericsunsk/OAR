@@ -76,7 +76,10 @@ fn audit_trace_allocates_sequence_and_reuses_same_trace_id() {
     assert!(confirmed.sequence < dry_run.sequence);
     assert!(dry_run.sequence < succeeded.sequence);
 
-    assert_eq!(confirmed.event_type, AuditEventType::ConfirmedActionRecorded);
+    assert_eq!(
+        confirmed.event_type,
+        AuditEventType::ConfirmedActionRecorded
+    );
     assert_eq!(dry_run.event_type, AuditEventType::DryRunExecuted);
     assert_eq!(succeeded.event_type, AuditEventType::ExecutionSucceeded);
 }

@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 
 use oar_core::domain::identity::{
-    ActorKind, DeviceSession, DeviceSessionId, DeviceType, LarkIdentityId, OarUserId, OAuthTokens,
+    ActorKind, DeviceSession, DeviceSessionId, DeviceType, LarkIdentityId, OAuthTokens, OarUserId,
     ScopeBoundary, SecretString, SyncCursor, TenantId, TokenGrant, TokenGrantId, TokenGrantState,
 };
 
@@ -13,10 +13,17 @@ fn token_grant_debug_redacts_token_values() {
         identity_id: LarkIdentityId("lark_identity_01".to_string()),
         actor_kind: ActorKind::User,
         scope_boundary: ScopeBoundary::User,
-        scopes: vec!["offline_access".to_string(), "auth:user.id:read".to_string()],
+        scopes: vec![
+            "offline_access".to_string(),
+            "auth:user.id:read".to_string(),
+        ],
         state: TokenGrantState::Valid,
         issued_at: SystemTime::UNIX_EPOCH,
         expires_at: None,
+        refreshed_at: None,
+        revoked_at: None,
+        reauth_required_at: None,
+        last_refresh_error: None,
         tokens: OAuthTokens {
             access_token: SecretString::new("access-secret-never-log"),
             refresh_token: Some(SecretString::new("refresh-secret-never-log")),

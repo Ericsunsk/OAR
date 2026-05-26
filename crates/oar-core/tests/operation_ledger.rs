@@ -106,14 +106,19 @@ fn duplicate_failure_keeps_original_error() {
     ledger.submit_confirmed_action(&action).unwrap();
     ledger.mark_executing("idem-failed").unwrap();
 
-    let first_failure = ledger.mark_failed("idem-failed", "adapter timeout").unwrap();
+    let first_failure = ledger
+        .mark_failed("idem-failed", "adapter timeout")
+        .unwrap();
     let second_failure = ledger
         .mark_failed("idem-failed", "different retry error")
         .unwrap();
 
     assert_eq!(first_failure.operation_id, second_failure.operation_id);
     assert_eq!(second_failure.status, ActionStatus::Failed);
-    assert_eq!(second_failure.last_error.as_deref(), Some("adapter timeout"));
+    assert_eq!(
+        second_failure.last_error.as_deref(),
+        Some("adapter timeout")
+    );
 }
 
 #[test]

@@ -29,7 +29,10 @@ fn normalizes_cycle_detail_content_from_json_string() {
         parse_cli_json(CYCLE_DETAIL_WITH_STRINGIFIED_CONTENT).expect("cycle detail should parse");
     normalize_cycle_detail_content(&mut parsed);
 
-    assert_eq!(parsed["data"]["objectives"][0]["content"]["text"], "Ship Phase 0.6");
+    assert_eq!(
+        parsed["data"]["objectives"][0]["content"]["text"],
+        "Ship Phase 0.6"
+    );
     assert_eq!(
         parsed["data"]["objectives"][0]["key_results"][0]["content"]["text"],
         "Idempotent writes in ledger"

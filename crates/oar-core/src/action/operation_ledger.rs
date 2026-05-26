@@ -19,9 +19,14 @@ pub enum SubmitResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LedgerError {
-    ActionNotConfirmed { status: ActionStatus },
+    ActionNotConfirmed {
+        status: ActionStatus,
+    },
     UnknownIdempotencyKey(String),
-    InvalidTransition { from: ActionStatus, to: ActionStatus },
+    InvalidTransition {
+        from: ActionStatus,
+        to: ActionStatus,
+    },
 }
 
 pub struct OperationLedger {
@@ -71,11 +76,17 @@ impl OperationLedger {
         Ok(SubmitResult::Created(record))
     }
 
-    pub fn mark_executing(&mut self, idempotency_key: &str) -> Result<OperationRecord, LedgerError> {
+    pub fn mark_executing(
+        &mut self,
+        idempotency_key: &str,
+    ) -> Result<OperationRecord, LedgerError> {
         self.transition(idempotency_key, ActionStatus::Executing)
     }
 
-    pub fn mark_succeeded(&mut self, idempotency_key: &str) -> Result<OperationRecord, LedgerError> {
+    pub fn mark_succeeded(
+        &mut self,
+        idempotency_key: &str,
+    ) -> Result<OperationRecord, LedgerError> {
         self.transition(idempotency_key, ActionStatus::Succeeded)
     }
 

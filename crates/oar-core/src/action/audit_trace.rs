@@ -1,6 +1,4 @@
-use super::audit_event::{
-    AuditActor, AuditEvent, AuditScope, AuditStateSummary, AuditTarget,
-};
+use super::audit_event::{AuditActor, AuditEvent, AuditScope, AuditStateSummary, AuditTarget};
 
 /// Event builder for a single action execution trace.
 /// Owns trace identity and allocates strictly increasing event sequences.

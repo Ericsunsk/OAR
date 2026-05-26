@@ -97,6 +97,7 @@ pub struct OAuthTokens {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenGrantState {
     Valid,
+    NeedsRefresh,
     Expired,
     Revoked,
     ReauthRequired,
@@ -113,6 +114,10 @@ pub struct TokenGrant {
     pub state: TokenGrantState,
     pub issued_at: SystemTime,
     pub expires_at: Option<SystemTime>,
+    pub refreshed_at: Option<SystemTime>,
+    pub revoked_at: Option<SystemTime>,
+    pub reauth_required_at: Option<SystemTime>,
+    pub last_refresh_error: Option<String>,
     pub tokens: OAuthTokens,
     pub revocation_reason: Option<String>,
 }

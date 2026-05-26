@@ -92,9 +92,8 @@ impl ActionAdapter for MockAdapter {
 fn executes_confirmed_action_through_ledger_adapter_and_audit() {
     let adapter = MockAdapter::new();
     let mut ticks = VecDeque::from([10_u64, 20, 30]);
-    let mut executor = ActionExecutor::with_clock(adapter.clone(), move || {
-        ticks.pop_front().unwrap_or(999)
-    });
+    let mut executor =
+        ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
     let action = confirmed_action("idem-exec-1");
 
     let report = executor.execute_confirmed_action(&action).unwrap();
@@ -104,11 +103,20 @@ fn executes_confirmed_action_through_ledger_adapter_and_audit() {
     assert_eq!(adapter.dry_run_calls(), 1);
     assert_eq!(adapter.execute_calls(), 1);
     assert_eq!(report.events.len(), 3);
-    assert_eq!(report.events[0].event_type, AuditEventType::ConfirmedActionRecorded);
-    assert_eq!(report.events[1].event_type, AuditEventType::DryRunExecuted);
-    assert_eq!(report.events[2].event_type, AuditEventType::ExecutionSucceeded);
     assert_eq!(
-        report.events[2].execution.as_ref().map(|v| v.status.clone()),
+        report.events[0].event_type,
+        AuditEventType::ConfirmedActionRecorded
+    );
+    assert_eq!(report.events[1].event_type, AuditEventType::DryRunExecuted);
+    assert_eq!(
+        report.events[2].event_type,
+        AuditEventType::ExecutionSucceeded
+    );
+    assert_eq!(
+        report.events[2]
+            .execution
+            .as_ref()
+            .map(|v| v.status.clone()),
         Some(ExecutionStatus::Succeeded)
     );
 }
@@ -117,9 +125,8 @@ fn executes_confirmed_action_through_ledger_adapter_and_audit() {
 fn duplicate_idempotency_key_does_not_execute_adapter_twice() {
     let adapter = MockAdapter::new();
     let mut ticks = VecDeque::from([1_u64, 2, 3, 4, 5, 6]);
-    let mut executor = ActionExecutor::with_clock(adapter.clone(), move || {
-        ticks.pop_front().unwrap_or(999)
-    });
+    let mut executor =
+        ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
     let action = confirmed_action("idem-dup-1");
 
     let first = executor.execute_confirmed_action(&action).unwrap();
@@ -137,9 +144,8 @@ fn duplicate_idempotency_key_does_not_execute_adapter_twice() {
 fn execute_failure_marks_ledger_failed_and_emits_failure_event() {
     let adapter = MockAdapter::with_execute_error("adapter_timeout", "network timeout");
     let mut ticks = VecDeque::from([100_u64, 200, 300]);
-    let mut executor = ActionExecutor::with_clock(adapter.clone(), move || {
-        ticks.pop_front().unwrap_or(999)
-    });
+    let mut executor =
+        ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
     let action = confirmed_action("idem-fail-1");
 
     let report = executor.execute_confirmed_action(&action).unwrap();
@@ -147,11 +153,17 @@ fn execute_failure_marks_ledger_failed_and_emits_failure_event() {
     assert_eq!(adapter.dry_run_calls(), 1);
     assert_eq!(adapter.execute_calls(), 1);
     assert_eq!(report.operation.status, ActionStatus::Failed);
-    assert_eq!(report.operation.last_error.as_deref(), Some("network timeout"));
+    assert_eq!(
+        report.operation.last_error.as_deref(),
+        Some("network timeout")
+    );
     assert_eq!(report.events.len(), 3);
     assert_eq!(report.events[2].event_type, AuditEventType::ExecutionFailed);
     assert_eq!(
-        report.events[2].execution.as_ref().and_then(|v| v.error_code.as_deref()),
+        report.events[2]
+            .execution
+            .as_ref()
+            .and_then(|v| v.error_code.as_deref()),
         Some("adapter_timeout")
     );
 }
@@ -160,18 +172,23 @@ fn execute_failure_marks_ledger_failed_and_emits_failure_event() {
 fn mock_lark_adapter_runs_through_action_executor() {
     let adapter = MockLarkAdapter::succeeding();
     let mut ticks = VecDeque::from([1_000_u64, 2_000, 3_000]);
-    let mut executor = ActionExecutor::with_clock(adapter, move || {
-        ticks.pop_front().unwrap_or(9_999)
-    });
+    let mut executor =
+        ActionExecutor::with_clock(adapter, move || ticks.pop_front().unwrap_or(9_999));
     let action = confirmed_action("idem-lark-adapter");
 
     let report = executor.execute_confirmed_action(&action).unwrap();
 
     assert_eq!(report.operation.status, ActionStatus::Succeeded);
     assert_eq!(report.events.len(), 3);
-    assert_eq!(report.events[0].event_type, AuditEventType::ConfirmedActionRecorded);
+    assert_eq!(
+        report.events[0].event_type,
+        AuditEventType::ConfirmedActionRecorded
+    );
     assert_eq!(report.events[1].event_type, AuditEventType::DryRunExecuted);
-    assert_eq!(report.events[2].event_type, AuditEventType::ExecutionSucceeded);
+    assert_eq!(
+        report.events[2].event_type,
+        AuditEventType::ExecutionSucceeded
+    );
     assert_eq!(
         report.events[2]
             .execution

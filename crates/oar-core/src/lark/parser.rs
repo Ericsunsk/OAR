@@ -34,7 +34,10 @@ pub fn normalize_cycle_detail_content(value: &mut Value) {
     for objective in objectives {
         normalize_content_field(objective, "content");
 
-        if let Some(key_results) = objective.get_mut("key_results").and_then(Value::as_array_mut) {
+        if let Some(key_results) = objective
+            .get_mut("key_results")
+            .and_then(Value::as_array_mut)
+        {
             for key_result in key_results {
                 normalize_content_field(key_result, "content");
             }

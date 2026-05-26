@@ -1,6 +1,6 @@
 use oar_core::action::audit_event::{
-    AuditActor, AuditActorKind, AuditEvent, AuditScope, AuditStateSummary, AuditTarget,
-    AuditEventType, ExecutionStatus,
+    AuditActor, AuditActorKind, AuditEvent, AuditEventType, AuditScope, AuditStateSummary,
+    AuditTarget, ExecutionStatus,
 };
 
 fn actor() -> AuditActor {

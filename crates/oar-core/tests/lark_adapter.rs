@@ -7,8 +7,13 @@ use oar_core::lark::adapter::{
 };
 
 fn request(idempotency_key: &str) -> LarkExecutionRequest {
-    let action = ConfirmedAction::proposed("action-mock-1", "tenant-mock-1", "user-mock-1", idempotency_key)
-        .confirm(SystemTime::UNIX_EPOCH);
+    let action = ConfirmedAction::proposed(
+        "action-mock-1",
+        "tenant-mock-1",
+        "user-mock-1",
+        idempotency_key,
+    )
+    .confirm(SystemTime::UNIX_EPOCH);
 
     LarkExecutionRequest {
         confirmed_action: action,

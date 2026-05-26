@@ -1,5 +1,5 @@
-use crate::action::confirmed_action::ConfirmedAction;
 use crate::action::audit_event::AuditStateSummary;
+use crate::action::confirmed_action::ConfirmedAction;
 use crate::action::executor::{ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
