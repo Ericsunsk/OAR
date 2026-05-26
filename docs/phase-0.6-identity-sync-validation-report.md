@@ -89,12 +89,14 @@
 - `OperationLedger` 已覆盖重复幂等、并发重复提交、状态转移、未知 idempotency key 错误一致性。
 - `AuditEventRepository` 和 `OperationLedgerRepository` 已形成内存实现和 repository 边界，执行器可通过 repository 读写 ledger/audit。
 - Postgres migration 草案已加入 `crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql`，并通过 schema contract 测试覆盖关键唯一约束、append-only 审计、token 字段命名安全和 sync cursor 字段。
-- `storage::postgres` 已加入 SQL contract，覆盖 confirmed action / ledger 幂等 upsert、状态转移 guard、audit append 和 outbox enqueue；当前仍未接入 live DB。
-- `postgres` / `postgres-sqlx` feature 已加入可选 `sqlx` repository 类型和 async 方法，当前已完成编译级验证，尚未进行 live Postgres 集成测试。
+- `storage::postgres` 已加入 SQL contract，覆盖 confirmed action / ledger 幂等 upsert、状态转移 guard、audit append 和 outbox enqueue。
+- `postgres` / `postgres-sqlx` feature 已加入可选 `sqlx` repository 类型和 async 方法，已完成编译级验证。
+- 已加入 `DATABASE_URL` gated live Postgres repository tests，可在本机或 CI 提供 Postgres 时验证 migration bootstrap、tenant-scoped ledger lookup、幂等状态转移、audit append-only trigger 和 outbox enqueue 默认值；未提供 `DATABASE_URL` 时默认跳过。
+- Postgres ledger submit 已改为显式返回 `created` 标记，避免用 `operation_id` 推断新建/复用；未确认 action 会在 DB 写入前被拒绝。
 
 仍需生产级验证：
 
 - `TokenGrant` 加密持久化和 refresh token rotation 的数据库事务。
-- Postgres 级 `OperationLedger` 唯一约束 / upsert，证明多进程并发下同一 `ConfirmedAction` 只生成一个执行记录。
+- Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
 - ledger 状态变更与 audit append 的事务边界或 outbox，避免 crash window 导致账本和审计不一致。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

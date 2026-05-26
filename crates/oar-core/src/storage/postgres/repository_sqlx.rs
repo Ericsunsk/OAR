@@ -27,6 +27,8 @@ pub enum PostgresRepositoryError {
     UnknownAuditEventType(String),
     #[error("unknown execution status from database: {0}")]
     UnknownExecutionStatus(String),
+    #[error("action must be confirmed before persistence: {0:?}")]
+    ActionNotConfirmed(ActionStatus),
     #[error("invalid signed integer for {field}: {value}")]
     NegativeInteger { field: &'static str, value: i64 },
     #[error("invalid audit JSON payload: {0}")]
@@ -55,6 +57,10 @@ impl PostgresOperationLedgerRepository {
         confirmed_at_ms: u64,
         operation_id: &str,
     ) -> PgRepositoryResult<SubmitResult> {
+        if action.status != ActionStatus::Confirmed {
+            return Err(PostgresRepositoryError::ActionNotConfirmed(action.status));
+        }
+
         let row = sqlx::query(SUBMIT_CONFIRMED_ACTION_AND_LEDGER)
             .bind(&action.action_id)
             .bind(&action.tenant_id)
@@ -64,9 +70,10 @@ impl PostgresOperationLedgerRepository {
             .bind(operation_id)
             .fetch_one(&self.pool)
             .await?;
+        let created: bool = row.try_get("created")?;
         let record = operation_record_from_row(&row)?;
 
-        if record.operation_id == operation_id {
+        if created {
             Ok(SubmitResult::Created(record))
         } else {
             Ok(SubmitResult::Existing(record))
@@ -161,6 +168,7 @@ impl PostgresOperationLedgerRepository {
             .get_by_idempotency_key(tenant_id, idempotency_key)
             .await
         {
+            Ok(Some(record)) if record.status == target_status => Ok(record),
             Ok(Some(record)) => Err(LedgerError::InvalidTransition {
                 from: record.status,
                 to: target_status,

@@ -21,7 +21,10 @@ fn submit_confirmed_action_and_ledger_uses_tenant_scoped_upsert() {
     assert!(sql.contains("insert into operation_ledger"));
     assert!(sql.contains("on conflict (tenant_id, idempotency_key) do nothing"));
     assert!(sql.contains("where tenant_id = $2 and idempotency_key = $4"));
-    assert!(sql.contains("returning operation_id, action_id, idempotency_key, status, last_error"));
+    assert!(
+        sql.contains("true as created") && sql.contains("false as created"),
+        "submit SQL should expose an explicit created flag instead of inferring from operation_id"
+    );
 }
 
 #[test]

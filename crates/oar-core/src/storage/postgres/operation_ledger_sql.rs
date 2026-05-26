@@ -31,12 +31,12 @@ inserted_operation AS (
     SELECT $6, tenant_id, action_id, idempotency_key, 'confirmed'
     FROM canonical_action
     ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-    RETURNING operation_id, action_id, idempotency_key, status, last_error
+    RETURNING operation_id, action_id, idempotency_key, status, last_error, TRUE AS created
 )
-SELECT operation_id, action_id, idempotency_key, status, last_error
+SELECT operation_id, action_id, idempotency_key, status, last_error, created
 FROM inserted_operation
 UNION ALL
-SELECT operation_id, action_id, idempotency_key, status, last_error
+SELECT operation_id, action_id, idempotency_key, status, last_error, FALSE AS created
 FROM operation_ledger
 WHERE tenant_id = $2 AND idempotency_key = $4
 LIMIT 1

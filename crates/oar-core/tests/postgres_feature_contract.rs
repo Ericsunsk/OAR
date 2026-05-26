@@ -21,6 +21,8 @@ fn default_build_exposes_postgres_sql_contract_constants() {
 
     assert!(operation_sql.contains("insert into confirmed_actions"));
     assert!(operation_sql.contains("insert into operation_ledger"));
+    assert!(operation_sql.contains("true as created"));
+    assert!(operation_sql.contains("false as created"));
     assert!(transition_sql.contains("update operation_ledger"));
     assert!(audit_sql.contains("insert into audit_events"));
 
