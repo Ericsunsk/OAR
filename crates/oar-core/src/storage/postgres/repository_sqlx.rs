@@ -201,6 +201,26 @@ pub struct PostgresTokenRefreshOrchestratorReport {
     pub event: AuditEvent,
 }
 
+#[derive(Clone)]
+pub struct PostgresTokenRefreshSweepRequest {
+    pub tenant_id: String,
+    pub due_before: SystemTime,
+    pub limit: u32,
+    pub now: SystemTime,
+    pub audit_trace_id: String,
+    pub audit_sequence_start: u64,
+    pub occurred_at_ms: u64,
+    pub actor: AuditActor,
+    pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostgresTokenRefreshSweepReport {
+    pub candidate_count: usize,
+    pub attempted_count: usize,
+    pub reports: Vec<PostgresTokenRefreshOrchestratorReport>,
+}
+
 #[derive(Debug, Clone)]
 pub struct PostgresTokenGrantRepository {
     pool: PgPool,
@@ -219,6 +239,15 @@ where
     adapter: A,
     uow: PostgresTokenRefreshUnitOfWork,
     audit: PostgresAuditEventRepository,
+}
+
+#[derive(Debug, Clone)]
+pub struct PostgresTokenRefreshSweep<A>
+where
+    A: AuthRefreshAdapter,
+{
+    candidates: PostgresTokenGrantRepository,
+    orchestrator: PostgresTokenRefreshOrchestrator<A>,
 }
 
 #[derive(Debug, Clone)]
@@ -1199,6 +1228,64 @@ where
         Ok(PostgresTokenRefreshOrchestratorReport {
             service_report,
             event: uow_report.event,
+        })
+    }
+}
+
+impl<A> PostgresTokenRefreshSweep<A>
+where
+    A: AuthRefreshAdapter,
+{
+    pub fn new(pool: PgPool, adapter: A) -> Self {
+        Self {
+            candidates: PostgresTokenGrantRepository::new(pool.clone()),
+            orchestrator: PostgresTokenRefreshOrchestrator::new(pool, adapter),
+        }
+    }
+
+    pub fn adapter(&self) -> &A {
+        self.orchestrator.adapter()
+    }
+
+    pub async fn run_once_for_tenant(
+        &mut self,
+        request: PostgresTokenRefreshSweepRequest,
+    ) -> PgRepositoryResult<PostgresTokenRefreshSweepReport> {
+        if request.limit == 0 {
+            return Ok(PostgresTokenRefreshSweepReport {
+                candidate_count: 0,
+                attempted_count: 0,
+                reports: Vec::new(),
+            });
+        }
+
+        let candidates = self
+            .candidates
+            .list_refresh_candidate_snapshots(&request.tenant_id, request.due_before, request.limit)
+            .await?;
+        let candidate_count = candidates.len();
+        let mut reports = Vec::with_capacity(candidate_count);
+
+        for (index, snapshot) in candidates.into_iter().enumerate() {
+            let audit_context = TokenRefreshAuditContext {
+                trace_id: request.audit_trace_id.clone(),
+                sequence: request.audit_sequence_start + index as u64,
+                occurred_at_ms: request.occurred_at_ms,
+                actor: request.actor.clone(),
+                workspace_id: request.workspace_id.clone(),
+            };
+
+            let report = self
+                .orchestrator
+                .refresh_grant_with_audit(snapshot, request.now, audit_context)
+                .await?;
+            reports.push(report);
+        }
+
+        Ok(PostgresTokenRefreshSweepReport {
+            candidate_count,
+            attempted_count: reports.len(),
+            reports,
         })
     }
 }

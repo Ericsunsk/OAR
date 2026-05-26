@@ -13,6 +13,7 @@
 1. 安全 parser / adapter contract（已部分通过）：定义并验证 refresh 输入输出安全边界与领域映射。
 2. fixture replay -> Postgres orchestrator/UoW/audit（已部分通过）：用 fixture/fake adapter 打通事务化编排与审计留痕。
 3. 真实 `AuthAdapter` client + scheduler（未完成）：真实 `lark-cli` / OpenAPI client 与后台调度尚未接入，不具备生产就绪声明条件。
+4. 候选筛选 + 单次 sweep（已部分通过）：已在候选选择与编排链路之间补充“显式触发的一次性 `run_once` sweep”，并加入 `DATABASE_URL`-gated Postgres live tests 覆盖逐 grant 调用既有 orchestrator/UoW/audit、顺序审计和 `limit = 0` 短路；该能力不是 daemon，也不是无人值守后台循环。
 
 当前判断：
 
@@ -84,6 +85,7 @@
 | I6 | `OperationLedger` 幂等执行 | 部分通过 | 同一 `ConfirmedAction` 并发确认只执行一次 |
 | I7 | 后台 worker | 未开始 | 无客户端在线时仍可按计划生成复盘 |
 | I8 | revoke / reauth | 未开始 | 授权撤销后停止执行并提示重新授权 |
+| I9 | 单次 refresh sweep（`run_once`） | 部分通过 | 候选按 `tenant_id` 选择后，可由显式触发的一次性 sweep 逐 grant 进入既有 orchestrator/UoW/audit；已加入 `DATABASE_URL`-gated live tests 覆盖成功批次、顺序审计、租户/到期过滤继承和 `limit = 0` 不调用 adapter / 不写 audit；不宣称后台 daemon 或连续调度能力 |
 
 ## 5. 下一步
 
@@ -91,11 +93,12 @@
 
 1. `Tenant` / `OarUser` / `LarkIdentity` Postgres repositories 语义验证：`tenant_id` 隔离、identity 绑定唯一约束、冲突可恢复语义、最小审计字段落库。
 2. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
-3. 接入真实 `AuthAdapter` 与后台调度前，先补齐 refresh scheduler 前置能力：Postgres 租户级 due-candidate 安全筛选（`due` / `needs_refresh` / `expired`），并在查询层排除 `revoked` / `reauth_required` grant，确保候选快照不返回 `encrypted_oauth_grant` 或任何明文 token；CAS fingerprint 仅作为编排元数据使用，不写入日志或审计。
-4. 将 `PostgresTokenRefreshOrchestrator` 接入真实 `AuthAdapter` 与后台调度，验证从 refresh attempt 到 Postgres CAS + audit 事务边界的生产路径。
-5. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露 access token、refresh token、authorization code、raw CLI stdout/stderr、sink 内部错误、encrypted blob 或 fingerprint。
-6. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
-7. 以真实 adapter 输出回放 fixture，持续验证 safe parser 边界：只接受 encrypted envelope，拒绝 plaintext token-like 输出，再映射到 `RefreshOutcome`。
+3. 接入真实 `AuthAdapter` 与后台调度前，持续维护 refresh scheduler 前置能力：Postgres 租户级 due-candidate 安全筛选（`due` / `needs_refresh` / `expired`），并在查询层排除 `revoked` / `reauth_required` grant，确保候选快照不返回 `encrypted_oauth_grant` 或任何明文 token；CAS fingerprint 仅作为编排元数据使用，不写入日志或审计。
+4. 在已验证的单次 sweep / `run_once` 之上补齐 scheduler 触发前契约：失败中断/后续重试语义、批次 trace 分配、租户粒度触发入口，以及真实 adapter 接入前的安全边界验证；继续明确它不是常驻 daemon，也不将整轮 sweep 包装为单个大事务。
+5. 将 `PostgresTokenRefreshOrchestrator` 接入真实 `AuthAdapter` 与后台调度，验证从 refresh attempt 到 Postgres CAS + audit 事务边界的生产路径。
+6. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露 access token、refresh token、authorization code、raw CLI stdout/stderr、sink 内部错误、encrypted blob 或 fingerprint。
+7. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
+8. 以真实 adapter 输出回放 fixture，持续验证 safe parser 边界：只接受 encrypted envelope，拒绝 plaintext token-like 输出，再映射到 `RefreshOutcome`。
 
 并行工作项：
 
@@ -129,7 +132,8 @@
 - 已加入 token refresh audit 映射边界：`TokenRefreshAuditSummary` 可映射为 append-only `AuditEvent`，复用现有 execution event types 并以 `target.resource_type = token_grant` / 稳定 `action_type` 区分 refresh 场景；默认测试覆盖 success、conflict noop、short-circuit 和 safe error redaction，Postgres live test 覆盖 audit roundtrip。
 - 已验证 token refresh 场景下的 Postgres 事务化 UoW：refresh 状态更新与 audit append 可在同一 DB transaction 内提交，且审计写入失败会触发整体回滚；当前验证链路是 fake `AuthRefreshAdapter` -> service decision -> transactional UoW -> audit，仍限于 repository/UoW 与 live DB tests。
 - 已加入 `PostgresTokenRefreshOrchestrator` 编排边界：短路路径不调用 adapter / UoW，只写 denied audit；可 refresh 路径调用 fake `AuthRefreshAdapter`、生成 domain decision，并经 transactional UoW 同事务写状态与 audit。live DB tests 覆盖 rotation success、stale conflict noop、transient failure redaction 和 revoked short-circuit。
-- 已开始补齐 scheduler 前置查询能力：新增 Postgres 租户级 refresh due-candidate 选择语义（仅返回 `due` / `needs_refresh` / `expired` 候选），并在查询层排除 `revoked` 与 `reauth_required` grant；候选快照仅包含 grant id、tenant id、状态、refresh material 存在性和 CAS fingerprint 等最小必要元数据，不返回 `encrypted_oauth_grant` 或任何明文 token，fingerprint 不得进入日志或审计。
+- 已补齐 scheduler 前置查询能力：新增 Postgres 租户级 refresh due-candidate 选择语义（仅返回 `due` / `needs_refresh` / `expired` 候选），并在查询层排除 `revoked` 与 `reauth_required` grant；候选快照仅包含 grant id、tenant id、状态、refresh material 存在性和 CAS fingerprint 等最小必要元数据，不返回 `encrypted_oauth_grant` 或任何明文 token，fingerprint 不得进入日志或审计。
+- 已在候选筛选与 orchestrator 之间增加单次 refresh sweep（`run_once`）切片：显式触发后对候选逐 grant 调用既有 `PostgresTokenRefreshOrchestrator`，沿用每 grant 的 UoW/audit 事务语义；已加入 `DATABASE_URL`-gated live tests 覆盖成功批次、顺序审计、候选过滤继承、`limit = 0` 不调用 adapter 且不写 audit；当前不是后台 daemon，不提供无人值守循环能力，也不把整轮 sweep 作为单个跨 grant 大事务。
 
 仍需生产级验证：
 
@@ -142,7 +146,7 @@
 - revoked / reauth-required grant 的 rotation 阻断需在真实数据库和并发场景下持续验证。
 - `DeviceSession` Postgres repository 需补齐真实数据库并发验证：cursor 只前进不回退、revoked/expired 门禁、跨设备冲突可观测。
 - `PostgresTokenRefreshOrchestrator` 与真实 adapter / scheduler 的生产集成验证需继续补齐：refresh 只经加密授权包与 CAS guard，且不绕过 `LarkAdapter/AuthAdapter`。
-- token refresh background scheduler/daemon 仍未完成；当前仅补到“可安全选择候选 grant”的前置层，不代表已具备无人值守 refresh 执行能力。
+- token refresh background scheduler/daemon 仍未完成；当前仅补到“可安全选择候选 grant + 显式单次 `run_once` sweep”切片，不代表已具备无人值守 refresh 执行能力。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
 - Postgres executor / outbox worker 尚未接入真实后台调度、外部审计投递 sink 和 crash recovery。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

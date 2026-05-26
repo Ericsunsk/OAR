@@ -109,8 +109,9 @@ mod postgres_feature_api_contract {
         PostgresLarkIdentityRepository, PostgresOarUserRepository,
         PostgresOperationLedgerRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
         PostgresTokenRefreshCommandSink, PostgresTokenRefreshOrchestrator,
-        PostgresTokenRefreshUnitOfWork, StoredDeviceSession, StoredLarkIdentity, StoredOarUser,
-        StoredTenant,
+        PostgresTokenRefreshSweep, PostgresTokenRefreshSweepReport,
+        PostgresTokenRefreshSweepRequest, PostgresTokenRefreshUnitOfWork, StoredDeviceSession,
+        StoredLarkIdentity, StoredOarUser, StoredTenant,
     };
     use sqlx::PgPool;
 
@@ -186,6 +187,9 @@ mod postgres_feature_api_contract {
             PostgresTokenRefreshOrchestrator::<NoopRefreshAdapter>::new;
         let _token_refresh_orchestrator_refresh =
             PostgresTokenRefreshOrchestrator::<NoopRefreshAdapter>::refresh_grant_with_audit;
+        let _token_refresh_sweep_ctor = PostgresTokenRefreshSweep::<NoopRefreshAdapter>::new;
+        let _token_refresh_sweep_run_once =
+            PostgresTokenRefreshSweep::<NoopRefreshAdapter>::run_once_for_tenant;
         let _rotate_grant = PostgresTokenGrantRepository::rotate_encrypted_grant;
         let _mark_refresh_failed = PostgresTokenGrantRepository::mark_refresh_failed;
         let _mark_reauth_required = PostgresTokenGrantRepository::mark_reauth_required;
@@ -222,6 +226,8 @@ mod postgres_feature_api_contract {
         let _phantom_oar_user: Option<StoredOarUser> = None;
         let _phantom_lark_identity: Option<StoredLarkIdentity> = None;
         let _phantom_token_refresh_context: Option<TokenRefreshAuditContext> = None;
+        let _phantom_token_refresh_sweep_request: Option<PostgresTokenRefreshSweepRequest> = None;
+        let _phantom_token_refresh_sweep_report: Option<PostgresTokenRefreshSweepReport> = None;
         let _phantom_grant = Some(EncryptedTokenGrantRecord {
             id: "grant".to_string(),
             tenant_id: "tenant".to_string(),
