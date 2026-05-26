@@ -181,6 +181,115 @@ fn postgres_live_action_executor_resumes_after_confirmation_only_crash() {
 }
 
 #[test]
+fn postgres_live_action_executor_resumes_existing_executing_operation() {
+    run_live_postgres_test("action_executor_executing_resume", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_executor_executing_resume",
+            "user_executor_executing_resume",
+        )
+        .await?;
+
+        let action = confirmed_action(
+            "action_executor_executing_resume",
+            "tenant_executor_executing_resume",
+            "user_executor_executing_resume",
+            "idem_executor_executing_resume",
+        );
+        let uow = PostgresExecutionUnitOfWork::new(pool.clone());
+        uow.record_confirmation(
+            &action,
+            1_748_260_000_000,
+            "op-idem_executor_executing_resume",
+            &AuditEvent::confirmed_action(
+                audit_context(
+                    "trace-idem_executor_executing_resume-evt-1",
+                    "trace-idem_executor_executing_resume",
+                    1,
+                    1_748_260_001_000,
+                    "user_executor_executing_resume",
+                    "tenant_executor_executing_resume",
+                    "action_executor_executing_resume",
+                ),
+                summary("confirmed before crash"),
+            ),
+            &outbox_envelope(
+                "tenant_executor_executing_resume",
+                "trace-idem_executor_executing_resume",
+                1_748_260_002_000,
+            ),
+        )
+        .await?;
+        uow.record_dry_run(
+            "tenant_executor_executing_resume",
+            "idem_executor_executing_resume",
+            1_748_260_003_000,
+            &AuditEvent::dry_run(
+                audit_context(
+                    "trace-idem_executor_executing_resume-evt-2",
+                    "trace-idem_executor_executing_resume",
+                    2,
+                    1_748_260_003_000,
+                    "user_executor_executing_resume",
+                    "tenant_executor_executing_resume",
+                    "action_executor_executing_resume",
+                ),
+                Some(summary("before crash")),
+                Some(summary("projected before crash")),
+            ),
+            &outbox_envelope(
+                "tenant_executor_executing_resume",
+                "trace-idem_executor_executing_resume",
+                1_748_260_004_000,
+            ),
+        )
+        .await?;
+
+        let adapter = LiveMockAdapter::succeeding();
+        let mut executor = postgres_action_executor(pool.clone(), adapter.clone());
+
+        let report = executor.execute_confirmed_action(&action).await.unwrap();
+
+        assert!(!report.duplicate);
+        assert_eq!(report.operation.status, ActionStatus::Succeeded);
+        assert_eq!(
+            adapter.dry_run_calls(),
+            1,
+            "executor re-runs dry-run to rebuild adapter context"
+        );
+        assert_eq!(adapter.execute_calls(), 1);
+        assert_eq!(report.events.len(), 1);
+        assert_eq!(
+            report.events[0].event_type,
+            AuditEventType::ExecutionSucceeded
+        );
+
+        let audit = PostgresAuditEventRepository::new(pool.clone());
+        let persisted = audit
+            .find_by_trace_id("trace-idem_executor_executing_resume")
+            .await?;
+        assert_eq!(persisted.len(), 3);
+        assert_eq!(
+            persisted
+                .iter()
+                .map(|event| event.event_type.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                AuditEventType::ConfirmedActionRecorded,
+                AuditEventType::DryRunExecuted,
+                AuditEventType::ExecutionSucceeded
+            ]
+        );
+        assert_eq!(
+            audit_outbox_count(&pool, "tenant_executor_executing_resume").await?,
+            3
+        );
+
+        Ok(())
+    });
+}
+
+#[test]
 fn postgres_live_action_executor_records_adapter_failure_as_terminal_state() {
     run_live_postgres_test("action_executor_failure", |pool| async move {
         seed_user(&pool, "tenant_executor_failure", "user_executor_failure").await?;
@@ -247,12 +356,14 @@ fn postgres_live_action_executor_policy_denial_records_safe_audit_without_adapte
             &["offline_access"],
             TokenGrantState::Valid,
         );
+        let binding = actor_binding("user_executor_policy");
 
         let result = executor
             .execute_confirmed_action_with_policy(
                 &action,
                 "okr.progress.update",
                 "okr.progress.write",
+                &binding,
                 &grant,
                 &policy,
             )

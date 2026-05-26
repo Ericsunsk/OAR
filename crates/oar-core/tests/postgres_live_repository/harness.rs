@@ -12,7 +12,9 @@ pub(crate) use oar_core::action::audit_event::{
     AuditStateSummary, AuditSubject, AuditTarget,
 };
 pub(crate) use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
-pub(crate) use oar_core::action::execution_policy::{ExecutionDenied, ExecutionPolicy};
+pub(crate) use oar_core::action::execution_policy::{
+    ActionActorBinding, ExecutionDenied, ExecutionPolicy,
+};
 pub(crate) use oar_core::action::executor::{
     ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution, ExecutionError,
 };
@@ -83,7 +85,7 @@ impl LiveMockAdapter {
     pub(crate) fn failing(code: &str, message: &str) -> Self {
         let adapter = Self::default();
         adapter.state.lock().expect("adapter mutex").execute_error =
-            Some(AdapterError::new(code, message));
+            Some(AdapterError::from_safe_message(code, message));
         adapter
     }
 
@@ -385,6 +387,10 @@ pub(crate) fn token_grant(tenant_id: &str, scopes: &[&str], state: TokenGrantSta
         },
         revocation_reason: None,
     }
+}
+
+pub(crate) fn actor_binding(actor_user_id: &str) -> ActionActorBinding {
+    ActionActorBinding::new(actor_user_id, LarkIdentityId("identity_live".to_string()))
 }
 
 pub(crate) fn progress_update_policy() -> ExecutionPolicy {

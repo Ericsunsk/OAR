@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
-use crate::domain::identity::{ActorKind, TokenGrant, TokenGrantState};
+use crate::domain::identity::{ActorKind, LarkIdentityId, TokenGrant, TokenGrantState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionPolicy {
@@ -29,11 +29,27 @@ impl ExecutionPolicy {
         action_type: &str,
         required_scope: &str,
         grant: &TokenGrant,
+        actor_binding: &ActionActorBinding,
     ) -> Result<(), ExecutionDenied> {
         if grant.tenant_id.0 != action.tenant_id {
             return Err(ExecutionDenied::TenantMismatch {
                 action_tenant_id: action.tenant_id.clone(),
                 grant_tenant_id: grant.tenant_id.0.clone(),
+            });
+        }
+
+        if actor_binding.actor_user_id != action.actor_user_id {
+            return Err(ExecutionDenied::ActorUserMismatch {
+                action_actor_user_id: action.actor_user_id.clone(),
+                bound_actor_user_id: actor_binding.actor_user_id.clone(),
+            });
+        }
+
+        if grant.identity_id != actor_binding.identity_id {
+            return Err(ExecutionDenied::IdentityMismatch {
+                action_actor_user_id: action.actor_user_id.clone(),
+                grant_identity_id: grant.identity_id.0.clone(),
+                bound_identity_id: actor_binding.identity_id.0.clone(),
             });
         }
 
@@ -73,10 +89,34 @@ impl ExecutionPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionActorBinding {
+    pub actor_user_id: String,
+    pub identity_id: LarkIdentityId,
+}
+
+impl ActionActorBinding {
+    pub fn new(actor_user_id: impl Into<String>, identity_id: LarkIdentityId) -> Self {
+        Self {
+            actor_user_id: actor_user_id.into(),
+            identity_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionDenied {
     TenantMismatch {
         action_tenant_id: String,
         grant_tenant_id: String,
+    },
+    ActorUserMismatch {
+        action_actor_user_id: String,
+        bound_actor_user_id: String,
+    },
+    IdentityMismatch {
+        action_actor_user_id: String,
+        grant_identity_id: String,
+        bound_identity_id: String,
     },
     ActionNotConfirmed {
         status: ActionStatus,

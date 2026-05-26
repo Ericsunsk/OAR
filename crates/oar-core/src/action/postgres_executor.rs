@@ -1,7 +1,7 @@
 use super::audit_event::{AuditEvent, AuditStateSummary};
 use super::audit_trace::AuditTrace;
 use super::confirmed_action::{ActionStatus, ConfirmedAction};
-use super::execution_policy::{ExecutionDenied, ExecutionPolicy};
+use super::execution_policy::{ActionActorBinding, ExecutionDenied, ExecutionPolicy};
 use super::executor::{
     action_audit_trace, safe_denial_message, ActionAdapter, AdapterError, ExecutionError,
     ExecutionReport, PolicyDenialReport,
@@ -66,7 +66,7 @@ where
             .await
             .map_err(postgres_error_to_execution_error)?;
 
-        if confirmed.duplicate && confirmed.operation.status != ActionStatus::Confirmed {
+        if confirmed.duplicate && is_terminal_status(confirmed.operation.status) {
             return Ok(ExecutionReport {
                 operation: confirmed.operation,
                 events,
@@ -92,7 +92,7 @@ where
             )
             .await
             .map_err(postgres_error_to_execution_error)?;
-        if dry_run_report.duplicate {
+        if dry_run_report.duplicate && is_terminal_status(dry_run_report.operation.status) {
             return Ok(ExecutionReport {
                 operation: dry_run_report.operation,
                 events,
@@ -135,7 +135,7 @@ where
             }
             Err(error) => {
                 let failed_event =
-                    self.event_failed(&mut trace, error.code.clone(), error.message.clone());
+                    self.event_failed(&mut trace, error.code.clone(), error.safe_message.clone());
                 let failed_outbox = self.outbox_for(action, &failed_event);
                 let failed_at_ms = self.now_ms();
                 let report = self
@@ -143,7 +143,7 @@ where
                     .record_failure(
                         &action.tenant_id,
                         &action.idempotency_key,
-                        &error.message,
+                        &error.safe_message,
                         failed_at_ms,
                         &failed_event,
                         &failed_outbox,
@@ -167,10 +167,13 @@ where
         action: &ConfirmedAction,
         action_type: &str,
         required_scope: &str,
+        actor_binding: &ActionActorBinding,
         grant: &TokenGrant,
         policy: &ExecutionPolicy,
     ) -> Result<ExecutionReport, ExecutionError> {
-        if let Err(denial) = policy.evaluate(action, action_type, required_scope, grant) {
+        if let Err(denial) =
+            policy.evaluate(action, action_type, required_scope, grant, actor_binding)
+        {
             let mut trace = action_audit_trace(action);
             let event = self.event_denied(&mut trace, &denial);
             self.audit
@@ -269,10 +272,17 @@ fn operation_id(action: &ConfirmedAction) -> String {
     format!("op-{}", action.idempotency_key)
 }
 
+fn is_terminal_status(status: ActionStatus) -> bool {
+    matches!(
+        status,
+        ActionStatus::Succeeded | ActionStatus::Failed | ActionStatus::Cancelled
+    )
+}
+
 fn postgres_error_to_execution_error(
     error: crate::storage::postgres::PostgresRepositoryError,
 ) -> ExecutionError {
-    ExecutionError::Adapter(AdapterError::new(
+    ExecutionError::Adapter(AdapterError::from_safe_message(
         "postgres_repository_error",
         error.to_string(),
     ))

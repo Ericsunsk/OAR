@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 
 use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
-use oar_core::action::execution_policy::{ExecutionDenied, ExecutionPolicy};
+use oar_core::action::execution_policy::{ActionActorBinding, ExecutionDenied, ExecutionPolicy};
 use oar_core::domain::identity::{
     ActorKind, LarkIdentityId, OAuthTokens, ScopeBoundary, SecretString, TenantId, TokenGrant,
     TokenGrantId, TokenGrantState,
@@ -42,6 +42,13 @@ fn policy() -> ExecutionPolicy {
     )
 }
 
+fn actor_binding(actor_user_id: &str, identity_id: &str) -> ActionActorBinding {
+    ActionActorBinding::new(
+        actor_user_id.to_string(),
+        LarkIdentityId(identity_id.to_string()),
+    )
+}
+
 #[test]
 fn allows_confirmed_allowlisted_action_with_required_scope_and_valid_grant() {
     let action = confirmed_action();
@@ -50,7 +57,14 @@ fn allows_confirmed_allowlisted_action_with_required_scope_and_valid_grant() {
         TokenGrantState::Valid,
     );
 
-    let result = policy().evaluate(&action, "okr.progress.update", "okr.progress.write", &grant);
+    let binding = actor_binding("user-1", "identity-1");
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.update",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
 
     assert_eq!(result, Ok(()));
 }
@@ -60,7 +74,14 @@ fn rejects_when_required_scope_is_missing() {
     let action = confirmed_action();
     let grant = token_grant(&["offline_access"], TokenGrantState::Valid);
 
-    let result = policy().evaluate(&action, "okr.progress.update", "okr.progress.write", &grant);
+    let binding = actor_binding("user-1", "identity-1");
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.update",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
 
     assert_eq!(
         result,
@@ -75,7 +96,14 @@ fn rejects_revoked_token_grant() {
     let action = confirmed_action();
     let grant = token_grant(&["okr.progress.write"], TokenGrantState::Revoked);
 
-    let result = policy().evaluate(&action, "okr.progress.update", "okr.progress.write", &grant);
+    let binding = actor_binding("user-1", "identity-1");
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.update",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
 
     assert_eq!(
         result,
@@ -90,7 +118,14 @@ fn rejects_non_confirmed_action() {
     let action = ConfirmedAction::proposed("action-1", "tenant-1", "user-1", "idem-1");
     let grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
 
-    let result = policy().evaluate(&action, "okr.progress.update", "okr.progress.write", &grant);
+    let binding = actor_binding("user-1", "identity-1");
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.update",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
 
     assert_eq!(
         result,
@@ -105,7 +140,14 @@ fn rejects_non_allowlisted_action_type() {
     let action = confirmed_action();
     let grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
 
-    let result = policy().evaluate(&action, "okr.progress.delete", "okr.progress.write", &grant);
+    let binding = actor_binding("user-1", "identity-1");
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.delete",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
 
     assert_eq!(
         result,
@@ -121,13 +163,67 @@ fn rejects_cross_tenant_grant() {
     let mut grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
     grant.tenant_id = TenantId("tenant-other".to_string());
 
-    let result = policy().evaluate(&action, "okr.progress.update", "okr.progress.write", &grant);
+    let binding = actor_binding("user-1", "identity-1");
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.update",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
 
     assert_eq!(
         result,
         Err(ExecutionDenied::TenantMismatch {
             action_tenant_id: "tenant-1".to_string(),
             grant_tenant_id: "tenant-other".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_when_actor_binding_identity_mismatches_grant_identity() {
+    let action = confirmed_action();
+    let grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
+    let binding = actor_binding("user-1", "identity-other");
+
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.update",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
+
+    assert_eq!(
+        result,
+        Err(ExecutionDenied::IdentityMismatch {
+            action_actor_user_id: "user-1".to_string(),
+            grant_identity_id: "identity-1".to_string(),
+            bound_identity_id: "identity-other".to_string(),
+        })
+    );
+}
+
+#[test]
+fn rejects_when_actor_binding_user_mismatches_action_actor() {
+    let action = confirmed_action();
+    let grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
+    let binding = actor_binding("user-other", "identity-1");
+
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.update",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
+
+    assert_eq!(
+        result,
+        Err(ExecutionDenied::ActorUserMismatch {
+            action_actor_user_id: "user-1".to_string(),
+            bound_actor_user_id: "user-other".to_string(),
         })
     );
 }

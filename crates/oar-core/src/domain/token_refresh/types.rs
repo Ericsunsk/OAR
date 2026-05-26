@@ -5,7 +5,7 @@ use crate::domain::identity::{TenantId, TokenGrant, TokenGrantId, TokenGrantStat
 
 use super::sanitize::sanitize_refresh_error_for_report;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TokenRefreshAttempt {
     pub grant_id: TokenGrantId,
     pub tenant_id: TenantId,
@@ -13,7 +13,18 @@ pub struct TokenRefreshAttempt {
     pub outcome: RefreshOutcome,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl fmt::Debug for TokenRefreshAttempt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenRefreshAttempt")
+            .field("grant_id", &self.grant_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("expected_fingerprint", &"[REDACTED]")
+            .field("outcome", &self.outcome)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub enum RefreshOutcome {
     Success {
         rotated_material: EncryptedGrantMaterial,
@@ -28,6 +39,34 @@ pub enum RefreshOutcome {
     ReauthFailure {
         safe_error: String,
     },
+}
+
+impl fmt::Debug for RefreshOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Success {
+                rotated_material,
+                refreshed_at,
+                expires_at,
+                ..
+            } => f
+                .debug_struct("Success")
+                .field("rotated_material", rotated_material)
+                .field("key_id", &"[REDACTED]")
+                .field("new_fingerprint", &"[REDACTED]")
+                .field("refreshed_at", refreshed_at)
+                .field("expires_at", expires_at)
+                .finish(),
+            Self::TransientFailure { safe_error } => f
+                .debug_struct("TransientFailure")
+                .field("safe_error", safe_error)
+                .finish(),
+            Self::ReauthFailure { safe_error } => f
+                .debug_struct("ReauthFailure")
+                .field("safe_error", safe_error)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -45,7 +84,7 @@ impl fmt::Debug for EncryptedGrantMaterial {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum TokenRefreshDecision {
     RotateGrantCas {
         grant_id: TokenGrantId,
@@ -69,6 +108,55 @@ pub enum TokenRefreshDecision {
         expected_fingerprint: String,
         safe_error: String,
     },
+}
+
+impl fmt::Debug for TokenRefreshDecision {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RotateGrantCas {
+                grant_id,
+                tenant_id,
+                rotated_material,
+                refreshed_at,
+                expires_at,
+                ..
+            } => f
+                .debug_struct("RotateGrantCas")
+                .field("grant_id", grant_id)
+                .field("tenant_id", tenant_id)
+                .field("expected_fingerprint", &"[REDACTED]")
+                .field("rotated_material", rotated_material)
+                .field("key_id", &"[REDACTED]")
+                .field("new_fingerprint", &"[REDACTED]")
+                .field("refreshed_at", refreshed_at)
+                .field("expires_at", expires_at)
+                .finish(),
+            Self::MarkNeedsRefresh {
+                grant_id,
+                tenant_id,
+                safe_error,
+                ..
+            } => f
+                .debug_struct("MarkNeedsRefresh")
+                .field("grant_id", grant_id)
+                .field("tenant_id", tenant_id)
+                .field("expected_fingerprint", &"[REDACTED]")
+                .field("safe_error", safe_error)
+                .finish(),
+            Self::MarkReauthRequired {
+                grant_id,
+                tenant_id,
+                safe_error,
+                ..
+            } => f
+                .debug_struct("MarkReauthRequired")
+                .field("grant_id", grant_id)
+                .field("tenant_id", tenant_id)
+                .field("expected_fingerprint", &"[REDACTED]")
+                .field("safe_error", safe_error)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -95,7 +183,7 @@ impl EncryptedGrantMaterial {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum TokenRefreshRepositoryCommand {
     RotateGrantCas {
         grant_id: TokenGrantId,
@@ -121,6 +209,59 @@ pub enum TokenRefreshRepositoryCommand {
         reauth_required_at_ms: u64,
         safe_error: String,
     },
+}
+
+impl fmt::Debug for TokenRefreshRepositoryCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RotateGrantCas {
+                grant_id,
+                tenant_id,
+                expires_at_ms,
+                refreshed_at_ms,
+                encrypted_grant_blob,
+                ..
+            } => f
+                .debug_struct("RotateGrantCas")
+                .field("grant_id", grant_id)
+                .field("tenant_id", tenant_id)
+                .field("expected_fingerprint", &"[REDACTED]")
+                .field("expires_at_ms", expires_at_ms)
+                .field("refreshed_at_ms", refreshed_at_ms)
+                .field("encrypted_grant_blob", encrypted_grant_blob)
+                .field("grant_key_id", &"[REDACTED]")
+                .field("new_fingerprint", &"[REDACTED]")
+                .finish(),
+            Self::MarkNeedsRefresh {
+                grant_id,
+                tenant_id,
+                refreshed_at_ms,
+                safe_error,
+                ..
+            } => f
+                .debug_struct("MarkNeedsRefresh")
+                .field("grant_id", grant_id)
+                .field("tenant_id", tenant_id)
+                .field("expected_fingerprint", &"[REDACTED]")
+                .field("refreshed_at_ms", refreshed_at_ms)
+                .field("safe_error", safe_error)
+                .finish(),
+            Self::MarkReauthRequired {
+                grant_id,
+                tenant_id,
+                reauth_required_at_ms,
+                safe_error,
+                ..
+            } => f
+                .debug_struct("MarkReauthRequired")
+                .field("grant_id", grant_id)
+                .field("tenant_id", tenant_id)
+                .field("expected_fingerprint", &"[REDACTED]")
+                .field("reauth_required_at_ms", reauth_required_at_ms)
+                .field("safe_error", safe_error)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -295,5 +436,31 @@ impl TokenRefreshPlannedCommand {
             | TokenRefreshRepositoryCommand::MarkNeedsRefresh { tenant_id, .. }
             | TokenRefreshRepositoryCommand::MarkReauthRequired { tenant_id, .. } => tenant_id,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_refresh_repository_command_debug_redacts_sensitive_fields() {
+        let command = TokenRefreshRepositoryCommand::RotateGrantCas {
+            grant_id: TokenGrantId("grant_1".to_string()),
+            tenant_id: TenantId("tenant_1".to_string()),
+            expected_fingerprint: "expected_fp_sensitive".to_string(),
+            expires_at_ms: Some(123),
+            refreshed_at_ms: 456,
+            encrypted_grant_blob: EncryptedGrantBlob(vec![1, 2, 3]),
+            grant_key_id: "key_sensitive".to_string(),
+            new_fingerprint: "new_fp_sensitive".to_string(),
+        };
+
+        let debug = format!("{command:?}");
+        assert!(!debug.contains("expected_fp_sensitive"));
+        assert!(!debug.contains("key_sensitive"));
+        assert!(!debug.contains("new_fp_sensitive"));
+        assert!(!debug.contains("[1, 2, 3]"));
+        assert!(debug.contains("[REDACTED]"));
     }
 }

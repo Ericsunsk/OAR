@@ -185,10 +185,10 @@ impl From<LarkAdapterError> for AdapterError {
     fn from(value: LarkAdapterError) -> Self {
         match value {
             LarkAdapterError::UnsupportedAction { reason } => {
-                AdapterError::new("unsupported_action", reason)
+                AdapterError::from_safe_message("unsupported_action", reason)
             }
             LarkAdapterError::ExecutionFailed { code, safe_message } => {
-                AdapterError::new(code, safe_message)
+                AdapterError::from_safe_message(code, safe_message)
             }
         }
     }

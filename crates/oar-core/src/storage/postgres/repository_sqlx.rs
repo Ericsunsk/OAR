@@ -40,6 +40,7 @@ use crate::storage::postgres::token_grant_sql::{
 };
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::fmt;
 use std::time::SystemTime;
 use thiserror::Error;
 
@@ -120,7 +121,7 @@ const REDACTED_TENANT_ACTUAL: &str = "<redacted>";
 const REDACTED_REFRESH_ERROR: &str = "<redacted refresh error>";
 const MAX_REFRESH_ERROR_CHARS: usize = 256;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct EncryptedTokenGrantRecord {
     pub id: String,
     pub tenant_id: String,
@@ -141,7 +142,34 @@ pub struct EncryptedTokenGrantRecord {
     pub revocation_reason: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl fmt::Debug for EncryptedTokenGrantRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EncryptedTokenGrantRecord")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("identity_id", &self.identity_id)
+            .field("actor_kind", &self.actor_kind)
+            .field("scope_boundary", &self.scope_boundary)
+            .field("scopes", &self.scopes)
+            .field("state", &self.state)
+            .field("issued_at_ms", &self.issued_at_ms)
+            .field("expires_at_ms", &self.expires_at_ms)
+            .field("refreshed_at_ms", &self.refreshed_at_ms)
+            .field("revoked_at_ms", &self.revoked_at_ms)
+            .field("reauth_required_at_ms", &self.reauth_required_at_ms)
+            .field("last_refresh_error", &self.last_refresh_error)
+            .field(
+                "encrypted_oauth_grant",
+                &format_args!("[REDACTED; bytes={}]", self.encrypted_oauth_grant.len()),
+            )
+            .field("oauth_grant_key_id", &"[REDACTED]")
+            .field("oauth_grant_fingerprint", &"[REDACTED]")
+            .field("revocation_reason", &self.revocation_reason)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct RotateEncryptedGrantRequest<'a> {
     pub tenant_id: &'a str,
     pub id: &'a str,
@@ -151,6 +179,24 @@ pub struct RotateEncryptedGrantRequest<'a> {
     pub encrypted_oauth_grant: &'a [u8],
     pub oauth_grant_key_id: &'a str,
     pub oauth_grant_fingerprint: &'a str,
+}
+
+impl fmt::Debug for RotateEncryptedGrantRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RotateEncryptedGrantRequest")
+            .field("tenant_id", &self.tenant_id)
+            .field("id", &self.id)
+            .field("expected_fingerprint", &"[REDACTED]")
+            .field("expires_at_ms", &self.expires_at_ms)
+            .field("refreshed_at_ms", &self.refreshed_at_ms)
+            .field(
+                "encrypted_oauth_grant",
+                &format_args!("[REDACTED; bytes={}]", self.encrypted_oauth_grant.len()),
+            )
+            .field("oauth_grant_key_id", &"[REDACTED]")
+            .field("oauth_grant_fingerprint", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1760,5 +1806,58 @@ mod tests {
         assert!(!sanitized.contains('\n'));
         assert_eq!(sanitized.chars().count(), MAX_REFRESH_ERROR_CHARS);
         assert!(sanitized.starts_with("transient failure"));
+    }
+
+    #[test]
+    fn encrypted_token_grant_record_debug_redacts_sensitive_material() {
+        let record = EncryptedTokenGrantRecord {
+            id: "grant_1".to_string(),
+            tenant_id: "tenant_1".to_string(),
+            identity_id: "identity_1".to_string(),
+            actor_kind: ActorKind::User,
+            scope_boundary: ScopeBoundary::Tenant,
+            scopes: vec!["okr:read".to_string()],
+            state: TokenGrantState::Valid,
+            issued_at_ms: 1,
+            expires_at_ms: Some(2),
+            refreshed_at_ms: Some(3),
+            revoked_at_ms: None,
+            reauth_required_at_ms: None,
+            last_refresh_error: None,
+            encrypted_oauth_grant: vec![1, 2, 3, 4],
+            oauth_grant_key_id: "key_sensitive".to_string(),
+            oauth_grant_fingerprint: "fp_sensitive".to_string(),
+            revocation_reason: None,
+        };
+
+        let debug = format!("{record:?}");
+        assert!(!debug.contains("key_sensitive"));
+        assert!(!debug.contains("fp_sensitive"));
+        assert!(!debug.contains("[1, 2, 3, 4]"));
+        assert!(debug.contains("bytes=4"));
+        assert!(debug.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn rotate_encrypted_grant_request_debug_redacts_sensitive_material() {
+        let bytes = [9_u8, 8_u8, 7_u8];
+        let request = RotateEncryptedGrantRequest {
+            tenant_id: "tenant_1",
+            id: "grant_1",
+            expected_fingerprint: "fp_expected_sensitive",
+            expires_at_ms: Some(42),
+            refreshed_at_ms: 88,
+            encrypted_oauth_grant: &bytes,
+            oauth_grant_key_id: "key_sensitive",
+            oauth_grant_fingerprint: "fp_new_sensitive",
+        };
+
+        let debug = format!("{request:?}");
+        assert!(!debug.contains("fp_expected_sensitive"));
+        assert!(!debug.contains("key_sensitive"));
+        assert!(!debug.contains("fp_new_sensitive"));
+        assert!(!debug.contains("[9, 8, 7]"));
+        assert!(debug.contains("bytes=3"));
+        assert!(debug.contains("[REDACTED]"));
     }
 }

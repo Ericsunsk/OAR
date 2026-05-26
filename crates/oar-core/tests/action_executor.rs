@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use oar_core::action::audit_event::{AuditEventType, AuditStateSummary, ExecutionStatus};
 use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
-use oar_core::action::execution_policy::{ExecutionDenied, ExecutionPolicy};
+use oar_core::action::execution_policy::{ActionActorBinding, ExecutionDenied, ExecutionPolicy};
 use oar_core::action::executor::{
     ActionAdapter, ActionExecutor, AdapterDryRun, AdapterError, AdapterExecution, ExecutionError,
 };
@@ -43,6 +43,10 @@ fn token_grant(scopes: &[&str], state: TokenGrantState) -> TokenGrant {
     }
 }
 
+fn actor_binding(actor_user_id: &str) -> ActionActorBinding {
+    ActionActorBinding::new(actor_user_id, LarkIdentityId("identity-1".to_string()))
+}
+
 fn progress_update_policy() -> ExecutionPolicy {
     ExecutionPolicy::new(
         ["okr.progress.update"],
@@ -71,7 +75,8 @@ impl MockAdapter {
 
     fn with_execute_error(code: &str, message: &str) -> Self {
         let adapter = Self::new();
-        adapter.state.borrow_mut().execute_error = Some(AdapterError::new(code, message));
+        adapter.state.borrow_mut().execute_error =
+            Some(AdapterError::from_safe_message(code, message));
         adapter
     }
 
@@ -248,11 +253,13 @@ fn policy_denied_action_does_not_call_adapter_or_mark_success_and_records_safe_r
     let action = confirmed_action("idem-policy-denied-1");
     let policy = progress_update_policy();
     let grant = token_grant(&["offline_access"], TokenGrantState::Valid);
+    let binding = actor_binding("user-1");
 
     let result = executor.execute_confirmed_action_with_policy(
         &action,
         "okr.progress.update",
         "okr.progress.write",
+        &binding,
         &grant,
         &policy,
     );
@@ -319,12 +326,14 @@ fn allowed_policy_preserves_happy_path_execution() {
     let action = confirmed_action("idem-policy-allow-1");
     let policy = progress_update_policy();
     let grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
+    let binding = actor_binding("user-1");
 
     let report = executor
         .execute_confirmed_action_with_policy(
             &action,
             "okr.progress.update",
             "okr.progress.write",
+            &binding,
             &grant,
             &policy,
         )
