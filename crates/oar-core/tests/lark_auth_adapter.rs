@@ -1,12 +1,12 @@
 use std::time::{Duration, SystemTime};
 
 use oar_core::domain::identity::{TenantId, TokenGrantState};
-use oar_core::domain::token_refresh::{
-    AuthRefreshAdapter, RefreshOutcome, TokenRefreshGrantSnapshot,
-};
-use oar_core::lark::auth::{
-    parse_lark_auth_refresh_response, LarkAuthGrantState, LarkAuthRefreshAdapter,
-    LarkAuthRefreshClient, LarkAuthRefreshRequest, LarkAuthRefreshResponse,
+use oar_core::domain::token_refresh::service::AuthRefreshAdapter;
+use oar_core::domain::token_refresh::types::{RefreshOutcome, TokenRefreshGrantSnapshot};
+use oar_core::lark::auth::adapter::{LarkAuthRefreshAdapter, LarkAuthRefreshClient};
+use oar_core::lark::auth::parser::parse_lark_auth_refresh_response;
+use oar_core::lark::auth::types::{
+    LarkAuthGrantState, LarkAuthRefreshRequest, LarkAuthRefreshResponse,
 };
 use oar_core::lark::fixtures::{
     AUTH_REFRESH_PLAINTEXT_TOKEN_LEAK_JSON, AUTH_REFRESH_REAUTH_REQUIRED_JSON,

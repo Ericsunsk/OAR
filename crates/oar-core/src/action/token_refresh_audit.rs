@@ -2,7 +2,7 @@ use crate::action::audit_event::{
     AuditActor, AuditEvent, AuditEventContext, AuditScope, AuditStateSummary, AuditSubject,
     AuditTarget,
 };
-use crate::domain::token_refresh::{
+use crate::domain::token_refresh::types::{
     TokenRefreshAuditSummary, TokenRefreshCommandKind, TokenRefreshReportStatus,
     TokenRefreshShortCircuitReason,
 };

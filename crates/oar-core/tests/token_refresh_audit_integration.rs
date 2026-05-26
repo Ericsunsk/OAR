@@ -1,7 +1,7 @@
 use oar_core::action::audit_event::{AuditActor, AuditActorKind, AuditEventType, ExecutionStatus};
 use oar_core::action::token_refresh_audit::{token_refresh_audit_event, TokenRefreshAuditContext};
 use oar_core::domain::identity::{TenantId, TokenGrantId};
-use oar_core::domain::token_refresh::{
+use oar_core::domain::token_refresh::types::{
     TokenRefreshAuditSummary, TokenRefreshCommandKind, TokenRefreshDecisionKind,
     TokenRefreshReportStatus, TokenRefreshShortCircuitReason,
 };

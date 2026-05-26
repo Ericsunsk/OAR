@@ -1,6 +1,4 @@
-use crate::action::audit_event::{
-    AuditActor, AuditActorKind, AuditEvent, AuditEventType, AuditScope, AuditTarget,
-};
+use crate::action::audit_event::{AuditActor, AuditEvent, AuditScope, AuditTarget};
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::action::operation_ledger::{LedgerError, OperationRecord, SubmitResult};
 use crate::action::token_refresh_audit::{token_refresh_audit_event, TokenRefreshAuditContext};
@@ -8,11 +6,14 @@ use crate::domain::identity::{
     ActorKind, LarkIdentity, OarUser, OarUserStatus, ScopeBoundary, Tenant, TenantStatus,
     TokenGrantState,
 };
-use crate::domain::token_refresh::{
-    plan_token_refresh_command, token_refresh_short_circuit_report, AuthRefreshAdapter,
-    TokenRefreshApplyResult, TokenRefreshAuditSummary, TokenRefreshBridgeError,
-    TokenRefreshGrantSnapshot, TokenRefreshPlannedCommand, TokenRefreshReportStatus,
-    TokenRefreshRepositoryCommand, TokenRefreshServiceReport,
+use crate::domain::token_refresh::bridge::{plan_token_refresh_command, TokenRefreshBridgeError};
+use crate::domain::token_refresh::service::{
+    token_refresh_short_circuit_report, AuthRefreshAdapter,
+};
+use crate::domain::token_refresh::types::{
+    TokenRefreshApplyResult, TokenRefreshAuditSummary, TokenRefreshGrantSnapshot,
+    TokenRefreshPlannedCommand, TokenRefreshReportStatus, TokenRefreshRepositoryCommand,
+    TokenRefreshServiceReport,
 };
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
@@ -38,10 +39,17 @@ use crate::storage::postgres::token_grant_sql::{
     ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
 };
 use serde_json::Value;
-use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use thiserror::Error;
+
+mod codec;
+mod rows;
+mod util;
+
+use codec::*;
+use rows::*;
+use util::*;
 
 #[derive(Debug, Error)]
 pub enum PostgresRepositoryError {
@@ -468,10 +476,10 @@ impl PostgresTokenGrantRepository {
 
     pub async fn apply_refresh_command(
         &self,
-        command: crate::domain::token_refresh::TokenRefreshRepositoryCommand,
+        command: TokenRefreshRepositoryCommand,
     ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
         match command {
-            crate::domain::token_refresh::TokenRefreshRepositoryCommand::RotateGrantCas {
+            TokenRefreshRepositoryCommand::RotateGrantCas {
                 grant_id,
                 tenant_id,
                 expected_fingerprint,
@@ -493,7 +501,7 @@ impl PostgresTokenGrantRepository {
                 })
                 .await
             }
-            crate::domain::token_refresh::TokenRefreshRepositoryCommand::MarkNeedsRefresh {
+            TokenRefreshRepositoryCommand::MarkNeedsRefresh {
                 grant_id,
                 tenant_id,
                 expected_fingerprint,
@@ -509,7 +517,7 @@ impl PostgresTokenGrantRepository {
                 )
                 .await
             }
-            crate::domain::token_refresh::TokenRefreshRepositoryCommand::MarkReauthRequired {
+            TokenRefreshRepositoryCommand::MarkReauthRequired {
                 grant_id,
                 tenant_id,
                 expected_fingerprint,
@@ -1633,134 +1641,6 @@ fn submit_result_parts(result: SubmitResult) -> (OperationRecord, bool) {
     }
 }
 
-fn operation_record_from_row(row: &PgRow) -> PgRepositoryResult<OperationRecord> {
-    let status: String = row.try_get("status")?;
-    Ok(OperationRecord {
-        operation_id: row.try_get("operation_id")?,
-        action_id: row.try_get("action_id")?,
-        idempotency_key: row.try_get("idempotency_key")?,
-        status: action_status_from_db(&status)?,
-        last_error: row.try_get("last_error")?,
-    })
-}
-
-fn action_status_from_db(value: &str) -> PgRepositoryResult<ActionStatus> {
-    match value {
-        "proposed" => Ok(ActionStatus::Proposed),
-        "confirmed" => Ok(ActionStatus::Confirmed),
-        "executing" => Ok(ActionStatus::Executing),
-        "succeeded" => Ok(ActionStatus::Succeeded),
-        "failed" => Ok(ActionStatus::Failed),
-        "cancelled" => Ok(ActionStatus::Cancelled),
-        other => Err(PostgresRepositoryError::UnknownActionStatus(
-            other.to_string(),
-        )),
-    }
-}
-
-fn audit_event_from_row(row: &PgRow) -> PgRepositoryResult<AuditEvent> {
-    let sequence = non_negative_i64_to_u64(row.try_get("sequence")?, "sequence")?;
-    let occurred_at_ms = non_negative_i64_to_u64(row.try_get("occurred_at_ms")?, "occurred_at_ms")?;
-    let actor_kind: String = row.try_get("actor_kind")?;
-    let event_type: String = row.try_get("event_type")?;
-
-    Ok(AuditEvent {
-        event_id: row.try_get("event_id")?,
-        trace_id: row.try_get("trace_id")?,
-        sequence,
-        occurred_at_ms,
-        event_type: audit_event_type_from_db(&event_type)?,
-        actor: AuditActor {
-            kind: audit_actor_kind_from_db(&actor_kind)?,
-            actor_id: row.try_get("actor_id")?,
-            display_name: row.try_get("actor_display_name")?,
-        },
-        scope: AuditScope {
-            tenant_id: row.try_get("tenant_id")?,
-            workspace_id: None,
-        },
-        target: AuditTarget {
-            resource_type: row.try_get("target_resource_type")?,
-            resource_id: row.try_get("target_resource_id")?,
-            action_type: row.try_get("target_action_type")?,
-        },
-        before: json_value_option(row.try_get("before_summary")?)?,
-        after: json_value_option(row.try_get("after_summary")?)?,
-        execution: json_value_option(row.try_get("execution_result")?)?,
-    })
-}
-
-fn audit_outbox_message_from_row(row: &PgRow) -> PgRepositoryResult<AuditOutboxMessage> {
-    Ok(AuditOutboxMessage {
-        id: row.try_get("id")?,
-        tenant_id: row.try_get("tenant_id")?,
-        stream: row.try_get("stream")?,
-        aggregate_id: row.try_get("aggregate_id")?,
-        payload: row.try_get("payload")?,
-        attempt_count: row.try_get("attempt_count")?,
-        next_attempt_at_ms: row.try_get("next_attempt_at_ms")?,
-    })
-}
-
-fn encrypted_token_grant_from_row(row: &PgRow) -> PgRepositoryResult<EncryptedTokenGrantRecord> {
-    let actor_kind: String = row.try_get("actor_kind")?;
-    let scope_boundary: String = row.try_get("scope_boundary")?;
-    let state: String = row.try_get("state")?;
-
-    Ok(EncryptedTokenGrantRecord {
-        id: row.try_get("id")?,
-        tenant_id: row.try_get("tenant_id")?,
-        identity_id: row.try_get("identity_id")?,
-        actor_kind: identity_actor_kind_from_db(&actor_kind)?,
-        scope_boundary: scope_boundary_from_db(&scope_boundary)?,
-        scopes: row.try_get("scopes")?,
-        state: token_grant_state_from_db(&state)?,
-        issued_at_ms: non_negative_i64_to_u64(row.try_get("issued_at_ms")?, "issued_at_ms")?,
-        expires_at_ms: optional_non_negative_i64_to_u64(
-            row.try_get("expires_at_ms")?,
-            "expires_at_ms",
-        )?,
-        refreshed_at_ms: optional_non_negative_i64_to_u64(
-            row.try_get("refreshed_at_ms")?,
-            "refreshed_at_ms",
-        )?,
-        revoked_at_ms: optional_non_negative_i64_to_u64(
-            row.try_get("revoked_at_ms")?,
-            "revoked_at_ms",
-        )?,
-        reauth_required_at_ms: optional_non_negative_i64_to_u64(
-            row.try_get("reauth_required_at_ms")?,
-            "reauth_required_at_ms",
-        )?,
-        last_refresh_error: row.try_get("last_refresh_error")?,
-        encrypted_oauth_grant: row.try_get("encrypted_oauth_grant")?,
-        oauth_grant_key_id: row.try_get("oauth_grant_key_id")?,
-        oauth_grant_fingerprint: row.try_get("oauth_grant_fingerprint")?,
-        revocation_reason: row.try_get("revocation_reason")?,
-    })
-}
-
-fn token_refresh_snapshot_from_row(row: &PgRow) -> PgRepositoryResult<TokenRefreshGrantSnapshot> {
-    let state: String = row.try_get("state")?;
-    Ok(TokenRefreshGrantSnapshot {
-        grant_id: crate::domain::identity::TokenGrantId(row.try_get("id")?),
-        tenant_id: crate::domain::identity::TenantId(row.try_get("tenant_id")?),
-        expected_fingerprint: row.try_get("oauth_grant_fingerprint")?,
-        state: token_grant_state_from_db(&state)?,
-        has_refresh_material: row.try_get("has_refresh_material")?,
-        revoked_at: optional_non_negative_i64_to_u64(
-            row.try_get("revoked_at_ms")?,
-            "revoked_at_ms",
-        )?
-        .map(ms_to_system_time),
-        reauth_required_at: optional_non_negative_i64_to_u64(
-            row.try_get("reauth_required_at_ms")?,
-            "reauth_required_at_ms",
-        )?
-        .map(ms_to_system_time),
-    })
-}
-
 async fn apply_refresh_command_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     command: TokenRefreshRepositoryCommand,
@@ -1839,355 +1719,6 @@ fn token_refresh_apply_result_from_record(
         state: record.state,
         fingerprint: record.oauth_grant_fingerprint,
     }
-}
-
-fn stored_tenant_from_row(row: &PgRow) -> PgRepositoryResult<StoredTenant> {
-    let status: String = row.try_get("status")?;
-    Ok(StoredTenant {
-        id: row.try_get("id")?,
-        display_name: row.try_get("display_name")?,
-        status: tenant_status_from_db(&status)?,
-    })
-}
-
-fn stored_oar_user_from_row(row: &PgRow) -> PgRepositoryResult<StoredOarUser> {
-    let status: String = row.try_get("status")?;
-    Ok(StoredOarUser {
-        id: row.try_get("id")?,
-        tenant_id: row.try_get("tenant_id")?,
-        display_name: row.try_get("display_name")?,
-        status: oar_user_status_from_db(&status)?,
-    })
-}
-
-fn stored_lark_identity_from_row(row: &PgRow) -> PgRepositoryResult<StoredLarkIdentity> {
-    let actor_kind: String = row.try_get("actor_kind")?;
-    Ok(StoredLarkIdentity {
-        id: row.try_get("id")?,
-        tenant_id: row.try_get("tenant_id")?,
-        actor_kind: identity_actor_kind_from_db(&actor_kind)?,
-        actor_external_id: row.try_get("actor_external_id")?,
-        display_name: row.try_get("display_name")?,
-    })
-}
-
-fn stored_device_session_from_row(row: &PgRow) -> PgRepositoryResult<StoredDeviceSession> {
-    let entry_point: String = row.try_get("entry_point")?;
-    let state: String = row.try_get("state")?;
-
-    Ok(StoredDeviceSession {
-        id: row.try_get("id")?,
-        tenant_id: row.try_get("tenant_id")?,
-        user_id: row.try_get("user_id")?,
-        entry_point: device_entry_point_from_db(&entry_point)?,
-        state: device_session_state_from_db(&state)?,
-        sync_stream: row.try_get("sync_stream")?,
-        sync_cursor_value: non_negative_i64_to_u64(
-            row.try_get("sync_cursor_value")?,
-            "sync_cursor_value",
-        )?,
-        sync_cursor_updated_at: ms_to_system_time(non_negative_i64_to_u64(
-            row.try_get("sync_cursor_updated_at_ms")?,
-            "sync_cursor_updated_at_ms",
-        )?),
-        session_identity_hash: row.try_get("session_identity_hash")?,
-        last_seen_at: ms_to_system_time(non_negative_i64_to_u64(
-            row.try_get("last_seen_at_ms")?,
-            "last_seen_at_ms",
-        )?),
-        revoked_at: optional_non_negative_i64_to_u64(
-            row.try_get("revoked_at_ms")?,
-            "revoked_at_ms",
-        )?
-        .map(ms_to_system_time),
-        expired_at: optional_non_negative_i64_to_u64(
-            row.try_get("expired_at_ms")?,
-            "expired_at_ms",
-        )?
-        .map(ms_to_system_time),
-    })
-}
-
-fn option_u64_to_i64(value: Option<u64>) -> Option<i64> {
-    value.map(|value| value as i64)
-}
-
-fn json_option<T: serde::Serialize>(value: &Option<T>) -> PgRepositoryResult<Option<Value>> {
-    value
-        .as_ref()
-        .map(serde_json::to_value)
-        .transpose()
-        .map_err(PostgresRepositoryError::from)
-}
-
-fn json_value_option<T>(value: Option<Value>) -> PgRepositoryResult<Option<T>>
-where
-    T: serde::de::DeserializeOwned,
-{
-    value
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(PostgresRepositoryError::from)
-}
-
-fn actor_kind_to_db(kind: &ActorKind) -> &'static str {
-    match kind {
-        ActorKind::User => "user",
-        ActorKind::Bot => "bot",
-        ActorKind::App => "app",
-        ActorKind::Service => "service",
-    }
-}
-
-fn identity_actor_kind_from_db(value: &str) -> PgRepositoryResult<ActorKind> {
-    match value {
-        "user" => Ok(ActorKind::User),
-        "bot" => Ok(ActorKind::Bot),
-        "app" => Ok(ActorKind::App),
-        "service" => Ok(ActorKind::Service),
-        other => Err(PostgresRepositoryError::UnknownIdentityActorKind(
-            other.to_string(),
-        )),
-    }
-}
-
-fn scope_boundary_to_db(boundary: &ScopeBoundary) -> &'static str {
-    match boundary {
-        ScopeBoundary::Tenant => "tenant",
-        ScopeBoundary::User => "user",
-        ScopeBoundary::Admin => "admin",
-        ScopeBoundary::Bot => "bot",
-        ScopeBoundary::Service => "service",
-    }
-}
-
-fn scope_boundary_from_db(value: &str) -> PgRepositoryResult<ScopeBoundary> {
-    match value {
-        "tenant" => Ok(ScopeBoundary::Tenant),
-        "user" => Ok(ScopeBoundary::User),
-        "admin" => Ok(ScopeBoundary::Admin),
-        "bot" => Ok(ScopeBoundary::Bot),
-        "service" => Ok(ScopeBoundary::Service),
-        other => Err(PostgresRepositoryError::UnknownScopeBoundary(
-            other.to_string(),
-        )),
-    }
-}
-
-fn token_grant_state_to_db(state: &TokenGrantState) -> &'static str {
-    match state {
-        TokenGrantState::Valid => "valid",
-        TokenGrantState::NeedsRefresh => "needs_refresh",
-        TokenGrantState::Expired => "expired",
-        TokenGrantState::Revoked => "revoked",
-        TokenGrantState::ReauthRequired => "reauth_required",
-    }
-}
-
-fn token_grant_state_from_db(value: &str) -> PgRepositoryResult<TokenGrantState> {
-    match value {
-        "valid" => Ok(TokenGrantState::Valid),
-        "needs_refresh" => Ok(TokenGrantState::NeedsRefresh),
-        "expired" => Ok(TokenGrantState::Expired),
-        "revoked" => Ok(TokenGrantState::Revoked),
-        "reauth_required" => Ok(TokenGrantState::ReauthRequired),
-        other => Err(PostgresRepositoryError::UnknownTokenGrantState(
-            other.to_string(),
-        )),
-    }
-}
-
-fn tenant_status_to_db(status: &TenantStatus) -> &'static str {
-    match status {
-        TenantStatus::Active => "active",
-        TenantStatus::Suspended => "suspended",
-    }
-}
-
-fn tenant_status_from_db(value: &str) -> PgRepositoryResult<TenantStatus> {
-    match value {
-        "active" => Ok(TenantStatus::Active),
-        "suspended" => Ok(TenantStatus::Suspended),
-        other => Err(PostgresRepositoryError::UnknownTenantStatus(
-            other.to_string(),
-        )),
-    }
-}
-
-fn oar_user_status_to_db(status: &OarUserStatus) -> &'static str {
-    match status {
-        OarUserStatus::Active => "active",
-        OarUserStatus::Disabled => "disabled",
-    }
-}
-
-fn oar_user_status_from_db(value: &str) -> PgRepositoryResult<OarUserStatus> {
-    match value {
-        "active" => Ok(OarUserStatus::Active),
-        "disabled" => Ok(OarUserStatus::Disabled),
-        other => Err(PostgresRepositoryError::UnknownOarUserStatus(
-            other.to_string(),
-        )),
-    }
-}
-
-fn audit_actor_kind_to_db(kind: &AuditActorKind) -> &'static str {
-    match kind {
-        AuditActorKind::User => "user",
-        AuditActorKind::Bot => "bot",
-        AuditActorKind::App => "app",
-        AuditActorKind::System => "system",
-        AuditActorKind::Service => "service",
-    }
-}
-
-fn audit_actor_kind_from_db(value: &str) -> PgRepositoryResult<AuditActorKind> {
-    match value {
-        "user" => Ok(AuditActorKind::User),
-        "bot" => Ok(AuditActorKind::Bot),
-        "app" => Ok(AuditActorKind::App),
-        "system" => Ok(AuditActorKind::System),
-        "service" => Ok(AuditActorKind::Service),
-        other => Err(PostgresRepositoryError::UnknownAuditActorKind(
-            other.to_string(),
-        )),
-    }
-}
-
-fn audit_event_type_to_db(event_type: &AuditEventType) -> &'static str {
-    match event_type {
-        AuditEventType::ConfirmedActionRecorded => "confirmed_action_recorded",
-        AuditEventType::DryRunExecuted => "dry_run_executed",
-        AuditEventType::ExecutionDenied => "execution_denied",
-        AuditEventType::ExecutionSucceeded => "execution_succeeded",
-        AuditEventType::ExecutionFailed => "execution_failed",
-    }
-}
-
-fn audit_event_type_from_db(value: &str) -> PgRepositoryResult<AuditEventType> {
-    match value {
-        "confirmed_action_recorded" => Ok(AuditEventType::ConfirmedActionRecorded),
-        "dry_run_executed" => Ok(AuditEventType::DryRunExecuted),
-        "execution_denied" => Ok(AuditEventType::ExecutionDenied),
-        "execution_succeeded" => Ok(AuditEventType::ExecutionSucceeded),
-        "execution_failed" => Ok(AuditEventType::ExecutionFailed),
-        other => Err(PostgresRepositoryError::UnknownAuditEventType(
-            other.to_string(),
-        )),
-    }
-}
-
-fn non_negative_i64_to_u64(value: i64, field: &'static str) -> PgRepositoryResult<u64> {
-    if value < 0 {
-        return Err(PostgresRepositoryError::NegativeInteger { field, value });
-    }
-    Ok(value as u64)
-}
-
-fn optional_non_negative_i64_to_u64(
-    value: Option<i64>,
-    field: &'static str,
-) -> PgRepositoryResult<Option<u64>> {
-    value
-        .map(|value| non_negative_i64_to_u64(value, field))
-        .transpose()
-}
-
-fn device_entry_point_to_db(value: &crate::domain::device_sync::DeviceEntryPoint) -> &'static str {
-    match value {
-        crate::domain::device_sync::DeviceEntryPoint::MacOs => "macos",
-        crate::domain::device_sync::DeviceEntryPoint::Ios => "ios",
-        crate::domain::device_sync::DeviceEntryPoint::Web => "web",
-        crate::domain::device_sync::DeviceEntryPoint::Lark => "lark",
-    }
-}
-
-fn device_entry_point_from_db(
-    value: &str,
-) -> PgRepositoryResult<crate::domain::device_sync::DeviceEntryPoint> {
-    match value {
-        "macos" => Ok(crate::domain::device_sync::DeviceEntryPoint::MacOs),
-        "ios" => Ok(crate::domain::device_sync::DeviceEntryPoint::Ios),
-        "web" => Ok(crate::domain::device_sync::DeviceEntryPoint::Web),
-        "lark" => Ok(crate::domain::device_sync::DeviceEntryPoint::Lark),
-        other => Err(PostgresRepositoryError::UnknownDeviceEntryPoint(
-            other.to_string(),
-        )),
-    }
-}
-
-fn device_session_state_to_db(value: &crate::domain::device_sync::SessionState) -> &'static str {
-    match value {
-        crate::domain::device_sync::SessionState::Active => "active",
-        crate::domain::device_sync::SessionState::Revoked => "revoked",
-        crate::domain::device_sync::SessionState::Expired => "expired",
-    }
-}
-
-fn device_session_state_from_db(
-    value: &str,
-) -> PgRepositoryResult<crate::domain::device_sync::SessionState> {
-    match value {
-        "active" => Ok(crate::domain::device_sync::SessionState::Active),
-        "revoked" => Ok(crate::domain::device_sync::SessionState::Revoked),
-        "expired" => Ok(crate::domain::device_sync::SessionState::Expired),
-        other => Err(PostgresRepositoryError::UnknownDeviceSessionState(
-            other.to_string(),
-        )),
-    }
-}
-
-fn system_time_to_ms(value: SystemTime) -> PgRepositoryResult<u64> {
-    value
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .map_err(|_| PostgresRepositoryError::NegativeInteger {
-            field: "system_time",
-            value: -1,
-        })
-}
-
-fn option_system_time_to_i64_ms(value: Option<SystemTime>) -> PgRepositoryResult<Option<i64>> {
-    value
-        .map(system_time_to_ms)
-        .transpose()
-        .map(|maybe| maybe.map(|ms| ms as i64))
-}
-
-fn ms_to_system_time(value: u64) -> SystemTime {
-    UNIX_EPOCH + Duration::from_millis(value)
-}
-
-fn redacted_tenant_actual() -> String {
-    REDACTED_TENANT_ACTUAL.to_string()
-}
-
-fn sanitize_refresh_error_for_storage(reason: &str) -> String {
-    let lowered = reason.to_ascii_lowercase();
-    let looks_sensitive = [
-        "access token",
-        "access_token",
-        "refresh token",
-        "refresh_token",
-        "authorization:",
-        "bearer ",
-        "client_secret",
-        "authorization_code",
-        "oauth_grant",
-    ]
-    .iter()
-    .any(|needle| lowered.contains(needle));
-
-    if looks_sensitive {
-        return REDACTED_REFRESH_ERROR.to_string();
-    }
-
-    let trimmed = reason.trim();
-    trimmed
-        .chars()
-        .map(|char| if char.is_control() { ' ' } else { char })
-        .take(MAX_REFRESH_ERROR_CHARS)
-        .collect()
 }
 
 fn is_unique_violation(error: &sqlx::Error) -> bool {

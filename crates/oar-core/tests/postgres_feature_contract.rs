@@ -94,9 +94,8 @@ mod postgres_feature_api_contract {
         token_refresh_audit_event, TokenRefreshAuditContext,
     };
     use oar_core::domain::identity::{ActorKind, ScopeBoundary, TokenGrantState};
-    use oar_core::domain::token_refresh::{
-        AuthRefreshAdapter, RefreshOutcome, TokenRefreshGrantSnapshot,
-    };
+    use oar_core::domain::token_refresh::service::AuthRefreshAdapter;
+    use oar_core::domain::token_refresh::types::{RefreshOutcome, TokenRefreshGrantSnapshot};
     use oar_core::lark::adapter::MockLarkAdapter;
     use oar_core::storage::postgres::audit_outbox_worker::{
         AuditOutboxDelivery, AuditOutboxDispatcher, AuditOutboxDrainConfig, AuditOutboxDrainReport,
