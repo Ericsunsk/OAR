@@ -111,6 +111,7 @@ update_progress(confirmed_action_id, request) -> ProgressRecord
 - `refresh_token` 只在用户授予 `offline_access` 时返回。
 - 刷新成功后必须保存新的 refresh token，原 refresh token 可能失效。
 - 客户端只保存 OAR session，不长期保存飞书 refresh token。
+- `TokenGrant` repository 边界只接受/返回加密授权包，不暴露明文 OAuth token。
 
 ## 6. 多端同步
 
@@ -158,6 +159,8 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - `audit_events (trace_id, sequence)` 唯一。
 - `audit_events` 有 `BEFORE UPDATE` / `BEFORE DELETE` trigger 阻止静默修改。
 - `token_grants` 不使用明文 `access_token` / `refresh_token` 列名，授权材料保存为 `encrypted_oauth_grant`、`oauth_grant_key_id`、`oauth_grant_fingerprint`。
+- refresh rotation 采用 SQL CAS：`tenant_id + grant_id + expected_fingerprint` 命中且 grant 状态属于 `valid` / `needs_refresh` / `expired`、并满足 `revoked_at IS NULL` 与 `reauth_required_at IS NULL` 时才允许更新。
+- 已撤销或已标记 reauth-required 的 grant 必须在 SQL 层直接阻断 rotation，不依赖上层重试逻辑。
 
 当前边界：
 

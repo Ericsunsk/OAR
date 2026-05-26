@@ -3,6 +3,7 @@ use crate::action::audit_event::{
 };
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::action::operation_ledger::{LedgerError, OperationRecord, SubmitResult};
+use crate::domain::identity::{ActorKind, ScopeBoundary, TokenGrantState};
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
     MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
@@ -12,6 +13,10 @@ use crate::storage::postgres::audit_sql::{
 use crate::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
+};
+use crate::storage::postgres::token_grant_sql::{
+    GET_TOKEN_GRANT_BY_ID, MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED,
+    REVOKE_TOKEN_GRANT, ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
 };
 use serde_json::Value;
 use sqlx::postgres::PgRow;
@@ -30,6 +35,12 @@ pub enum PostgresRepositoryError {
     UnknownAuditEventType(String),
     #[error("unknown execution status from database: {0}")]
     UnknownExecutionStatus(String),
+    #[error("unknown token grant state from database: {0}")]
+    UnknownTokenGrantState(String),
+    #[error("unknown identity actor kind from database: {0}")]
+    UnknownIdentityActorKind(String),
+    #[error("unknown scope boundary from database: {0}")]
+    UnknownScopeBoundary(String),
     #[error("action must be confirmed before persistence: {0:?}")]
     ActionNotConfirmed(ActionStatus),
     #[error("tenant mismatch for {field}: expected {expected}, got {actual}")]
@@ -45,6 +56,27 @@ pub enum PostgresRepositoryError {
 }
 
 pub type PgRepositoryResult<T> = Result<T, PostgresRepositoryError>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncryptedTokenGrantRecord {
+    pub id: String,
+    pub tenant_id: String,
+    pub identity_id: String,
+    pub actor_kind: ActorKind,
+    pub scope_boundary: ScopeBoundary,
+    pub scopes: Vec<String>,
+    pub state: TokenGrantState,
+    pub issued_at_ms: u64,
+    pub expires_at_ms: Option<u64>,
+    pub refreshed_at_ms: Option<u64>,
+    pub revoked_at_ms: Option<u64>,
+    pub reauth_required_at_ms: Option<u64>,
+    pub last_refresh_error: Option<String>,
+    pub encrypted_oauth_grant: Vec<u8>,
+    pub oauth_grant_key_id: String,
+    pub oauth_grant_fingerprint: String,
+    pub revocation_reason: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuditOutboxMessage {
@@ -71,6 +103,141 @@ pub struct PostgresExecutionUnitOfWorkReport {
     pub operation: OperationRecord,
     pub outbox_id: Option<i64>,
     pub duplicate: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PostgresTokenGrantRepository {
+    pool: PgPool,
+}
+
+impl PostgresTokenGrantRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    pub async fn upsert_encrypted_grant(
+        &self,
+        grant: &EncryptedTokenGrantRecord,
+    ) -> PgRepositoryResult<EncryptedTokenGrantRecord> {
+        let row = sqlx::query(UPSERT_TOKEN_GRANT)
+            .bind(&grant.id)
+            .bind(&grant.tenant_id)
+            .bind(&grant.identity_id)
+            .bind(actor_kind_to_db(&grant.actor_kind))
+            .bind(scope_boundary_to_db(&grant.scope_boundary))
+            .bind(&grant.scopes)
+            .bind(token_grant_state_to_db(&grant.state))
+            .bind(grant.issued_at_ms as i64)
+            .bind(option_u64_to_i64(grant.expires_at_ms))
+            .bind(option_u64_to_i64(grant.refreshed_at_ms))
+            .bind(option_u64_to_i64(grant.revoked_at_ms))
+            .bind(option_u64_to_i64(grant.reauth_required_at_ms))
+            .bind(&grant.last_refresh_error)
+            .bind(&grant.encrypted_oauth_grant)
+            .bind(&grant.oauth_grant_key_id)
+            .bind(&grant.oauth_grant_fingerprint)
+            .bind(&grant.revocation_reason)
+            .fetch_one(&self.pool)
+            .await?;
+        encrypted_token_grant_from_row(&row)
+    }
+
+    pub async fn get_by_id(
+        &self,
+        tenant_id: &str,
+        id: &str,
+    ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
+        let row = sqlx::query(GET_TOKEN_GRANT_BY_ID)
+            .bind(tenant_id)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(encrypted_token_grant_from_row).transpose()
+    }
+
+    pub async fn rotate_encrypted_grant(
+        &self,
+        tenant_id: &str,
+        id: &str,
+        expected_fingerprint: &str,
+        expires_at_ms: Option<u64>,
+        refreshed_at_ms: u64,
+        encrypted_oauth_grant: &[u8],
+        oauth_grant_key_id: &str,
+        oauth_grant_fingerprint: &str,
+    ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
+        let row = sqlx::query(ROTATE_TOKEN_GRANT)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(expected_fingerprint)
+            .bind(option_u64_to_i64(expires_at_ms))
+            .bind(refreshed_at_ms as i64)
+            .bind(encrypted_oauth_grant)
+            .bind(oauth_grant_key_id)
+            .bind(oauth_grant_fingerprint)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(encrypted_token_grant_from_row).transpose()
+    }
+
+    pub async fn mark_refresh_failed(
+        &self,
+        tenant_id: &str,
+        id: &str,
+        expected_fingerprint: &str,
+        refreshed_at_ms: u64,
+        reason: &str,
+    ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
+        let row = sqlx::query(MARK_TOKEN_GRANT_REFRESH_FAILED)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(expected_fingerprint)
+            .bind(refreshed_at_ms as i64)
+            .bind(reason)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(encrypted_token_grant_from_row).transpose()
+    }
+
+    pub async fn mark_reauth_required(
+        &self,
+        tenant_id: &str,
+        id: &str,
+        expected_fingerprint: &str,
+        reauth_required_at_ms: u64,
+        reason: &str,
+    ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
+        let row = sqlx::query(MARK_TOKEN_GRANT_REAUTH_REQUIRED)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(expected_fingerprint)
+            .bind(reauth_required_at_ms as i64)
+            .bind(reason)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(encrypted_token_grant_from_row).transpose()
+    }
+
+    pub async fn revoke(
+        &self,
+        tenant_id: &str,
+        id: &str,
+        revoked_at_ms: u64,
+        reason: &str,
+    ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
+        let row = sqlx::query(REVOKE_TOKEN_GRANT)
+            .bind(tenant_id)
+            .bind(id)
+            .bind(revoked_at_ms as i64)
+            .bind(reason)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(encrypted_token_grant_from_row).transpose()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -768,6 +935,48 @@ fn audit_outbox_message_from_row(row: &PgRow) -> PgRepositoryResult<AuditOutboxM
     })
 }
 
+fn encrypted_token_grant_from_row(row: &PgRow) -> PgRepositoryResult<EncryptedTokenGrantRecord> {
+    let actor_kind: String = row.try_get("actor_kind")?;
+    let scope_boundary: String = row.try_get("scope_boundary")?;
+    let state: String = row.try_get("state")?;
+
+    Ok(EncryptedTokenGrantRecord {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        identity_id: row.try_get("identity_id")?,
+        actor_kind: identity_actor_kind_from_db(&actor_kind)?,
+        scope_boundary: scope_boundary_from_db(&scope_boundary)?,
+        scopes: row.try_get("scopes")?,
+        state: token_grant_state_from_db(&state)?,
+        issued_at_ms: non_negative_i64_to_u64(row.try_get("issued_at_ms")?, "issued_at_ms")?,
+        expires_at_ms: optional_non_negative_i64_to_u64(
+            row.try_get("expires_at_ms")?,
+            "expires_at_ms",
+        )?,
+        refreshed_at_ms: optional_non_negative_i64_to_u64(
+            row.try_get("refreshed_at_ms")?,
+            "refreshed_at_ms",
+        )?,
+        revoked_at_ms: optional_non_negative_i64_to_u64(
+            row.try_get("revoked_at_ms")?,
+            "revoked_at_ms",
+        )?,
+        reauth_required_at_ms: optional_non_negative_i64_to_u64(
+            row.try_get("reauth_required_at_ms")?,
+            "reauth_required_at_ms",
+        )?,
+        last_refresh_error: row.try_get("last_refresh_error")?,
+        encrypted_oauth_grant: row.try_get("encrypted_oauth_grant")?,
+        oauth_grant_key_id: row.try_get("oauth_grant_key_id")?,
+        oauth_grant_fingerprint: row.try_get("oauth_grant_fingerprint")?,
+        revocation_reason: row.try_get("revocation_reason")?,
+    })
+}
+
+fn option_u64_to_i64(value: Option<u64>) -> Option<i64> {
+    value.map(|value| value as i64)
+}
+
 fn json_option<T: serde::Serialize>(value: &Option<T>) -> PgRepositoryResult<Option<Value>> {
     value
         .as_ref()
@@ -784,6 +993,73 @@ where
         .map(serde_json::from_value)
         .transpose()
         .map_err(PostgresRepositoryError::from)
+}
+
+fn actor_kind_to_db(kind: &ActorKind) -> &'static str {
+    match kind {
+        ActorKind::User => "user",
+        ActorKind::Bot => "bot",
+        ActorKind::App => "app",
+        ActorKind::Service => "service",
+    }
+}
+
+fn identity_actor_kind_from_db(value: &str) -> PgRepositoryResult<ActorKind> {
+    match value {
+        "user" => Ok(ActorKind::User),
+        "bot" => Ok(ActorKind::Bot),
+        "app" => Ok(ActorKind::App),
+        "service" => Ok(ActorKind::Service),
+        other => Err(PostgresRepositoryError::UnknownIdentityActorKind(
+            other.to_string(),
+        )),
+    }
+}
+
+fn scope_boundary_to_db(boundary: &ScopeBoundary) -> &'static str {
+    match boundary {
+        ScopeBoundary::Tenant => "tenant",
+        ScopeBoundary::User => "user",
+        ScopeBoundary::Admin => "admin",
+        ScopeBoundary::Bot => "bot",
+        ScopeBoundary::Service => "service",
+    }
+}
+
+fn scope_boundary_from_db(value: &str) -> PgRepositoryResult<ScopeBoundary> {
+    match value {
+        "tenant" => Ok(ScopeBoundary::Tenant),
+        "user" => Ok(ScopeBoundary::User),
+        "admin" => Ok(ScopeBoundary::Admin),
+        "bot" => Ok(ScopeBoundary::Bot),
+        "service" => Ok(ScopeBoundary::Service),
+        other => Err(PostgresRepositoryError::UnknownScopeBoundary(
+            other.to_string(),
+        )),
+    }
+}
+
+fn token_grant_state_to_db(state: &TokenGrantState) -> &'static str {
+    match state {
+        TokenGrantState::Valid => "valid",
+        TokenGrantState::NeedsRefresh => "needs_refresh",
+        TokenGrantState::Expired => "expired",
+        TokenGrantState::Revoked => "revoked",
+        TokenGrantState::ReauthRequired => "reauth_required",
+    }
+}
+
+fn token_grant_state_from_db(value: &str) -> PgRepositoryResult<TokenGrantState> {
+    match value {
+        "valid" => Ok(TokenGrantState::Valid),
+        "needs_refresh" => Ok(TokenGrantState::NeedsRefresh),
+        "expired" => Ok(TokenGrantState::Expired),
+        "revoked" => Ok(TokenGrantState::Revoked),
+        "reauth_required" => Ok(TokenGrantState::ReauthRequired),
+        other => Err(PostgresRepositoryError::UnknownTokenGrantState(
+            other.to_string(),
+        )),
+    }
 }
 
 fn audit_actor_kind_to_db(kind: &AuditActorKind) -> &'static str {
@@ -837,4 +1113,13 @@ fn non_negative_i64_to_u64(value: i64, field: &'static str) -> PgRepositoryResul
         return Err(PostgresRepositoryError::NegativeInteger { field, value });
     }
     Ok(value as u64)
+}
+
+fn optional_non_negative_i64_to_u64(
+    value: Option<i64>,
+    field: &'static str,
+) -> PgRepositoryResult<Option<u64>> {
+    value
+        .map(|value| non_negative_i64_to_u64(value, field))
+        .transpose()
 }

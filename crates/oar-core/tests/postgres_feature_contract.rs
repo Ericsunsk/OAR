@@ -8,6 +8,10 @@ use oar_core::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
 };
+use oar_core::storage::postgres::token_grant_sql::{
+    GET_TOKEN_GRANT_BY_ID, MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED,
+    REVOKE_TOKEN_GRANT, ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
+};
 
 fn compact(sql: &str) -> String {
     sql.to_lowercase()
@@ -22,6 +26,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let transition_sql = compact(MARK_EXECUTING);
     let audit_sql = compact(APPEND_AUDIT_EVENT);
     let claim_outbox_sql = compact(CLAIM_AUDIT_OUTBOX);
+    let rotate_grant_sql = compact(ROTATE_TOKEN_GRANT);
 
     assert!(operation_sql.contains("insert into confirmed_actions"));
     assert!(operation_sql.contains("insert into operation_ledger"));
@@ -30,6 +35,10 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     assert!(transition_sql.contains("update operation_ledger"));
     assert!(audit_sql.contains("insert into audit_events"));
     assert!(claim_outbox_sql.contains("for update skip locked"));
+    assert!(rotate_grant_sql.contains("update token_grants"));
+    assert!(rotate_grant_sql.contains("oauth_grant_fingerprint = $3"));
+    assert!(rotate_grant_sql.contains("revoked_at is null"));
+    assert!(rotate_grant_sql.contains("reauth_required_at is null"));
 
     // Touch all constants to lock import visibility for default builds.
     let _ = MARK_SUCCEEDED;
@@ -43,6 +52,11 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let _ = MARK_AUDIT_OUTBOX_RETRYABLE_FOR_ATTEMPT;
     let _ = MARK_AUDIT_OUTBOX_FAILED;
     let _ = MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT;
+    let _ = UPSERT_TOKEN_GRANT;
+    let _ = GET_TOKEN_GRANT_BY_ID;
+    let _ = MARK_TOKEN_GRANT_REFRESH_FAILED;
+    let _ = MARK_TOKEN_GRANT_REAUTH_REQUIRED;
+    let _ = REVOKE_TOKEN_GRANT;
 }
 
 #[cfg(feature = "postgres")]
@@ -51,14 +65,16 @@ mod postgres_feature_api_contract {
     use oar_core::action::audit_event::AuditEvent;
     use oar_core::action::confirmed_action::ConfirmedAction;
     use oar_core::action::postgres_executor::PostgresActionExecutor;
+    use oar_core::domain::identity::{ActorKind, ScopeBoundary, TokenGrantState};
     use oar_core::lark::adapter::MockLarkAdapter;
     use oar_core::storage::postgres::audit_outbox_worker::{
         AuditOutboxDelivery, AuditOutboxDispatcher, AuditOutboxDrainConfig, AuditOutboxDrainReport,
         PostgresAuditOutboxWorker,
     };
     use oar_core::storage::postgres::{
-        AuditOutboxEnvelope, PostgresAuditEventRepository, PostgresExecutionUnitOfWork,
-        PostgresExecutionUnitOfWorkReport, PostgresOperationLedgerRepository,
+        AuditOutboxEnvelope, EncryptedTokenGrantRecord, PostgresAuditEventRepository,
+        PostgresExecutionUnitOfWork, PostgresExecutionUnitOfWorkReport,
+        PostgresOperationLedgerRepository, PostgresTokenGrantRepository,
     };
     use sqlx::PgPool;
 
@@ -70,6 +86,8 @@ mod postgres_feature_api_contract {
             PostgresAuditEventRepository::new;
         let _from_pool_ctor_uow: fn(PgPool) -> PostgresExecutionUnitOfWork =
             PostgresExecutionUnitOfWork::new;
+        let _from_pool_ctor_token_grant: fn(PgPool) -> PostgresTokenGrantRepository =
+            PostgresTokenGrantRepository::new;
 
         // Keep SQL constants reachable under the feature build too.
         let _ = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
@@ -101,6 +119,12 @@ mod postgres_feature_api_contract {
             PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action;
         let _execute_with_policy =
             PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action_with_policy;
+        let _upsert_grant = PostgresTokenGrantRepository::upsert_encrypted_grant;
+        let _get_grant = PostgresTokenGrantRepository::get_by_id;
+        let _rotate_grant = PostgresTokenGrantRepository::rotate_encrypted_grant;
+        let _mark_refresh_failed = PostgresTokenGrantRepository::mark_refresh_failed;
+        let _mark_reauth_required = PostgresTokenGrantRepository::mark_reauth_required;
+        let _revoke_grant = PostgresTokenGrantRepository::revoke;
 
         let _phantom_action: Option<ConfirmedAction> = None;
         let _phantom_event: Option<AuditEvent> = None;
@@ -110,6 +134,25 @@ mod postgres_feature_api_contract {
         let _phantom_drain_report: Option<AuditOutboxDrainReport> = None;
         let _phantom_config: Option<AuditOutboxDrainConfig> = None;
         let _phantom_worker: Option<PostgresAuditOutboxWorker<NoopDispatcher, fn() -> u64>> = None;
+        let _phantom_grant = Some(EncryptedTokenGrantRecord {
+            id: "grant".to_string(),
+            tenant_id: "tenant".to_string(),
+            identity_id: "identity".to_string(),
+            actor_kind: ActorKind::User,
+            scope_boundary: ScopeBoundary::User,
+            scopes: vec!["offline_access".to_string()],
+            state: TokenGrantState::Valid,
+            issued_at_ms: 1,
+            expires_at_ms: Some(2),
+            refreshed_at_ms: None,
+            revoked_at_ms: None,
+            reauth_required_at_ms: None,
+            last_refresh_error: None,
+            encrypted_oauth_grant: vec![1, 2, 3],
+            oauth_grant_key_id: "key".to_string(),
+            oauth_grant_fingerprint: "fingerprint".to_string(),
+            revocation_reason: None,
+        });
     }
 
     struct NoopDispatcher;

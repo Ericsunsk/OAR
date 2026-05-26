@@ -8,6 +8,10 @@ use oar_core::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
 };
+use oar_core::storage::postgres::token_grant_sql::{
+    GET_TOKEN_GRANT_BY_ID, MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED,
+    REVOKE_TOKEN_GRANT, ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
+};
 
 fn compact(sql: &str) -> String {
     sql.to_lowercase()
@@ -144,4 +148,96 @@ fn audit_outbox_attempt_guarded_updates_bind_current_claim() {
     assert!(retryable.contains("next_attempt_at = to_timestamp($5::double precision / 1000.0)"));
     assert!(failed.contains("set status = 'failed'"));
     assert!(failed.contains("next_attempt_at = null"));
+}
+
+#[test]
+fn token_grant_sql_uses_encrypted_grant_material_only() {
+    for sql in [
+        UPSERT_TOKEN_GRANT,
+        GET_TOKEN_GRANT_BY_ID,
+        ROTATE_TOKEN_GRANT,
+        MARK_TOKEN_GRANT_REFRESH_FAILED,
+        MARK_TOKEN_GRANT_REAUTH_REQUIRED,
+        REVOKE_TOKEN_GRANT,
+    ] {
+        let compacted = compact(sql);
+
+        assert!(compacted.contains("encrypted_oauth_grant"));
+        assert!(compacted.contains("oauth_grant_key_id"));
+        assert!(compacted.contains("oauth_grant_fingerprint"));
+        assert!(
+            !compacted.contains("access_token"),
+            "TokenGrant SQL must not expose plaintext access token fields"
+        );
+        assert!(
+            !compacted.contains("refresh_token"),
+            "TokenGrant SQL must not expose plaintext refresh token fields"
+        );
+    }
+}
+
+#[test]
+fn token_grant_rotation_is_cas_guarded_and_clears_refresh_error() {
+    let sql = compact(ROTATE_TOKEN_GRANT);
+
+    assert!(sql.contains("update token_grants"));
+    assert!(sql.contains("set state = 'valid'"));
+    assert!(sql.contains("expires_at = case when $4::bigint is null"));
+    assert!(sql.contains("refreshed_at = to_timestamp($5::double precision / 1000.0)"));
+    assert!(sql.contains("last_refresh_error = null"));
+    assert!(sql.contains("encrypted_oauth_grant = $6"));
+    assert!(sql.contains("oauth_grant_key_id = $7"));
+    assert!(sql.contains("oauth_grant_fingerprint = $8"));
+    assert!(sql.contains("where tenant_id = $1"));
+    assert!(sql.contains("and id = $2"));
+    assert!(sql.contains("and oauth_grant_fingerprint = $3"));
+    assert!(sql.contains("and state in ('valid', 'needs_refresh', 'expired')"));
+    assert!(sql.contains("and revoked_at is null"));
+    assert!(sql.contains("and reauth_required_at is null"));
+    assert!(sql.contains("returning"));
+}
+
+#[test]
+fn token_grant_refresh_failure_and_reauth_marks_are_guarded() {
+    let refresh_failed = compact(MARK_TOKEN_GRANT_REFRESH_FAILED);
+    let reauth_required = compact(MARK_TOKEN_GRANT_REAUTH_REQUIRED);
+
+    for sql in [&refresh_failed, &reauth_required] {
+        assert!(sql.contains("update token_grants"));
+        assert!(sql.contains("where tenant_id = $1"));
+        assert!(sql.contains("and id = $2"));
+        assert!(sql.contains("and oauth_grant_fingerprint = $3"));
+        assert!(sql.contains("and state in ('valid', 'needs_refresh', 'expired')"));
+        assert!(sql.contains("and revoked_at is null"));
+        assert!(sql.contains("and reauth_required_at is null"));
+        assert!(sql.contains("last_refresh_error = $5"));
+        assert!(sql.contains("returning"));
+    }
+
+    assert!(refresh_failed.contains("set state = 'needs_refresh'"));
+    assert!(refresh_failed.contains("refreshed_at = to_timestamp($4::double precision / 1000.0)"));
+    assert!(reauth_required.contains("set state = 'reauth_required'"));
+    assert!(reauth_required
+        .contains("reauth_required_at = to_timestamp($4::double precision / 1000.0)"));
+}
+
+#[test]
+fn token_grant_lookup_revoke_and_upsert_are_tenant_scoped() {
+    let get = compact(GET_TOKEN_GRANT_BY_ID);
+    let revoke = compact(REVOKE_TOKEN_GRANT);
+    let upsert = compact(UPSERT_TOKEN_GRANT);
+
+    assert!(get.contains("from token_grants"));
+    assert!(get.contains("where tenant_id = $1 and id = $2"));
+    assert!(get.contains("limit 1"));
+
+    assert!(revoke.contains("update token_grants"));
+    assert!(revoke.contains("set state = 'revoked'"));
+    assert!(revoke.contains("where tenant_id = $1"));
+    assert!(revoke.contains("and id = $2"));
+    assert!(revoke.contains("and state <> 'revoked'"));
+
+    assert!(upsert.contains("insert into token_grants"));
+    assert!(upsert.contains("on conflict (id) do update"));
+    assert!(upsert.contains("where token_grants.tenant_id = excluded.tenant_id"));
 }

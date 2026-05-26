@@ -24,10 +24,11 @@
 
 ## 2. 不能仅靠 CLI 证明的事项
 
-以下事项必须等 OAR 后端实现后验证：
+以下事项必须等 OAR 后端落地并完成集成验证：
 
-- `TokenGrant` 是否加密存储。
-- refresh token rotation 后是否原子保存新的 refresh token。
+- `TokenGrant` 是否仅以加密授权包持久化，并在 repository 边界禁止明文 token 进出。
+- refresh token rotation 是否通过 SQL CAS 原子更新（`tenant_id + grant_id + expected_fingerprint + state guard`）。
+- revoked / reauth-required grant 是否在 SQL 层直接阻断 rotation。
 - token revoke 后后台 worker 是否停止执行。
 - 同一个 `ConfirmedAction` 是否只执行一次。
 - 多端同时确认时是否只产生一个 `OperationLedger` 执行记录。
@@ -50,6 +51,7 @@
 
 - 客户端只保存 OAR session，不保存飞书 refresh token。
 - `TokenGrant` 不向智能体运行时暴露明文 token。
+- `TokenGrant` repository 接口仅处理 `encrypted_oauth_grant`、`oauth_grant_key_id`、`oauth_grant_fingerprint`。
 - 状态转移必须由后端原子完成。
 - `idempotency_key` 必须唯一。
 - 所有工具执行结果必须写入 `AuditEvent`。
@@ -64,7 +66,7 @@
 | I1 | `offline_access` scope | 已通过 | `auth check --scope "offline_access"` 返回 ok |
 | I2 | 用户身份读取 scope | 已通过 | `auth check --scope "auth:user.id:read"` 返回 ok |
 | I3 | token refresh 前置条件 | 部分通过 | refresh 到期时间存在，token 从 needs_refresh 变为 valid |
-| I4 | 后端 `TokenGrant` 存储 | 未开始 | token 加密存储，refresh rotation 原子更新 |
+| I4 | 后端 `TokenGrant` 存储 | 进行中 | token 加密存储，refresh rotation 原子更新且受 SQL guard 约束 |
 | I5 | 多端 `DeviceSession` 同步 | 未开始 | 多端看到同一 action 状态 |
 | I6 | `OperationLedger` 幂等执行 | 部分通过 | 同一 `ConfirmedAction` 并发确认只执行一次 |
 | I7 | 后台 worker | 未开始 | 无客户端在线时仍可按计划生成复盘 |
@@ -99,7 +101,9 @@
 
 仍需生产级验证：
 
-- `TokenGrant` 加密持久化和 refresh token rotation 的数据库事务。
+- `TokenGrant` Postgres 持久化集成验证：repository 仅处理加密授权包，不接受/返回明文 token。
+- refresh rotation SQL CAS 集成验证：`tenant_id + grant_id + expected_fingerprint`、状态白名单（`valid` / `needs_refresh` / `expired`）和 `revoked_at IS NULL` / `reauth_required_at IS NULL` guard 全部生效。
+- revoked / reauth-required grant 的 rotation 阻断需在真实数据库和并发场景下持续验证。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
 - Postgres executor / outbox worker 尚未接入真实后台调度、外部审计投递 sink 和 crash recovery。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。
