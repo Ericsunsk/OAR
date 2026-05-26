@@ -4,6 +4,10 @@ use oar_core::storage::postgres::audit_sql::{
     MARK_AUDIT_OUTBOX_RETRYABLE_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_SENT,
     MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT,
 };
+use oar_core::storage::postgres::device_session_sql::{
+    ADVANCE_DEVICE_SESSION_CURSOR_CAS, EXPIRE_DEVICE_SESSION, GET_DEVICE_SESSION_BY_ID,
+    REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
+};
 use oar_core::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
@@ -27,6 +31,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let audit_sql = compact(APPEND_AUDIT_EVENT);
     let claim_outbox_sql = compact(CLAIM_AUDIT_OUTBOX);
     let rotate_grant_sql = compact(ROTATE_TOKEN_GRANT);
+    let device_session_sql = compact(UPSERT_DEVICE_SESSION);
 
     assert!(operation_sql.contains("insert into confirmed_actions"));
     assert!(operation_sql.contains("insert into operation_ledger"));
@@ -39,6 +44,8 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     assert!(rotate_grant_sql.contains("oauth_grant_fingerprint = $3"));
     assert!(rotate_grant_sql.contains("revoked_at is null"));
     assert!(rotate_grant_sql.contains("reauth_required_at is null"));
+    assert!(device_session_sql.contains("insert into device_sessions"));
+    assert!(device_session_sql.contains("session_identity_hash"));
 
     // Touch all constants to lock import visibility for default builds.
     let _ = MARK_SUCCEEDED;
@@ -57,6 +64,10 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let _ = MARK_TOKEN_GRANT_REFRESH_FAILED;
     let _ = MARK_TOKEN_GRANT_REAUTH_REQUIRED;
     let _ = REVOKE_TOKEN_GRANT;
+    let _ = ADVANCE_DEVICE_SESSION_CURSOR_CAS;
+    let _ = GET_DEVICE_SESSION_BY_ID;
+    let _ = REVOKE_DEVICE_SESSION;
+    let _ = EXPIRE_DEVICE_SESSION;
 }
 
 #[cfg(feature = "postgres")]
@@ -73,8 +84,9 @@ mod postgres_feature_api_contract {
     };
     use oar_core::storage::postgres::{
         AuditOutboxEnvelope, EncryptedTokenGrantRecord, PostgresAuditEventRepository,
-        PostgresExecutionUnitOfWork, PostgresExecutionUnitOfWorkReport,
-        PostgresOperationLedgerRepository, PostgresTokenGrantRepository,
+        PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
+        PostgresExecutionUnitOfWorkReport, PostgresOperationLedgerRepository,
+        PostgresTokenGrantRepository, StoredDeviceSession,
     };
     use sqlx::PgPool;
 
@@ -88,6 +100,8 @@ mod postgres_feature_api_contract {
             PostgresExecutionUnitOfWork::new;
         let _from_pool_ctor_token_grant: fn(PgPool) -> PostgresTokenGrantRepository =
             PostgresTokenGrantRepository::new;
+        let _from_pool_ctor_device_session: fn(PgPool) -> PostgresDeviceSessionRepository =
+            PostgresDeviceSessionRepository::new;
 
         // Keep SQL constants reachable under the feature build too.
         let _ = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
@@ -125,6 +139,11 @@ mod postgres_feature_api_contract {
         let _mark_refresh_failed = PostgresTokenGrantRepository::mark_refresh_failed;
         let _mark_reauth_required = PostgresTokenGrantRepository::mark_reauth_required;
         let _revoke_grant = PostgresTokenGrantRepository::revoke;
+        let _upsert_session = PostgresDeviceSessionRepository::upsert_with_identity_hash;
+        let _get_session = PostgresDeviceSessionRepository::get_by_id;
+        let _advance_session = PostgresDeviceSessionRepository::advance_cursor_cas;
+        let _revoke_session = PostgresDeviceSessionRepository::revoke;
+        let _expire_session = PostgresDeviceSessionRepository::expire;
 
         let _phantom_action: Option<ConfirmedAction> = None;
         let _phantom_event: Option<AuditEvent> = None;
@@ -134,6 +153,7 @@ mod postgres_feature_api_contract {
         let _phantom_drain_report: Option<AuditOutboxDrainReport> = None;
         let _phantom_config: Option<AuditOutboxDrainConfig> = None;
         let _phantom_worker: Option<PostgresAuditOutboxWorker<NoopDispatcher, fn() -> u64>> = None;
+        let _phantom_session: Option<StoredDeviceSession> = None;
         let _phantom_grant = Some(EncryptedTokenGrantRecord {
             id: "grant".to_string(),
             tenant_id: "tenant".to_string(),

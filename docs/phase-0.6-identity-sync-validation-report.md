@@ -67,12 +67,20 @@
 | I2 | 用户身份读取 scope | 已通过 | `auth check --scope "auth:user.id:read"` 返回 ok |
 | I3 | token refresh 前置条件 | 部分通过 | refresh 到期时间存在，token 从 needs_refresh 变为 valid |
 | I4 | 后端 `TokenGrant` 存储 | 进行中 | token 加密存储，refresh rotation 原子更新且受 SQL guard 约束 |
-| I5 | 多端 `DeviceSession` 同步 | 未开始 | 多端看到同一 action 状态 |
+| I5 | 多端 `DeviceSession` 同步 | 进行中 | cursor 单调推进、stale/revoked 会话被拒绝且多端看到同一 action 状态 |
 | I6 | `OperationLedger` 幂等执行 | 部分通过 | 同一 `ConfirmedAction` 并发确认只执行一次 |
 | I7 | 后台 worker | 未开始 | 无客户端在线时仍可按计划生成复盘 |
 | I8 | revoke / reauth | 未开始 | 授权撤销后停止执行并提示重新授权 |
 
 ## 5. 下一步
+
+下一验证切片（进行中）：
+
+1. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
+2. `TokenRefreshService` 编排边界验证：仅处理加密授权包、refresh SQL CAS rotation、revoke/reauth 短路、全链路审计。
+3. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
+
+并行工作项：
 
 1. 定义 `TokenGrant`、`DeviceSession`、`OperationLedger`、`AuditEvent` schema。
 2. 将阶段 0.5 的 OKR CLI 输出保存为 `LarkAdapter` fixture。
@@ -104,6 +112,8 @@
 - `TokenGrant` Postgres 持久化集成验证：repository 仅处理加密授权包，不接受/返回明文 token。
 - refresh rotation SQL CAS 集成验证：`tenant_id + grant_id + expected_fingerprint`、状态白名单（`valid` / `needs_refresh` / `expired`）和 `revoked_at IS NULL` / `reauth_required_at IS NULL` guard 全部生效。
 - revoked / reauth-required grant 的 rotation 阻断需在真实数据库和并发场景下持续验证。
+- `DeviceSession` Postgres repository 需补齐真实数据库并发验证：cursor 只前进不回退、revoked/expired 门禁、跨设备冲突可观测。
+- `TokenRefreshService` 与 repository / adapter 编排边界需补齐集成验证：refresh 只经加密授权包与 CAS guard，且不绕过 `LarkAdapter/AuthAdapter`。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
 - Postgres executor / outbox worker 尚未接入真实后台调度、外部审计投递 sink 和 crash recovery。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

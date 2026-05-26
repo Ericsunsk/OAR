@@ -172,6 +172,27 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - `postgres` / `postgres-sqlx` feature 可编译 `sqlx` 版 Postgres repository 类型；默认构建仍不拉起数据库运行时依赖。
 - 下一步需要接入真实后台调度、外部审计投递 sink、crash recovery，以及更接近生产的并发压力测试。
 
+## 6.2 Phase 0.6 下一切片：DeviceSession + TokenRefreshService
+
+状态声明：以下语义为当前实现/验证方向，属于进行中；只有在代码与集成测试覆盖后才可视为生产完成。
+
+### DeviceSession Postgres repository 语义（进行中）
+
+- `device_sessions` 按 `tenant_id` 强隔离，所有读写必须携带租户上下文。
+- repository 负责单调 `sync_cursor` 推进：新 cursor 必须严格大于旧值；回退或重复值被拒绝并返回冲突结果。
+- repository 负责会话状态门禁：当会话被 revoke/expired 时，拒绝 cursor 推进与后续同步状态推进。
+- repository 只保存 OAR 会话与同步元数据，不持久化飞书明文 token。
+- 多端并发下以 SQL 原子条件更新保证“只前进不回退”，并为上层返回可审计的冲突信号。
+
+### TokenRefreshService 编排边界（进行中）
+
+- `TokenRefreshService` 只负责 grant 生命周期编排：到期判断、refresh 尝试、rotation 持久化、revoke/reauth 判定与审计记录。
+- service 不向上层返回明文 access/refresh token；跨 repository 边界仅传递加密授权包与指纹元数据。
+- refresh rotation 必须经 `TokenGrant` repository 的 SQL CAS guard（`tenant_id + grant_id + expected_fingerprint + state guard`）原子提交。
+- grant 处于 revoked 或 reauth-required 时，service 必须短路并返回可恢复错误，不触发后台写操作。
+- service 不直接调用任意 CLI/OpenAPI；与飞书交互必须经 `LarkAdapter/AuthAdapter` 封装路径，保留 dry-run/审计一致性。
+- service 仅处理授权材料与状态，不直接执行 OKR 写回；业务写回仍必须走 `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent`。
+
 ## 7. 智能体运行时与模型配置
 
 OAR 的智能不应该来自一次 LLM 调用，而应该来自：

@@ -10,6 +10,10 @@ use crate::storage::postgres::audit_sql::{
     MARK_AUDIT_OUTBOX_RETRYABLE_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_SENT,
     MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT,
 };
+use crate::storage::postgres::device_session_sql::{
+    ADVANCE_DEVICE_SESSION_CURSOR_CAS, EXPIRE_DEVICE_SESSION, GET_DEVICE_SESSION_BY_ID,
+    REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
+};
 use crate::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
@@ -21,6 +25,7 @@ use crate::storage::postgres::token_grant_sql::{
 use serde_json::Value;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -35,6 +40,10 @@ pub enum PostgresRepositoryError {
     UnknownAuditEventType(String),
     #[error("unknown execution status from database: {0}")]
     UnknownExecutionStatus(String),
+    #[error("unknown device entry point from database: {0}")]
+    UnknownDeviceEntryPoint(String),
+    #[error("unknown device session state from database: {0}")]
+    UnknownDeviceSessionState(String),
     #[error("unknown token grant state from database: {0}")]
     UnknownTokenGrantState(String),
     #[error("unknown identity actor kind from database: {0}")]
@@ -78,6 +87,22 @@ pub struct EncryptedTokenGrantRecord {
     pub revocation_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredDeviceSession {
+    pub id: String,
+    pub tenant_id: String,
+    pub user_id: String,
+    pub entry_point: crate::domain::device_sync::DeviceEntryPoint,
+    pub state: crate::domain::device_sync::SessionState,
+    pub sync_stream: String,
+    pub sync_cursor_value: u64,
+    pub sync_cursor_updated_at: SystemTime,
+    pub session_identity_hash: String,
+    pub last_seen_at: SystemTime,
+    pub revoked_at: Option<SystemTime>,
+    pub expired_at: Option<SystemTime>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuditOutboxMessage {
     pub id: i64,
@@ -108,6 +133,126 @@ pub struct PostgresExecutionUnitOfWorkReport {
 #[derive(Debug, Clone)]
 pub struct PostgresTokenGrantRepository {
     pool: PgPool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PostgresDeviceSessionRepository {
+    pool: PgPool,
+}
+
+impl PostgresDeviceSessionRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    pub async fn upsert_with_identity_hash(
+        &self,
+        session: &crate::domain::device_sync::DeviceSession,
+        session_identity_hash: &str,
+    ) -> PgRepositoryResult<StoredDeviceSession> {
+        let row = sqlx::query(UPSERT_DEVICE_SESSION)
+            .bind(&session.id.0)
+            .bind(&session.tenant_id.0)
+            .bind(&session.user_id.0)
+            .bind(device_entry_point_to_db(&session.entry_point))
+            .bind(device_session_state_to_db(&session.state))
+            .bind(&session.cursor.stream)
+            .bind(session.cursor.value as i64)
+            .bind(system_time_to_ms(session.cursor.updated_at)? as i64)
+            .bind(session_identity_hash)
+            .bind(system_time_to_ms(session.last_seen_at)? as i64)
+            .bind(option_system_time_to_i64_ms(session.revoked_at)?)
+            .bind(option_system_time_to_i64_ms(session.expired_at)?)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(row) = row.as_ref() {
+            return stored_device_session_from_row(row);
+        }
+
+        let conflicting_tenant =
+            sqlx::query("SELECT tenant_id FROM device_sessions WHERE id = $1 LIMIT 1")
+                .bind(&session.id.0)
+                .fetch_optional(&self.pool)
+                .await?;
+
+        if let Some(conflict_row) = conflicting_tenant {
+            let actual_tenant: String = conflict_row.try_get("tenant_id")?;
+            return Err(PostgresRepositoryError::TenantMismatch {
+                field: "tenant_id",
+                expected: session.tenant_id.0.clone(),
+                actual: actual_tenant,
+            });
+        }
+
+        Err(sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn get_by_id(
+        &self,
+        tenant_id: &str,
+        session_id: &str,
+    ) -> PgRepositoryResult<Option<StoredDeviceSession>> {
+        let row = sqlx::query(GET_DEVICE_SESSION_BY_ID)
+            .bind(tenant_id)
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_device_session_from_row).transpose()
+    }
+
+    pub async fn advance_cursor_cas(
+        &self,
+        tenant_id: &str,
+        session_id: &str,
+        expected_cursor: u64,
+        next_cursor: u64,
+        now: SystemTime,
+    ) -> PgRepositoryResult<Option<StoredDeviceSession>> {
+        let now_ms = system_time_to_ms(now)? as i64;
+        let row = sqlx::query(ADVANCE_DEVICE_SESSION_CURSOR_CAS)
+            .bind(tenant_id)
+            .bind(session_id)
+            .bind(next_cursor as i64)
+            .bind(now_ms)
+            .bind(expected_cursor as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_device_session_from_row).transpose()
+    }
+
+    pub async fn revoke(
+        &self,
+        tenant_id: &str,
+        session_id: &str,
+        now: SystemTime,
+    ) -> PgRepositoryResult<Option<StoredDeviceSession>> {
+        let row = sqlx::query(REVOKE_DEVICE_SESSION)
+            .bind(tenant_id)
+            .bind(session_id)
+            .bind(system_time_to_ms(now)? as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_device_session_from_row).transpose()
+    }
+
+    pub async fn expire(
+        &self,
+        tenant_id: &str,
+        session_id: &str,
+        now: SystemTime,
+    ) -> PgRepositoryResult<Option<StoredDeviceSession>> {
+        let row = sqlx::query(EXPIRE_DEVICE_SESSION)
+            .bind(tenant_id)
+            .bind(session_id)
+            .bind(system_time_to_ms(now)? as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_device_session_from_row).transpose()
+    }
 }
 
 impl PostgresTokenGrantRepository {
@@ -973,6 +1118,43 @@ fn encrypted_token_grant_from_row(row: &PgRow) -> PgRepositoryResult<EncryptedTo
     })
 }
 
+fn stored_device_session_from_row(row: &PgRow) -> PgRepositoryResult<StoredDeviceSession> {
+    let entry_point: String = row.try_get("entry_point")?;
+    let state: String = row.try_get("state")?;
+
+    Ok(StoredDeviceSession {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        user_id: row.try_get("user_id")?,
+        entry_point: device_entry_point_from_db(&entry_point)?,
+        state: device_session_state_from_db(&state)?,
+        sync_stream: row.try_get("sync_stream")?,
+        sync_cursor_value: non_negative_i64_to_u64(
+            row.try_get("sync_cursor_value")?,
+            "sync_cursor_value",
+        )?,
+        sync_cursor_updated_at: ms_to_system_time(non_negative_i64_to_u64(
+            row.try_get("sync_cursor_updated_at_ms")?,
+            "sync_cursor_updated_at_ms",
+        )?),
+        session_identity_hash: row.try_get("session_identity_hash")?,
+        last_seen_at: ms_to_system_time(non_negative_i64_to_u64(
+            row.try_get("last_seen_at_ms")?,
+            "last_seen_at_ms",
+        )?),
+        revoked_at: optional_non_negative_i64_to_u64(
+            row.try_get("revoked_at_ms")?,
+            "revoked_at_ms",
+        )?
+        .map(ms_to_system_time),
+        expired_at: optional_non_negative_i64_to_u64(
+            row.try_get("expired_at_ms")?,
+            "expired_at_ms",
+        )?
+        .map(ms_to_system_time),
+    })
+}
+
 fn option_u64_to_i64(value: Option<u64>) -> Option<i64> {
     value.map(|value| value as i64)
 }
@@ -1122,4 +1304,69 @@ fn optional_non_negative_i64_to_u64(
     value
         .map(|value| non_negative_i64_to_u64(value, field))
         .transpose()
+}
+
+fn device_entry_point_to_db(value: &crate::domain::device_sync::DeviceEntryPoint) -> &'static str {
+    match value {
+        crate::domain::device_sync::DeviceEntryPoint::MacOs => "macos",
+        crate::domain::device_sync::DeviceEntryPoint::Ios => "ios",
+        crate::domain::device_sync::DeviceEntryPoint::Web => "web",
+        crate::domain::device_sync::DeviceEntryPoint::Lark => "lark",
+    }
+}
+
+fn device_entry_point_from_db(
+    value: &str,
+) -> PgRepositoryResult<crate::domain::device_sync::DeviceEntryPoint> {
+    match value {
+        "macos" => Ok(crate::domain::device_sync::DeviceEntryPoint::MacOs),
+        "ios" => Ok(crate::domain::device_sync::DeviceEntryPoint::Ios),
+        "web" => Ok(crate::domain::device_sync::DeviceEntryPoint::Web),
+        "lark" => Ok(crate::domain::device_sync::DeviceEntryPoint::Lark),
+        other => Err(PostgresRepositoryError::UnknownDeviceEntryPoint(
+            other.to_string(),
+        )),
+    }
+}
+
+fn device_session_state_to_db(value: &crate::domain::device_sync::SessionState) -> &'static str {
+    match value {
+        crate::domain::device_sync::SessionState::Active => "active",
+        crate::domain::device_sync::SessionState::Revoked => "revoked",
+        crate::domain::device_sync::SessionState::Expired => "expired",
+    }
+}
+
+fn device_session_state_from_db(
+    value: &str,
+) -> PgRepositoryResult<crate::domain::device_sync::SessionState> {
+    match value {
+        "active" => Ok(crate::domain::device_sync::SessionState::Active),
+        "revoked" => Ok(crate::domain::device_sync::SessionState::Revoked),
+        "expired" => Ok(crate::domain::device_sync::SessionState::Expired),
+        other => Err(PostgresRepositoryError::UnknownDeviceSessionState(
+            other.to_string(),
+        )),
+    }
+}
+
+fn system_time_to_ms(value: SystemTime) -> PgRepositoryResult<u64> {
+    value
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .map_err(|_| PostgresRepositoryError::NegativeInteger {
+            field: "system_time",
+            value: -1,
+        })
+}
+
+fn option_system_time_to_i64_ms(value: Option<SystemTime>) -> PgRepositoryResult<Option<i64>> {
+    value
+        .map(system_time_to_ms)
+        .transpose()
+        .map(|maybe| maybe.map(|ms| ms as i64))
+}
+
+fn ms_to_system_time(value: u64) -> SystemTime {
+    UNIX_EPOCH + Duration::from_millis(value)
 }
