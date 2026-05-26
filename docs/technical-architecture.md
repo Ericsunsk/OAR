@@ -130,6 +130,41 @@ update_progress(confirmed_action_id, request) -> ProgressRecord
 - 同一个待确认动作在 macOS / iOS / 飞书卡片中的状态必须一致。
 - 客户端离线时只能编辑草稿，不能离线确认真实写回。
 
+## 6.1 Phase 0.6 持久化草案
+
+Phase 0.6 的首版 Postgres migration 草案位于：
+
+[`../crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql`](../crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql)
+
+覆盖对象：
+
+| 表 | 责任 |
+| --- | --- |
+| `tenants` | 企业租户隔离边界 |
+| `oar_users` | OAR 内部用户 |
+| `lark_identities` | 飞书身份绑定 |
+| `token_grants` | OAuth grant 元数据和加密授权包 |
+| `device_sessions` | 多端会话和同步游标 |
+| `confirmed_actions` | 用户确认后的动作 |
+| `operation_ledger` | 幂等执行账本 |
+| `audit_events` | append-only 审计事件 |
+| `audit_outbox` | adapter 副作用与审计持久化之间的 crash-window 缓冲 |
+
+关键约束：
+
+- `confirmed_actions (tenant_id, idempotency_key)` 唯一。
+- `operation_ledger (tenant_id, idempotency_key)` 唯一。
+- `operation_ledger.action_id` 引用 `confirmed_actions.action_id`。
+- `audit_events (trace_id, sequence)` 唯一。
+- `audit_events` 有 `BEFORE UPDATE` / `BEFORE DELETE` trigger 阻止静默修改。
+- `token_grants` 不使用明文 `access_token` / `refresh_token` 列名，授权材料保存为 `encrypted_oauth_grant`、`oauth_grant_key_id`、`oauth_grant_fingerprint`。
+
+当前边界：
+
+- 这是 schema contract 草案，不代表真实 Postgres 已接入运行时。
+- Rust core 当前使用 repository trait + in-memory repository 验证语义。
+- 下一步需要选择数据库访问层并实现 Postgres repository，验证 DB 事务、唯一约束、并发 upsert、outbox drain 和 crash recovery。
+
 ## 7. 智能体运行时与模型配置
 
 OAR 的智能不应该来自一次 LLM 调用，而应该来自：
