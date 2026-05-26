@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::SystemTime;
 
 use oar_core::domain::identity::{
@@ -5,9 +7,11 @@ use oar_core::domain::identity::{
     TokenGrantId, TokenGrantState,
 };
 use oar_core::domain::token_refresh::{
-    decide_token_refresh, is_refreshable, EncryptedGrantMaterial, RefreshOutcome,
-    TokenRefreshAttempt, TokenRefreshBridgeError, TokenRefreshDecision,
-    TokenRefreshRepositoryCommand,
+    decide_token_refresh, is_refreshable, AuthRefreshAdapter, EncryptedGrantMaterial,
+    RefreshOutcome, TokenRefreshApplyResult, TokenRefreshAttempt, TokenRefreshBridgeError,
+    TokenRefreshCommandKind, TokenRefreshCommandSink, TokenRefreshDecision,
+    TokenRefreshDecisionKind, TokenRefreshGrantSnapshot, TokenRefreshReportStatus,
+    TokenRefreshRepositoryCommand, TokenRefreshService, TokenRefreshShortCircuitReason,
 };
 
 fn sample_grant(state: TokenGrantState, refresh_token: Option<&str>) -> TokenGrant {
@@ -30,6 +34,96 @@ fn sample_grant(state: TokenGrantState, refresh_token: Option<&str>) -> TokenGra
             refresh_token: refresh_token.map(SecretString::new),
         },
         revocation_reason: None,
+    }
+}
+
+fn sample_snapshot(grant: &TokenGrant) -> TokenRefreshGrantSnapshot {
+    TokenRefreshGrantSnapshot::from_grant(grant, "fp_old")
+}
+
+#[derive(Clone)]
+struct FakeAuthRefreshAdapter {
+    state: Rc<RefCell<FakeAuthRefreshState>>,
+}
+
+#[derive(Clone)]
+struct FakeAuthRefreshState {
+    calls: usize,
+    outcome: RefreshOutcome,
+}
+
+impl FakeAuthRefreshAdapter {
+    fn new(outcome: RefreshOutcome) -> Self {
+        Self {
+            state: Rc::new(RefCell::new(FakeAuthRefreshState { calls: 0, outcome })),
+        }
+    }
+
+    fn calls(&self) -> usize {
+        self.state.borrow().calls
+    }
+}
+
+impl AuthRefreshAdapter for FakeAuthRefreshAdapter {
+    fn refresh(&mut self, _snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
+        let mut state = self.state.borrow_mut();
+        state.calls += 1;
+        state.outcome.clone()
+    }
+}
+
+#[derive(Clone)]
+struct FakeCommandSink {
+    state: Rc<RefCell<FakeCommandSinkState>>,
+}
+
+#[derive(Clone)]
+struct FakeCommandSinkState {
+    calls: usize,
+    last_command: Option<TokenRefreshRepositoryCommand>,
+    result: Result<Option<TokenRefreshApplyResult>, ()>,
+}
+
+impl FakeCommandSink {
+    fn new(result: Result<Option<TokenRefreshApplyResult>, ()>) -> Self {
+        Self {
+            state: Rc::new(RefCell::new(FakeCommandSinkState {
+                calls: 0,
+                last_command: None,
+                result,
+            })),
+        }
+    }
+
+    fn calls(&self) -> usize {
+        self.state.borrow().calls
+    }
+
+    fn last_command(&self) -> Option<TokenRefreshRepositoryCommand> {
+        self.state.borrow().last_command.clone()
+    }
+}
+
+impl TokenRefreshCommandSink for FakeCommandSink {
+    type Error = ();
+
+    fn apply_refresh_command(
+        &mut self,
+        command: TokenRefreshRepositoryCommand,
+    ) -> Result<Option<TokenRefreshApplyResult>, Self::Error> {
+        let mut state = self.state.borrow_mut();
+        state.calls += 1;
+        state.last_command = Some(command);
+        state.result.clone()
+    }
+}
+
+fn sample_apply_result(state: TokenGrantState, fingerprint: &str) -> TokenRefreshApplyResult {
+    TokenRefreshApplyResult {
+        grant_id: TokenGrantId("grant_01".to_string()),
+        tenant_id: TenantId("tenant_01".to_string()),
+        state,
+        fingerprint: fingerprint.to_string(),
     }
 }
 
@@ -93,6 +187,47 @@ fn decide_transient_failure_marks_needs_refresh() {
             safe_error: "temporarily unavailable".to_string(),
         }
     );
+}
+
+#[test]
+fn decide_failure_redacts_token_like_safe_error_before_report_or_persistence() {
+    let attempt = TokenRefreshAttempt {
+        grant_id: TokenGrantId("grant_01".to_string()),
+        tenant_id: TenantId("tenant_01".to_string()),
+        expected_fingerprint: "fp_old".to_string(),
+        outcome: RefreshOutcome::TransientFailure {
+            safe_error: "eyJhbGciOiJIUzI1NiJ9.fake.payload".to_string(),
+        },
+    };
+
+    let decision = decide_token_refresh(attempt);
+
+    assert_eq!(decision.safe_error(), Some("<redacted refresh error>"));
+    let command = decision
+        .into_repository_command_at(SystemTime::UNIX_EPOCH)
+        .expect("command should be safe to build");
+    match command {
+        TokenRefreshRepositoryCommand::MarkNeedsRefresh { safe_error, .. } => {
+            assert_eq!(safe_error, "<redacted refresh error>");
+        }
+        other => panic!("expected MarkNeedsRefresh, got {other:?}"),
+    }
+}
+
+#[test]
+fn decide_failure_preserves_allowlisted_safe_error_code() {
+    let attempt = TokenRefreshAttempt {
+        grant_id: TokenGrantId("grant_01".to_string()),
+        tenant_id: TenantId("tenant_01".to_string()),
+        expected_fingerprint: "fp_old".to_string(),
+        outcome: RefreshOutcome::TransientFailure {
+            safe_error: "temporarily unavailable".to_string(),
+        },
+    };
+
+    let decision = decide_token_refresh(attempt);
+
+    assert_eq!(decision.safe_error(), Some("temporarily unavailable"));
 }
 
 #[test]
@@ -293,4 +428,282 @@ fn decision_bridge_rejects_pre_epoch_timestamps() {
         .into_repository_command_at(before_epoch)
         .expect_err("pre-epoch should fail");
     assert_eq!(err, TokenRefreshBridgeError::TimestampBeforeUnixEpoch);
+}
+
+#[test]
+fn service_success_path_calls_adapter_and_sink_once_and_reports_success() {
+    let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::Success {
+        rotated_material: EncryptedGrantMaterial {
+            encrypted_primary: vec![1, 2, 3],
+            encrypted_renewal: vec![4, 5, 6],
+        },
+        key_id: "key_v2".to_string(),
+        new_fingerprint: "fp_new".to_string(),
+        refreshed_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2),
+        expires_at: None,
+    });
+    let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
+        TokenGrantState::Valid,
+        "fp_new",
+    ))));
+    let mut service = TokenRefreshService::new(adapter.clone(), sink.clone());
+
+    let report = service
+        .refresh_grant_at(
+            snapshot,
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(3),
+        )
+        .expect("service refresh should succeed");
+
+    assert_eq!(adapter.calls(), 1);
+    assert_eq!(sink.calls(), 1);
+    assert_eq!(report.status, TokenRefreshReportStatus::Succeeded);
+    assert_eq!(
+        report.decision,
+        Some(TokenRefreshDecisionKind::RotateGrantCas)
+    );
+    assert_eq!(
+        report.command,
+        Some(TokenRefreshCommandKind::RotateGrantCas)
+    );
+    assert_eq!(report.safe_error, None);
+
+    match sink.last_command().expect("expected command") {
+        TokenRefreshRepositoryCommand::RotateGrantCas { .. } => {}
+        other => panic!("expected RotateGrantCas, got {other:?}"),
+    }
+}
+
+#[test]
+fn service_transient_failure_marks_needs_refresh() {
+    let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::TransientFailure {
+        safe_error: "temporarily unavailable".to_string(),
+    });
+    let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
+        TokenGrantState::NeedsRefresh,
+        "fp_old",
+    ))));
+    let mut service = TokenRefreshService::new(adapter.clone(), sink.clone());
+
+    let report = service
+        .refresh_grant_at(
+            snapshot,
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(8),
+        )
+        .expect("service refresh should succeed");
+
+    assert_eq!(adapter.calls(), 1);
+    assert_eq!(sink.calls(), 1);
+    assert_eq!(report.status, TokenRefreshReportStatus::Succeeded);
+    assert_eq!(
+        report.decision,
+        Some(TokenRefreshDecisionKind::MarkNeedsRefresh)
+    );
+    assert_eq!(
+        report.command,
+        Some(TokenRefreshCommandKind::MarkNeedsRefresh)
+    );
+    assert_eq!(
+        report.safe_error.as_deref(),
+        Some("temporarily unavailable")
+    );
+
+    match sink.last_command().expect("expected command") {
+        TokenRefreshRepositoryCommand::MarkNeedsRefresh { safe_error, .. } => {
+            assert_eq!(safe_error, "temporarily unavailable");
+        }
+        other => panic!("expected MarkNeedsRefresh, got {other:?}"),
+    }
+}
+
+#[test]
+fn service_reauth_failure_marks_reauth_required() {
+    let grant = sample_grant(TokenGrantState::Valid, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::ReauthFailure {
+        safe_error: "invalid_grant".to_string(),
+    });
+    let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
+        TokenGrantState::ReauthRequired,
+        "fp_old",
+    ))));
+    let mut service = TokenRefreshService::new(adapter.clone(), sink.clone());
+
+    let report = service
+        .refresh_grant_at(
+            snapshot,
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(13),
+        )
+        .expect("service refresh should succeed");
+
+    assert_eq!(adapter.calls(), 1);
+    assert_eq!(sink.calls(), 1);
+    assert_eq!(report.status, TokenRefreshReportStatus::Succeeded);
+    assert_eq!(
+        report.decision,
+        Some(TokenRefreshDecisionKind::MarkReauthRequired)
+    );
+    assert_eq!(
+        report.command,
+        Some(TokenRefreshCommandKind::MarkReauthRequired)
+    );
+    assert_eq!(report.safe_error.as_deref(), Some("invalid_grant"));
+
+    match sink.last_command().expect("expected command") {
+        TokenRefreshRepositoryCommand::MarkReauthRequired { safe_error, .. } => {
+            assert_eq!(safe_error, "invalid_grant");
+        }
+        other => panic!("expected MarkReauthRequired, got {other:?}"),
+    }
+}
+
+#[test]
+fn service_short_circuits_revoked_reauth_and_missing_refresh_material() {
+    let cases = [
+        (
+            sample_grant(TokenGrantState::Revoked, Some("refresh-old")),
+            TokenRefreshShortCircuitReason::Revoked,
+        ),
+        (
+            sample_grant(TokenGrantState::ReauthRequired, Some("refresh-old")),
+            TokenRefreshShortCircuitReason::ReauthRequired,
+        ),
+        (
+            sample_grant(TokenGrantState::NeedsRefresh, None),
+            TokenRefreshShortCircuitReason::MissingRefreshMaterial,
+        ),
+    ];
+
+    for (grant, expected_reason) in cases {
+        let snapshot = sample_snapshot(&grant);
+        let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::TransientFailure {
+            safe_error: "not-used".to_string(),
+        });
+        let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
+            TokenGrantState::NeedsRefresh,
+            "fp_old",
+        ))));
+        let mut service = TokenRefreshService::new(adapter.clone(), sink.clone());
+
+        let report = service
+            .refresh_grant_at(snapshot, SystemTime::UNIX_EPOCH)
+            .expect("short-circuit should not fail");
+        assert_eq!(
+            report.status,
+            TokenRefreshReportStatus::ShortCircuited(expected_reason)
+        );
+        assert_eq!(report.decision, None);
+        assert_eq!(report.command, None);
+        assert_eq!(adapter.calls(), 0);
+        assert_eq!(sink.calls(), 0);
+    }
+}
+
+#[test]
+fn service_reports_conflict_noop_when_sink_returns_none() {
+    let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::Success {
+        rotated_material: EncryptedGrantMaterial {
+            encrypted_primary: vec![7, 7, 7],
+            encrypted_renewal: vec![8, 8, 8],
+        },
+        key_id: "key_v2".to_string(),
+        new_fingerprint: "fp_new".to_string(),
+        refreshed_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1),
+        expires_at: None,
+    });
+    let sink = FakeCommandSink::new(Ok(None));
+    let mut service = TokenRefreshService::new(adapter.clone(), sink.clone());
+
+    let report = service
+        .refresh_grant_at(
+            snapshot,
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(5),
+        )
+        .expect("service refresh should not fail");
+
+    assert_eq!(adapter.calls(), 1);
+    assert_eq!(sink.calls(), 1);
+    assert_eq!(report.status, TokenRefreshReportStatus::ConflictNoop);
+}
+
+#[test]
+fn service_report_and_audit_summary_do_not_leak_tokens_or_encrypted_bytes() {
+    let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::Success {
+        rotated_material: EncryptedGrantMaterial {
+            encrypted_primary: vec![9, 9, 9],
+            encrypted_renewal: vec![8, 8, 8],
+        },
+        key_id: "key_v2".to_string(),
+        new_fingerprint: "fp_new".to_string(),
+        refreshed_at: SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1),
+        expires_at: None,
+    });
+    let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
+        TokenGrantState::Valid,
+        "fp_new",
+    ))));
+    let mut service = TokenRefreshService::new(adapter, sink);
+
+    let report = service
+        .refresh_grant_at(
+            snapshot,
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2),
+        )
+        .expect("service refresh should succeed");
+    let audit = report.audit_summary();
+    let report_debug = format!("{report:?}");
+    let audit_debug = format!("{audit:?}");
+
+    assert!(!report_debug.contains("access-old"));
+    assert!(!report_debug.contains("refresh-old"));
+    assert!(!report_debug.contains("9, 9, 9"));
+    assert!(!report_debug.contains("8, 8, 8"));
+    assert!(!audit_debug.contains("access-old"));
+    assert!(!audit_debug.contains("refresh-old"));
+    assert!(!audit_debug.contains("9, 9, 9"));
+    assert!(!audit_debug.contains("8, 8, 8"));
+}
+
+#[test]
+fn service_report_redacts_token_like_adapter_errors() {
+    let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::TransientFailure {
+        safe_error: "opaque-token-fragment-without-keyword".to_string(),
+    });
+    let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
+        TokenGrantState::NeedsRefresh,
+        "fp_old",
+    ))));
+    let mut service = TokenRefreshService::new(adapter, sink.clone());
+
+    let report = service
+        .refresh_grant_at(snapshot, SystemTime::UNIX_EPOCH)
+        .expect("service refresh should succeed");
+    let audit = report.audit_summary();
+
+    assert_eq!(
+        report.safe_error.as_deref(),
+        Some("<redacted refresh error>")
+    );
+    assert_eq!(
+        audit.safe_error.as_deref(),
+        Some("<redacted refresh error>")
+    );
+    match sink.last_command().expect("expected command") {
+        TokenRefreshRepositoryCommand::MarkNeedsRefresh { safe_error, .. } => {
+            assert_eq!(safe_error, "<redacted refresh error>");
+        }
+        other => panic!("expected MarkNeedsRefresh, got {other:?}"),
+    }
+    assert!(!format!("{report:?}").contains("opaque-token-fragment"));
+    assert!(!format!("{audit:?}").contains("opaque-token-fragment"));
 }
