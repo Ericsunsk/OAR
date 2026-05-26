@@ -86,6 +86,7 @@ MVP 不做：
 | 文档 | 作用 |
 | --- | --- |
 | [`one-page-brief.md`](one-page-brief.md) | 给外部读者或设计伙伴快速理解 OAR 的一页版项目简报 |
+| [`prd.md`](prd.md) | 第一版 OKR 复盘驾驶舱的用户、范围、需求、验收标准和风险 |
 | [`market-and-positioning.md`](market-and-positioning.md) | 市场判断、竞品、目标用户、长期定位 |
 | [`product-experience.md`](product-experience.md) | 桌面端、iOS、飞书入口和核心工作流 |
 | [`technical-architecture.md`](technical-architecture.md) | Swift/Rust 架构、LarkAdapter、身份、同步、智能体运行时 |
