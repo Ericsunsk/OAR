@@ -17,8 +17,9 @@ use oar_core::storage::postgres::operation_ledger_sql::{
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
 };
 use oar_core::storage::postgres::token_grant_sql::{
-    GET_TOKEN_GRANT_BY_ID, MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED,
-    REVOKE_TOKEN_GRANT, ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
+    GET_TOKEN_GRANT_BY_ID, LIST_TOKEN_REFRESH_CANDIDATE_SNAPSHOTS,
+    MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED, REVOKE_TOKEN_GRANT,
+    ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
 };
 
 fn compact(sql: &str) -> String {
@@ -314,6 +315,25 @@ fn token_grant_lookup_revoke_and_upsert_are_tenant_scoped() {
     assert!(upsert.contains("insert into token_grants"));
     assert!(upsert.contains("on conflict (id) do update"));
     assert!(upsert.contains("where token_grants.tenant_id = excluded.tenant_id"));
+}
+
+#[test]
+fn token_refresh_candidate_sql_contract_is_tenant_scoped_guarded_and_deterministic() {
+    let sql = compact(LIST_TOKEN_REFRESH_CANDIDATE_SNAPSHOTS);
+
+    assert!(sql.contains("from token_grants"));
+    assert!(sql.contains("where tenant_id = $1"));
+    assert!(sql.contains("state in ('valid', 'needs_refresh', 'expired')"));
+    assert!(sql.contains("and revoked_at is null"));
+    assert!(sql.contains("and reauth_required_at is null"));
+    assert!(sql.contains("octet_length(encrypted_oauth_grant) > 0"));
+    assert!(sql.contains("state in ('needs_refresh', 'expired') or expires_at <= to_timestamp($2::double precision / 1000.0)"));
+    assert!(sql.contains("order by"));
+    assert!(sql.contains("case when state in ('needs_refresh', 'expired') then 0 else 1 end"));
+    assert!(sql.contains("expires_at asc nulls first"));
+    assert!(sql.contains("id asc"));
+    assert!(sql.contains("limit $3"));
+    assert!(!sql.contains("encrypted_oauth_grant,"));
 }
 
 #[test]

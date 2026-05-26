@@ -190,6 +190,8 @@ mod postgres_feature_api_contract {
         let _mark_refresh_failed = PostgresTokenGrantRepository::mark_refresh_failed;
         let _mark_reauth_required = PostgresTokenGrantRepository::mark_reauth_required;
         let _revoke_grant = PostgresTokenGrantRepository::revoke;
+        let _list_refresh_candidates =
+            PostgresTokenGrantRepository::list_refresh_candidate_snapshots;
         let _upsert_session = PostgresDeviceSessionRepository::upsert_with_identity_hash;
         let _get_session = PostgresDeviceSessionRepository::get_by_id;
         let _advance_session = PostgresDeviceSessionRepository::advance_cursor_cas;

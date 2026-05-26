@@ -244,3 +244,29 @@ oauth_grant_key_id,
 oauth_grant_fingerprint,
 revocation_reason
 "#;
+
+pub const LIST_TOKEN_REFRESH_CANDIDATE_SNAPSHOTS: &str = r#"
+SELECT
+id,
+tenant_id,
+oauth_grant_fingerprint,
+state,
+floor(extract(epoch from revoked_at) * 1000)::bigint AS revoked_at_ms,
+floor(extract(epoch from reauth_required_at) * 1000)::bigint AS reauth_required_at_ms,
+octet_length(encrypted_oauth_grant) > 0 AS has_refresh_material
+FROM token_grants
+WHERE tenant_id = $1
+  AND state IN ('valid', 'needs_refresh', 'expired')
+  AND revoked_at IS NULL
+  AND reauth_required_at IS NULL
+  AND octet_length(encrypted_oauth_grant) > 0
+  AND (
+    state IN ('needs_refresh', 'expired')
+    OR expires_at <= to_timestamp($2::double precision / 1000.0)
+  )
+ORDER BY
+  CASE WHEN state IN ('needs_refresh', 'expired') THEN 0 ELSE 1 END,
+  expires_at ASC NULLS FIRST,
+  id ASC
+LIMIT $3
+"#;

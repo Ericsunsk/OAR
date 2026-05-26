@@ -33,8 +33,9 @@ use crate::storage::postgres::operation_ledger_sql::{
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
 };
 use crate::storage::postgres::token_grant_sql::{
-    GET_TOKEN_GRANT_BY_ID, MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED,
-    REVOKE_TOKEN_GRANT, ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
+    GET_TOKEN_GRANT_BY_ID, LIST_TOKEN_REFRESH_CANDIDATE_SNAPSHOTS,
+    MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED, REVOKE_TOKEN_GRANT,
+    ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
 };
 use serde_json::Value;
 use sqlx::postgres::PgRow;
@@ -549,6 +550,27 @@ impl PostgresTokenGrantRepository {
             .fetch_optional(&self.pool)
             .await?;
         row.as_ref().map(encrypted_token_grant_from_row).transpose()
+    }
+
+    pub async fn list_refresh_candidate_snapshots(
+        &self,
+        tenant_id: &str,
+        due_before: SystemTime,
+        limit: u32,
+    ) -> PgRepositoryResult<Vec<TokenRefreshGrantSnapshot>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let due_before_ms = system_time_to_ms(due_before)? as i64;
+        let rows = sqlx::query(LIST_TOKEN_REFRESH_CANDIDATE_SNAPSHOTS)
+            .bind(tenant_id)
+            .bind(due_before_ms)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        rows.iter().map(token_refresh_snapshot_from_row).collect()
     }
 }
 
@@ -1633,6 +1655,27 @@ fn encrypted_token_grant_from_row(row: &PgRow) -> PgRepositoryResult<EncryptedTo
         oauth_grant_key_id: row.try_get("oauth_grant_key_id")?,
         oauth_grant_fingerprint: row.try_get("oauth_grant_fingerprint")?,
         revocation_reason: row.try_get("revocation_reason")?,
+    })
+}
+
+fn token_refresh_snapshot_from_row(row: &PgRow) -> PgRepositoryResult<TokenRefreshGrantSnapshot> {
+    let state: String = row.try_get("state")?;
+    Ok(TokenRefreshGrantSnapshot {
+        grant_id: crate::domain::identity::TokenGrantId(row.try_get("id")?),
+        tenant_id: crate::domain::identity::TenantId(row.try_get("tenant_id")?),
+        expected_fingerprint: row.try_get("oauth_grant_fingerprint")?,
+        state: token_grant_state_from_db(&state)?,
+        has_refresh_material: row.try_get("has_refresh_material")?,
+        revoked_at: optional_non_negative_i64_to_u64(
+            row.try_get("revoked_at_ms")?,
+            "revoked_at_ms",
+        )?
+        .map(ms_to_system_time),
+        reauth_required_at: optional_non_negative_i64_to_u64(
+            row.try_get("reauth_required_at_ms")?,
+            "reauth_required_at_ms",
+        )?
+        .map(ms_to_system_time),
     })
 }
 
