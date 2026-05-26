@@ -8,7 +8,7 @@ WITH inserted_action AS (
         status,
         confirmed_at
     )
-    VALUES ($1, $2, $3, $4, 'confirmed', $5)
+    VALUES ($1, $2, $3, $4, 'confirmed', to_timestamp($5::double precision / 1000.0))
     ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
     RETURNING action_id, tenant_id, idempotency_key
 ),
@@ -45,8 +45,8 @@ LIMIT 1
 pub const MARK_EXECUTING: &str = r#"
 UPDATE operation_ledger
 SET status = 'executing',
-    executing_at = $3,
-    updated_at = $3,
+    executing_at = to_timestamp($3::double precision / 1000.0),
+    updated_at = to_timestamp($3::double precision / 1000.0),
     last_error = NULL
 WHERE tenant_id = $1
   AND idempotency_key = $2
@@ -57,8 +57,8 @@ RETURNING operation_id, action_id, idempotency_key, status, last_error
 pub const MARK_SUCCEEDED: &str = r#"
 UPDATE operation_ledger
 SET status = 'succeeded',
-    finished_at = $3,
-    updated_at = $3,
+    finished_at = to_timestamp($3::double precision / 1000.0),
+    updated_at = to_timestamp($3::double precision / 1000.0),
     last_error = NULL
 WHERE tenant_id = $1
   AND idempotency_key = $2
@@ -69,8 +69,8 @@ RETURNING operation_id, action_id, idempotency_key, status, last_error
 pub const MARK_FAILED: &str = r#"
 UPDATE operation_ledger
 SET status = 'failed',
-    finished_at = $4,
-    updated_at = $4,
+    finished_at = to_timestamp($4::double precision / 1000.0),
+    updated_at = to_timestamp($4::double precision / 1000.0),
     last_error = $3
 WHERE tenant_id = $1
   AND idempotency_key = $2

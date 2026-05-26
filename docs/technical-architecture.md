@@ -164,7 +164,8 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - 这是 schema contract 草案，不代表真实 Postgres 已接入运行时。
 - Rust core 当前使用 repository trait + in-memory repository 验证语义。
 - Rust core 已新增 `storage::postgres` SQL 边界，覆盖 confirmed action / ledger upsert、guarded status transition、audit append 和 audit outbox enqueue。
-- 下一步需要选择数据库访问层并实现真实 Postgres repository，验证 DB 事务、唯一约束、并发 upsert、outbox drain 和 crash recovery。
+- `postgres` / `postgres-sqlx` feature 可编译 `sqlx` 版 Postgres repository 类型；默认构建仍不拉起数据库运行时依赖。
+- 下一步需要用 live Postgres 验证 DB 事务、唯一约束、并发 upsert、append-only trigger、outbox drain 和 crash recovery。
 
 ## 7. 智能体运行时与模型配置
 

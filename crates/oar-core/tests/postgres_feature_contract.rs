@@ -1,0 +1,70 @@
+use oar_core::storage::postgres::audit_sql::{
+    APPEND_AUDIT_EVENT, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
+};
+use oar_core::storage::postgres::operation_ledger_sql::{
+    GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
+    SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
+};
+
+fn compact(sql: &str) -> String {
+    sql.to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn default_build_exposes_postgres_sql_contract_constants() {
+    let operation_sql = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
+    let transition_sql = compact(MARK_EXECUTING);
+    let audit_sql = compact(APPEND_AUDIT_EVENT);
+
+    assert!(operation_sql.contains("insert into confirmed_actions"));
+    assert!(operation_sql.contains("insert into operation_ledger"));
+    assert!(transition_sql.contains("update operation_ledger"));
+    assert!(audit_sql.contains("insert into audit_events"));
+
+    // Touch all constants to lock import visibility for default builds.
+    let _ = MARK_SUCCEEDED;
+    let _ = MARK_FAILED;
+    let _ = GET_BY_IDEMPOTENCY_KEY;
+    let _ = FIND_AUDIT_EVENTS_BY_TRACE_ID;
+    let _ = ENQUEUE_AUDIT_OUTBOX;
+}
+
+#[cfg(feature = "postgres")]
+mod postgres_feature_api_contract {
+    use super::*;
+    use oar_core::action::audit_event::AuditEvent;
+    use oar_core::action::confirmed_action::ConfirmedAction;
+    use oar_core::storage::postgres::{
+        PostgresAuditEventRepository, PostgresOperationLedgerRepository,
+    };
+    use sqlx::PgPool;
+
+    #[test]
+    fn postgres_repositories_are_importable_and_constructible_from_pg_pool() {
+        let _from_pool_ctor_op: fn(PgPool) -> PostgresOperationLedgerRepository =
+            PostgresOperationLedgerRepository::new;
+        let _from_pool_ctor_audit: fn(PgPool) -> PostgresAuditEventRepository =
+            PostgresAuditEventRepository::new;
+
+        // Keep SQL constants reachable under the feature build too.
+        let _ = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
+    }
+
+    #[test]
+    fn postgres_repository_async_methods_are_type_checked() {
+        let _submit = PostgresOperationLedgerRepository::submit_confirmed_action;
+        let _mark_executing = PostgresOperationLedgerRepository::mark_executing;
+        let _mark_succeeded = PostgresOperationLedgerRepository::mark_succeeded;
+        let _mark_failed = PostgresOperationLedgerRepository::mark_failed;
+        let _get = PostgresOperationLedgerRepository::get_by_idempotency_key;
+        let _append = PostgresAuditEventRepository::append;
+        let _find = PostgresAuditEventRepository::find_by_trace_id;
+        let _enqueue = PostgresAuditEventRepository::enqueue_outbox;
+
+        let _phantom_action: Option<ConfirmedAction> = None;
+        let _phantom_event: Option<AuditEvent> = None;
+    }
+}

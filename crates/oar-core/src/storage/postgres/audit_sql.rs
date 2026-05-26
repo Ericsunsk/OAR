@@ -71,6 +71,6 @@ INSERT INTO audit_outbox (
     attempt_count,
     next_attempt_at
 )
-VALUES ($1, $2, $3, $4, 'pending', 0, $5)
+VALUES ($1, $2, $3, $4, 'pending', 0, to_timestamp($5::double precision / 1000.0))
 RETURNING id
 "#;
