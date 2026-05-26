@@ -118,7 +118,16 @@ fn serialized_event_contains_no_secret_or_token_fields() {
         "Lark adapter timed out",
     );
 
-    let value = serde_json::to_value(failed).expect("serialize");
+    let json = serde_json::to_string(&failed).expect("serialize");
+
+    assert!(!json.contains("access_token"));
+    assert!(!json.contains("refresh_token"));
+    assert!(!json.contains("authorization_code"));
+    assert!(!json.contains("secret"));
+    assert!(!json.contains("access-secret-never-log"));
+    assert!(!json.contains("refresh-secret-never-log"));
+
+    let value: serde_json::Value = serde_json::from_str(&json).expect("json object");
     let object = value.as_object().expect("json object");
 
     assert!(!object.contains_key("access_token"));

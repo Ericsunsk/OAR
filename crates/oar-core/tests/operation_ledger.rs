@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::SystemTime;
 
 use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
@@ -28,6 +30,48 @@ fn duplicate_confirmation_returns_existing_operation_record() {
     assert_eq!(first_record.operation_id, second_record.operation_id);
     assert_eq!(first_record.idempotency_key, second_record.idempotency_key);
     assert_eq!(second_record.status, ActionStatus::Confirmed);
+}
+
+#[test]
+fn concurrent_duplicate_confirmations_create_one_operation() {
+    let ledger = Arc::new(Mutex::new(OperationLedger::new()));
+    let action = Arc::new(confirmed_action("idem-concurrent"));
+    let mut handles = Vec::new();
+
+    for _ in 0..8 {
+        let ledger = Arc::clone(&ledger);
+        let action = Arc::clone(&action);
+        handles.push(thread::spawn(move || {
+            let mut ledger = ledger.lock().expect("ledger mutex should not be poisoned");
+            ledger.submit_confirmed_action(&action).unwrap()
+        }));
+    }
+
+    let results: Vec<_> = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("worker thread should finish"))
+        .collect();
+
+    let created = results
+        .iter()
+        .filter(|result| matches!(result, SubmitResult::Created(_)))
+        .count();
+    let existing = results
+        .iter()
+        .filter(|result| matches!(result, SubmitResult::Existing(_)))
+        .count();
+    let operation_ids: Vec<_> = results
+        .iter()
+        .map(|result| match result {
+            SubmitResult::Created(record) | SubmitResult::Existing(record) => {
+                record.operation_id.clone()
+            }
+        })
+        .collect();
+
+    assert_eq!(created, 1);
+    assert_eq!(existing, 7);
+    assert!(operation_ids.iter().all(|id| id == &operation_ids[0]));
 }
 
 #[test]
