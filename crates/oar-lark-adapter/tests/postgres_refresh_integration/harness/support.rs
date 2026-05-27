@@ -44,7 +44,7 @@ impl RecordingAsyncHttpClient {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncHttpClient for RecordingAsyncHttpClient {
     async fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
         self.requests

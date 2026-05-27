@@ -10,7 +10,7 @@ pub trait HttpClient {
     fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncHttpClient {
     async fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure>;
 }
@@ -184,7 +184,7 @@ impl ReqwestAsyncHttpClient {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncHttpClient for ReqwestAsyncHttpClient {
     async fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
         let builder = apply_headers!(self.client.post(&request.url), &request.headers);

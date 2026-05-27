@@ -37,7 +37,7 @@ pub trait FeishuGrantMaterialStore {
     ) -> Result<StoredFeishuGrantMaterial, Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncFeishuGrantMaterialStore {
     type Error;
 
@@ -47,10 +47,10 @@ pub trait AsyncFeishuGrantMaterialStore {
     ) -> Result<StoredFeishuGrantMaterial, Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<T> AsyncFeishuGrantMaterialStore for T
 where
-    T: FeishuGrantMaterialStore,
+    T: FeishuGrantMaterialStore + Send,
 {
     type Error = T::Error;
 
@@ -68,17 +68,17 @@ pub trait AesGcmKeyResolver {
     fn key_for(&mut self, key_id: &str) -> Result<[u8; 32], Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncAesGcmKeyResolver {
     type Error;
 
     async fn key_for(&mut self, key_id: &str) -> Result<[u8; 32], Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<T> AsyncAesGcmKeyResolver for T
 where
-    T: AesGcmKeyResolver,
+    T: AesGcmKeyResolver + Send,
 {
     type Error = T::Error;
 

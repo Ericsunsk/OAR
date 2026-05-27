@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use oar_core::domain::token_refresh::service::AsyncAuthRefreshAdapter;
 use oar_core::domain::token_refresh::types::RefreshOutcome;
@@ -17,7 +16,7 @@ use crate::FeishuOpenApiConfig;
 
 #[test]
 fn async_adapter_material_provider_failure_maps_to_transient_and_skips_http() {
-    let sent_requests = Rc::new(RefCell::new(0usize));
+    let sent_requests = Arc::new(Mutex::new(0usize));
     let transport = FeishuOAuthTransport::new(
         FeishuOpenApiConfig::default(),
         AsyncFailingMaterialProvider,
@@ -35,7 +34,13 @@ fn async_adapter_material_provider_failure_maps_to_transient_and_skips_http() {
             safe_error: "temporarily unavailable".to_string(),
         }
     );
-    assert_eq!(*sent_requests.borrow(), 0, "http must not be called");
+    assert_eq!(
+        *sent_requests
+            .lock()
+            .expect("async fake request counter mutex"),
+        0,
+        "http must not be called"
+    );
 }
 
 #[test]
@@ -104,7 +109,7 @@ fn async_safe_client_transient_failure_is_safe() {
         FeishuOpenApiConfig::default(),
         AsyncFailingMaterialProvider,
         FakeEncryptor,
-        CountingAsyncHttpClient::new(Rc::new(RefCell::new(0))),
+        CountingAsyncHttpClient::new(Arc::new(Mutex::new(0))),
     );
     let mut safe_client = FeishuAuthRefreshSafeClient::new(transport);
 

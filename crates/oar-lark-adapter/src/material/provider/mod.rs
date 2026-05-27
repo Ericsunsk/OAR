@@ -153,12 +153,12 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<S, K, C> AsyncFeishuRefreshMaterialProvider for FeishuStoredRefreshMaterialProvider<S, K, C>
 where
-    S: AsyncFeishuGrantMaterialStore,
-    K: AsyncAesGcmKeyResolver,
-    C: AsyncFeishuAppCredentialProvider,
+    S: AsyncFeishuGrantMaterialStore + Send,
+    K: AsyncAesGcmKeyResolver + Send,
+    C: AsyncFeishuAppCredentialProvider + Send,
 {
     type Error = FeishuStoredRefreshMaterialProviderError<
         AesGcmRefreshMaterialProviderError<S::Error, K::Error>,

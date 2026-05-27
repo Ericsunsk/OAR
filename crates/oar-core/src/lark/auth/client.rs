@@ -45,7 +45,7 @@ pub trait FeishuAuthRefreshTransport {
     ) -> Result<FeishuAuthRefreshRawEnvelope, Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncFeishuAuthRefreshTransport {
     type Error;
 

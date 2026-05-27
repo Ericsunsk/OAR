@@ -29,7 +29,7 @@ pub trait FeishuAppCredentialProvider {
     ) -> Result<FeishuAppCredential, Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncFeishuAppCredentialProvider {
     type Error;
 
@@ -39,10 +39,10 @@ pub trait AsyncFeishuAppCredentialProvider {
     ) -> Result<FeishuAppCredential, Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<T> AsyncFeishuAppCredentialProvider for T
 where
-    T: FeishuAppCredentialProvider,
+    T: FeishuAppCredentialProvider + Send,
 {
     type Error = T::Error;
 

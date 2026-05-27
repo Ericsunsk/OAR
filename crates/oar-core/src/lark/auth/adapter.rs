@@ -60,7 +60,7 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncFeishuAuthRefreshClient {
     type Error;
 
@@ -70,10 +70,10 @@ pub trait AsyncFeishuAuthRefreshClient {
     ) -> Result<FeishuAuthRefreshResponse, Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<T> AsyncFeishuAuthRefreshClient for super::client::FeishuAuthRefreshSafeClient<T>
 where
-    T: super::client::AsyncFeishuAuthRefreshTransport,
+    T: super::client::AsyncFeishuAuthRefreshTransport + Send,
 {
     type Error = super::client::FeishuAuthRefreshClientError;
 
@@ -85,10 +85,10 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<C> AsyncAuthRefreshAdapter for FeishuAuthRefreshAdapter<C>
 where
-    C: AsyncFeishuAuthRefreshClient,
+    C: AsyncFeishuAuthRefreshClient + Send,
     C::Error: 'static,
 {
     async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {

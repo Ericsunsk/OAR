@@ -13,7 +13,7 @@ pub trait AuthRefreshAdapter {
     fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncAuthRefreshAdapter {
     async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome;
 }

@@ -55,7 +55,7 @@ pub trait AuditOutboxDispatcher {
     fn deliver(
         &mut self,
         message: &AuditOutboxMessage,
-    ) -> impl Future<Output = Result<AuditOutboxDelivery, Self::Error>>;
+    ) -> impl Future<Output = Result<AuditOutboxDelivery, Self::Error>> + Send;
 }
 
 pub struct PostgresAuditOutboxWorker<D, C = fn() -> u64>

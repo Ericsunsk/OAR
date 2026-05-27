@@ -202,7 +202,7 @@ impl AuthRefreshAdapter for LiveRefreshAdapter {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl AsyncAuthRefreshAdapter for LiveRefreshAdapter {
     async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
         AuthRefreshAdapter::refresh(self, snapshot)
@@ -245,7 +245,7 @@ impl AuthRefreshAdapter for SequenceRefreshAdapter {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl AsyncAuthRefreshAdapter for SequenceRefreshAdapter {
     async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
         AuthRefreshAdapter::refresh(self, snapshot)
@@ -284,7 +284,7 @@ impl FeishuAuthRefreshClient for FixtureClient {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl AsyncFeishuAuthRefreshClient for FixtureClient {
     type Error = &'static str;
 

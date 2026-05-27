@@ -35,7 +35,7 @@ pub enum PostgresFeishuGrantMaterialStoreError {
     Unavailable,
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncFeishuGrantMaterialStore for PostgresFeishuGrantMaterialStore {
     type Error = PostgresFeishuGrantMaterialStoreError;
 

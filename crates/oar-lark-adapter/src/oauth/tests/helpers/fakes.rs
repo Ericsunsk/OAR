@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
@@ -67,7 +68,7 @@ impl FeishuRefreshMaterialProvider for FailingMaterialProvider {
 
 pub(crate) struct AsyncFailingMaterialProvider;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncFeishuRefreshMaterialProvider for AsyncFailingMaterialProvider {
     type Error = &'static str;
 
@@ -128,7 +129,7 @@ impl AsyncFakeHttpClient {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncHttpClient for AsyncFakeHttpClient {
     async fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
         assert_eq!(request.body["client_id"], "cli_test");
@@ -162,22 +163,25 @@ impl HttpClient for CountingHttpClient {
 
 #[derive(Clone)]
 pub(crate) struct CountingAsyncHttpClient {
-    sent_requests: Rc<RefCell<usize>>,
+    sent_requests: Arc<Mutex<usize>>,
 }
 
 impl CountingAsyncHttpClient {
-    pub(crate) fn new(sent_requests: Rc<RefCell<usize>>) -> Self {
+    pub(crate) fn new(sent_requests: Arc<Mutex<usize>>) -> Self {
         Self { sent_requests }
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl AsyncHttpClient for CountingAsyncHttpClient {
     async fn post_json(
         &mut self,
         _request: HttpRequest,
     ) -> Result<HttpResponse, HttpClientFailure> {
-        *self.sent_requests.borrow_mut() += 1;
+        *self
+            .sent_requests
+            .lock()
+            .expect("async fake request counter mutex") += 1;
         Err(HttpClientFailure::Transport)
     }
 }

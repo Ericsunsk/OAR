@@ -137,12 +137,12 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<P, E, H> AsyncFeishuAuthRefreshTransport for FeishuOAuthTransport<P, E, H>
 where
-    P: AsyncFeishuRefreshMaterialProvider,
-    E: FeishuGrantEncryptor,
-    H: AsyncHttpClient,
+    P: AsyncFeishuRefreshMaterialProvider + Send,
+    E: FeishuGrantEncryptor + Send,
+    H: AsyncHttpClient + Send,
 {
     type Error = FeishuOAuthTransportError;
 

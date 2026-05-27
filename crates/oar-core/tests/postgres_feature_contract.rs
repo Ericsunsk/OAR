@@ -345,7 +345,7 @@ mod postgres_feature_api_contract {
         }
     }
 
-    #[async_trait::async_trait(?Send)]
+    #[async_trait::async_trait]
     impl AsyncAuthRefreshAdapter for NoopRefreshAdapter {
         async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
             AuthRefreshAdapter::refresh(self, snapshot)

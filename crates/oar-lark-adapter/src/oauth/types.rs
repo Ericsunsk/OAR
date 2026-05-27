@@ -14,7 +14,7 @@ pub trait FeishuRefreshMaterialProvider {
     ) -> Result<FeishuRefreshMaterial, Self::Error>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AsyncFeishuRefreshMaterialProvider {
     type Error;
 
