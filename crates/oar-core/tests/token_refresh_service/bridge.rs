@@ -6,12 +6,14 @@ use oar_core::domain::token_refresh::bridge::{
 };
 use oar_core::domain::token_refresh::service::token_refresh_short_circuit_report;
 use oar_core::domain::token_refresh::types::{
-    EncryptedGrantMaterial, RefreshOutcome, TokenRefreshCommandKind, TokenRefreshDecision,
+    EncryptedGrantMaterial, TokenRefreshCommandKind, TokenRefreshDecision,
     TokenRefreshDecisionKind, TokenRefreshReportStatus, TokenRefreshRepositoryCommand,
     TokenRefreshShortCircuitReason,
 };
 
-use crate::common::{sample_grant, sample_snapshot};
+use crate::common::{
+    sample_grant, sample_mark_needs_refresh_decision, sample_snapshot, transient_failure_outcome,
+};
 
 #[test]
 fn decision_bridge_maps_rotate_command_and_preserves_cas_fields() {
@@ -65,12 +67,7 @@ fn decision_bridge_maps_rotate_command_and_preserves_cas_fields() {
 #[test]
 fn decision_bridge_failure_commands_use_now_and_keep_expected_fingerprint() {
     let now = SystemTime::UNIX_EPOCH + Duration::from_secs(33);
-    let needs_refresh = TokenRefreshDecision::MarkNeedsRefresh {
-        grant_id: TokenGrantId("grant_01".to_string()),
-        tenant_id: TenantId("tenant_01".to_string()),
-        expected_fingerprint: "fp_old".to_string(),
-        safe_error: "temporarily unavailable".to_string(),
-    };
+    let needs_refresh = sample_mark_needs_refresh_decision("temporarily unavailable");
     let reauth = TokenRefreshDecision::MarkReauthRequired {
         grant_id: TokenGrantId("grant_02".to_string()),
         tenant_id: TenantId("tenant_02".to_string()),
@@ -116,9 +113,7 @@ fn plan_token_refresh_command_builds_command_and_report_from_one_decision() {
     let snapshot = sample_snapshot(&grant);
     let planned = plan_token_refresh_command(
         &snapshot,
-        RefreshOutcome::TransientFailure {
-            safe_error: "temporarily unavailable".to_string(),
-        },
+        transient_failure_outcome("temporarily unavailable"),
         SystemTime::UNIX_EPOCH + Duration::from_secs(21),
     )
     .expect("planned command should be built");
@@ -173,12 +168,7 @@ fn short_circuit_report_is_the_standard_non_adapter_report() {
 
 #[test]
 fn decision_bridge_rejects_pre_epoch_timestamps() {
-    let decision = TokenRefreshDecision::MarkNeedsRefresh {
-        grant_id: TokenGrantId("grant_01".to_string()),
-        tenant_id: TenantId("tenant_01".to_string()),
-        expected_fingerprint: "fp_old".to_string(),
-        safe_error: "temporarily unavailable".to_string(),
-    };
+    let decision = sample_mark_needs_refresh_decision("temporarily unavailable");
 
     let before_epoch = SystemTime::UNIX_EPOCH - Duration::from_secs(1);
     let err = decision

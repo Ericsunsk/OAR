@@ -75,17 +75,7 @@ impl PostgresReviewInboxRepository {
         &self,
         request: InsertProposedActionDecisionRequest<'_>,
     ) -> PgRepositoryResult<bool> {
-        let (decision, edited_payload) = proposed_action_decision_to_db(request.decision);
-        let row = sqlx::query(INSERT_PROPOSED_ACTION_DECISION)
-            .bind(request.id)
-            .bind(request.tenant_id)
-            .bind(request.proposed_action_id)
-            .bind(request.proposed_action_version as i64)
-            .bind(request.actor_user_id)
-            .bind(decision)
-            .bind(edited_payload)
-            .bind(request.confirmed_action_id)
-            .bind(system_time_to_ms(request.decided_at)? as i64)
+        let row = insert_proposed_action_decision_query(request)?
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.is_some())
@@ -95,20 +85,7 @@ impl PostgresReviewInboxRepository {
         &self,
         item: &ReviewInboxItem,
     ) -> PgRepositoryResult<Option<String>> {
-        let row = sqlx::query(UPSERT_REVIEW_INBOX_ITEM)
-            .bind(&item.id.0)
-            .bind(&item.tenant_id.0)
-            .bind(&item.user_id.0)
-            .bind(&item.proposed_action_id)
-            .bind(item.proposed_action_version as i64)
-            .bind(item.risk_score as i32)
-            .bind(item.priority as i32)
-            .bind(review_inbox_item_status_to_db(&item.status))
-            .bind(item.sort_key)
-            .bind(item.sync_cursor as i64)
-            .bind(system_time_to_ms(item.updated_at)? as i64)
-            .bind(item.ledger_status.as_deref())
-            .bind(item.operation_id.as_deref())
+        let row = upsert_review_inbox_item_query(item)?
             .fetch_optional(&self.pool)
             .await?;
 
@@ -142,17 +119,7 @@ pub(super) async fn insert_proposed_action_decision_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     request: InsertProposedActionDecisionRequest<'_>,
 ) -> PgRepositoryResult<bool> {
-    let (decision, edited_payload) = proposed_action_decision_to_db(request.decision);
-    let row = sqlx::query(INSERT_PROPOSED_ACTION_DECISION)
-        .bind(request.id)
-        .bind(request.tenant_id)
-        .bind(request.proposed_action_id)
-        .bind(request.proposed_action_version as i64)
-        .bind(request.actor_user_id)
-        .bind(decision)
-        .bind(edited_payload)
-        .bind(request.confirmed_action_id)
-        .bind(system_time_to_ms(request.decided_at)? as i64)
+    let row = insert_proposed_action_decision_query(request)?
         .fetch_optional(&mut **tx)
         .await?;
     Ok(row.is_some())
@@ -162,20 +129,7 @@ pub(super) async fn upsert_review_inbox_item_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     item: &ReviewInboxItem,
 ) -> PgRepositoryResult<Option<String>> {
-    let row = sqlx::query(UPSERT_REVIEW_INBOX_ITEM)
-        .bind(&item.id.0)
-        .bind(&item.tenant_id.0)
-        .bind(&item.user_id.0)
-        .bind(&item.proposed_action_id)
-        .bind(item.proposed_action_version as i64)
-        .bind(item.risk_score as i32)
-        .bind(item.priority as i32)
-        .bind(review_inbox_item_status_to_db(&item.status))
-        .bind(item.sort_key)
-        .bind(item.sync_cursor as i64)
-        .bind(system_time_to_ms(item.updated_at)? as i64)
-        .bind(item.ledger_status.as_deref())
-        .bind(item.operation_id.as_deref())
+    let row = upsert_review_inbox_item_query(item)?
         .fetch_optional(&mut **tx)
         .await?;
 
@@ -211,4 +165,41 @@ fn review_inbox_status_for_ledger_status(status: ActionStatus) -> Option<ReviewI
         ActionStatus::Succeeded => Some(ReviewInboxItemStatus::Succeeded),
         ActionStatus::Failed | ActionStatus::Cancelled => Some(ReviewInboxItemStatus::Failed),
     }
+}
+
+fn insert_proposed_action_decision_query(
+    request: InsertProposedActionDecisionRequest<'_>,
+) -> PgRepositoryResult<sqlx::query::Query<'_, Postgres, sqlx::postgres::PgArguments>> {
+    let (decision, edited_payload) = proposed_action_decision_to_db(request.decision);
+    let decided_at_ms = system_time_to_ms(request.decided_at)? as i64;
+    Ok(sqlx::query(INSERT_PROPOSED_ACTION_DECISION)
+        .bind(request.id)
+        .bind(request.tenant_id)
+        .bind(request.proposed_action_id)
+        .bind(request.proposed_action_version as i64)
+        .bind(request.actor_user_id)
+        .bind(decision)
+        .bind(edited_payload)
+        .bind(request.confirmed_action_id)
+        .bind(decided_at_ms))
+}
+
+fn upsert_review_inbox_item_query(
+    item: &ReviewInboxItem,
+) -> PgRepositoryResult<sqlx::query::Query<'_, Postgres, sqlx::postgres::PgArguments>> {
+    let updated_at_ms = system_time_to_ms(item.updated_at)? as i64;
+    Ok(sqlx::query(UPSERT_REVIEW_INBOX_ITEM)
+        .bind(&item.id.0)
+        .bind(&item.tenant_id.0)
+        .bind(&item.user_id.0)
+        .bind(&item.proposed_action_id)
+        .bind(item.proposed_action_version as i64)
+        .bind(item.risk_score as i32)
+        .bind(item.priority as i32)
+        .bind(review_inbox_item_status_to_db(&item.status))
+        .bind(item.sort_key)
+        .bind(item.sync_cursor as i64)
+        .bind(updated_at_ms)
+        .bind(item.ledger_status.as_deref())
+        .bind(item.operation_id.as_deref()))
 }

@@ -3,30 +3,18 @@ use std::time::SystemTime;
 use oar_core::domain::identity::{TenantId, TokenGrantId, TokenGrantState};
 use oar_core::domain::token_refresh::decision::{decide_token_refresh, is_refreshable};
 use oar_core::domain::token_refresh::types::{
-    EncryptedGrantMaterial, RefreshOutcome, TokenRefreshAttempt, TokenRefreshDecision,
-    TokenRefreshRepositoryCommand,
+    RefreshOutcome, TokenRefreshAttempt, TokenRefreshDecision, TokenRefreshRepositoryCommand,
 };
 
-use crate::common::sample_grant;
+use crate::common::{
+    config_required_outcome, reauth_failure_outcome, sample_attempt, sample_grant,
+    sample_rotated_material, success_outcome, transient_failure_outcome,
+};
 
 #[test]
 fn decide_success_requires_cas_rotation_payload() {
     let now = SystemTime::UNIX_EPOCH;
-    let attempt = TokenRefreshAttempt {
-        grant_id: TokenGrantId("grant_01".to_string()),
-        tenant_id: TenantId("tenant_01".to_string()),
-        expected_fingerprint: "fp_old".to_string(),
-        outcome: RefreshOutcome::Success {
-            rotated_material: EncryptedGrantMaterial {
-                encrypted_primary: vec![1, 2, 3],
-                encrypted_renewal: vec![4, 5, 6],
-            },
-            key_id: "key_v2".to_string(),
-            new_fingerprint: "fp_new".to_string(),
-            refreshed_at: now,
-            expires_at: None,
-        },
-    };
+    let attempt = sample_attempt(success_outcome(now, None));
 
     let decision = decide_token_refresh(attempt);
 
@@ -36,10 +24,7 @@ fn decide_success_requires_cas_rotation_payload() {
             grant_id: TokenGrantId("grant_01".to_string()),
             tenant_id: TenantId("tenant_01".to_string()),
             expected_fingerprint: "fp_old".to_string(),
-            rotated_material: EncryptedGrantMaterial {
-                encrypted_primary: vec![1, 2, 3],
-                encrypted_renewal: vec![4, 5, 6],
-            },
+            rotated_material: sample_rotated_material(),
             key_id: "key_v2".to_string(),
             new_fingerprint: "fp_new".to_string(),
             refreshed_at: now,
@@ -50,14 +35,7 @@ fn decide_success_requires_cas_rotation_payload() {
 
 #[test]
 fn decide_transient_failure_marks_needs_refresh() {
-    let attempt = TokenRefreshAttempt {
-        grant_id: TokenGrantId("grant_01".to_string()),
-        tenant_id: TenantId("tenant_01".to_string()),
-        expected_fingerprint: "fp_old".to_string(),
-        outcome: RefreshOutcome::TransientFailure {
-            safe_error: "temporarily unavailable".to_string(),
-        },
-    };
+    let attempt = sample_attempt(transient_failure_outcome("temporarily unavailable"));
 
     let decision = decide_token_refresh(attempt);
     assert_eq!(
@@ -73,14 +51,7 @@ fn decide_transient_failure_marks_needs_refresh() {
 
 #[test]
 fn decide_failure_preserves_allowlisted_safe_error_code() {
-    let attempt = TokenRefreshAttempt {
-        grant_id: TokenGrantId("grant_01".to_string()),
-        tenant_id: TenantId("tenant_01".to_string()),
-        expected_fingerprint: "fp_old".to_string(),
-        outcome: RefreshOutcome::TransientFailure {
-            safe_error: "temporarily unavailable".to_string(),
-        },
-    };
+    let attempt = sample_attempt(transient_failure_outcome("temporarily unavailable"));
 
     let decision = decide_token_refresh(attempt);
 
@@ -89,14 +60,7 @@ fn decide_failure_preserves_allowlisted_safe_error_code() {
 
 #[test]
 fn decide_reauth_failure_marks_reauth_required() {
-    let attempt = TokenRefreshAttempt {
-        grant_id: TokenGrantId("grant_01".to_string()),
-        tenant_id: TenantId("tenant_01".to_string()),
-        expected_fingerprint: "fp_old".to_string(),
-        outcome: RefreshOutcome::ReauthFailure {
-            safe_error: "invalid_grant".to_string(),
-        },
-    };
+    let attempt = sample_attempt(reauth_failure_outcome("invalid_grant"));
 
     let decision = decide_token_refresh(attempt);
     assert_eq!(
@@ -112,14 +76,7 @@ fn decide_reauth_failure_marks_reauth_required() {
 
 #[test]
 fn decide_config_required_marks_config_required_without_transient_retry() {
-    let attempt = TokenRefreshAttempt {
-        grant_id: TokenGrantId("grant_01".to_string()),
-        tenant_id: TenantId("tenant_01".to_string()),
-        expected_fingerprint: "fp_old".to_string(),
-        outcome: RefreshOutcome::ConfigRequired {
-            safe_error: "refresh_config_required".to_string(),
-        },
-    };
+    let attempt = sample_attempt(config_required_outcome("refresh_config_required"));
 
     let decision = decide_token_refresh(attempt);
     assert_eq!(

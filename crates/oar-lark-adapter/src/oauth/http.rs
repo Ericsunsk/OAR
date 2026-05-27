@@ -95,6 +95,16 @@ impl fmt::Display for HttpClientFailure {
 
 impl std::error::Error for HttpClientFailure {}
 
+macro_rules! apply_headers {
+    ($builder:expr, $headers:expr) => {{
+        let mut builder = $builder;
+        for (name, value) in $headers {
+            builder = builder.header(name.as_str(), value.as_str());
+        }
+        builder
+    }};
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ReqwestBlockingHttpClient {
     client: reqwest::blocking::Client,
@@ -118,10 +128,7 @@ impl ReqwestBlockingHttpClient {
 
 impl HttpClient for ReqwestBlockingHttpClient {
     fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
-        let mut builder = self.client.post(&request.url);
-        for (name, value) in &request.headers {
-            builder = builder.header(name.as_str(), value.as_str());
-        }
+        let builder = apply_headers!(self.client.post(&request.url), &request.headers);
         let response = builder
             .json(&request.body)
             .send()
@@ -166,10 +173,7 @@ impl ReqwestAsyncHttpClient {
 #[async_trait(?Send)]
 impl AsyncHttpClient for ReqwestAsyncHttpClient {
     async fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
-        let mut builder = self.client.post(&request.url);
-        for (name, value) in &request.headers {
-            builder = builder.header(name.as_str(), value.as_str());
-        }
+        let builder = apply_headers!(self.client.post(&request.url), &request.headers);
         let response = builder
             .json(&request.body)
             .send()

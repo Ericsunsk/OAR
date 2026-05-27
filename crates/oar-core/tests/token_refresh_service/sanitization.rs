@@ -7,7 +7,8 @@ use oar_core::domain::token_refresh::types::{
 };
 
 use crate::common::{
-    sample_apply_result, sample_grant, sample_snapshot, FakeAuthRefreshAdapter, FakeCommandSink,
+    sample_apply_result, sample_grant, sample_snapshot, transient_failure_outcome,
+    FakeAuthRefreshAdapter, FakeCommandSink,
 };
 
 #[test]
@@ -89,9 +90,9 @@ fn service_report_and_audit_summary_do_not_leak_tokens_or_encrypted_bytes() {
 fn service_report_redacts_token_like_adapter_errors() {
     let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
     let snapshot = sample_snapshot(&grant);
-    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::TransientFailure {
-        safe_error: "opaque-token-fragment-without-keyword".to_string(),
-    });
+    let adapter = FakeAuthRefreshAdapter::new(transient_failure_outcome(
+        "opaque-token-fragment-without-keyword",
+    ));
     let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
         TokenGrantState::NeedsRefresh,
         "fp_old",

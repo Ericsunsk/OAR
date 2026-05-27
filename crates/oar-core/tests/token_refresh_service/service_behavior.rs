@@ -8,23 +8,19 @@ use oar_core::domain::token_refresh::types::{
 };
 
 use crate::common::{
-    sample_apply_result, sample_grant, sample_snapshot, FakeAuthRefreshAdapter, FakeCommandSink,
+    config_required_outcome, reauth_failure_outcome, sample_apply_result, sample_grant,
+    sample_snapshot, success_outcome, transient_failure_outcome, FakeAuthRefreshAdapter,
+    FakeCommandSink,
 };
 
 #[test]
 fn service_success_path_calls_adapter_and_sink_once_and_reports_success() {
     let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
     let snapshot = sample_snapshot(&grant);
-    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::Success {
-        rotated_material: EncryptedGrantMaterial {
-            encrypted_primary: vec![1, 2, 3],
-            encrypted_renewal: vec![4, 5, 6],
-        },
-        key_id: "key_v2".to_string(),
-        new_fingerprint: "fp_new".to_string(),
-        refreshed_at: SystemTime::UNIX_EPOCH + Duration::from_secs(2),
-        expires_at: None,
-    });
+    let adapter = FakeAuthRefreshAdapter::new(success_outcome(
+        SystemTime::UNIX_EPOCH + Duration::from_secs(2),
+        None,
+    ));
     let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
         TokenGrantState::Valid,
         "fp_new",
@@ -58,9 +54,7 @@ fn service_success_path_calls_adapter_and_sink_once_and_reports_success() {
 fn service_transient_failure_marks_needs_refresh() {
     let grant = sample_grant(TokenGrantState::NeedsRefresh, Some("refresh-old"));
     let snapshot = sample_snapshot(&grant);
-    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::TransientFailure {
-        safe_error: "temporarily unavailable".to_string(),
-    });
+    let adapter = FakeAuthRefreshAdapter::new(transient_failure_outcome("temporarily unavailable"));
     let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
         TokenGrantState::NeedsRefresh,
         "fp_old",
@@ -99,9 +93,7 @@ fn service_transient_failure_marks_needs_refresh() {
 fn service_reauth_failure_marks_reauth_required() {
     let grant = sample_grant(TokenGrantState::Valid, Some("refresh-old"));
     let snapshot = sample_snapshot(&grant);
-    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::ReauthFailure {
-        safe_error: "invalid_grant".to_string(),
-    });
+    let adapter = FakeAuthRefreshAdapter::new(reauth_failure_outcome("invalid_grant"));
     let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
         TokenGrantState::ReauthRequired,
         "fp_old",
@@ -137,9 +129,7 @@ fn service_reauth_failure_marks_reauth_required() {
 fn service_config_required_marks_config_required() {
     let grant = sample_grant(TokenGrantState::Valid, Some("refresh-old"));
     let snapshot = sample_snapshot(&grant);
-    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::ConfigRequired {
-        safe_error: "refresh_config_required".to_string(),
-    });
+    let adapter = FakeAuthRefreshAdapter::new(config_required_outcome("refresh_config_required"));
     let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
         TokenGrantState::NeedsRefresh,
         "fp_old",
@@ -193,9 +183,7 @@ fn service_short_circuits_revoked_reauth_and_missing_refresh_material() {
 
     for (grant, expected_reason) in cases {
         let snapshot = sample_snapshot(&grant);
-        let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::TransientFailure {
-            safe_error: "not-used".to_string(),
-        });
+        let adapter = FakeAuthRefreshAdapter::new(transient_failure_outcome("not-used"));
         let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
             TokenGrantState::NeedsRefresh,
             "fp_old",

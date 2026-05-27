@@ -14,23 +14,7 @@ impl PostgresAuditEventRepository {
         event: &AuditEvent,
         operation_id: Option<&str>,
     ) -> PgRepositoryResult<()> {
-        sqlx::query(APPEND_AUDIT_EVENT)
-            .bind(&event.event_id)
-            .bind(&event.trace_id)
-            .bind(event.sequence as i64)
-            .bind(event.occurred_at_ms as i64)
-            .bind(&event.scope.tenant_id)
-            .bind(audit_actor_kind_to_db(&event.actor.kind))
-            .bind(&event.actor.actor_id)
-            .bind(event.actor.display_name.as_deref())
-            .bind(&event.target.resource_type)
-            .bind(&event.target.resource_id)
-            .bind(&event.target.action_type)
-            .bind(audit_event_type_to_db(&event.event_type))
-            .bind(json_option(&event.before)?)
-            .bind(json_option(&event.after)?)
-            .bind(json_option(&event.execution)?)
-            .bind(operation_id)
+        append_audit_event_query(event, operation_id)?
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -58,14 +42,10 @@ impl PostgresAuditEventRepository {
         next_attempt_at_ms: u64,
     ) -> PgRepositoryResult<i64> {
         super::audit::validate_audit_outbox_payload(payload)?;
-        let row = sqlx::query(ENQUEUE_AUDIT_OUTBOX)
-            .bind(tenant_id)
-            .bind(stream)
-            .bind(aggregate_id)
-            .bind(payload)
-            .bind(next_attempt_at_ms as i64)
-            .fetch_one(&self.pool)
-            .await?;
+        let row =
+            enqueue_outbox_query(tenant_id, stream, aggregate_id, payload, next_attempt_at_ms)
+                .fetch_one(&self.pool)
+                .await?;
         Ok(row.try_get("id")?)
     }
 
@@ -188,7 +168,34 @@ pub(super) async fn append_audit_event_in_tx(
     event: &AuditEvent,
     operation_id: Option<&str>,
 ) -> PgRepositoryResult<()> {
-    sqlx::query(APPEND_AUDIT_EVENT)
+    append_audit_event_query(event, operation_id)?
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+pub(super) async fn enqueue_outbox_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    outbox: &AuditOutboxEnvelope,
+) -> PgRepositoryResult<i64> {
+    super::audit::validate_audit_outbox_payload(&outbox.payload)?;
+    let row = enqueue_outbox_query(
+        &outbox.tenant_id,
+        &outbox.stream,
+        &outbox.aggregate_id,
+        &outbox.payload,
+        outbox.next_attempt_at_ms,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(row.try_get("id")?)
+}
+
+fn append_audit_event_query<'a>(
+    event: &'a AuditEvent,
+    operation_id: Option<&'a str>,
+) -> PgRepositoryResult<sqlx::query::Query<'a, Postgres, sqlx::postgres::PgArguments>> {
+    Ok(sqlx::query(APPEND_AUDIT_EVENT)
         .bind(&event.event_id)
         .bind(&event.trace_id)
         .bind(event.sequence as i64)
@@ -204,26 +211,22 @@ pub(super) async fn append_audit_event_in_tx(
         .bind(json_option(&event.before)?)
         .bind(json_option(&event.after)?)
         .bind(json_option(&event.execution)?)
-        .bind(operation_id)
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
+        .bind(operation_id))
 }
 
-pub(super) async fn enqueue_outbox_in_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    outbox: &AuditOutboxEnvelope,
-) -> PgRepositoryResult<i64> {
-    super::audit::validate_audit_outbox_payload(&outbox.payload)?;
-    let row = sqlx::query(ENQUEUE_AUDIT_OUTBOX)
-        .bind(&outbox.tenant_id)
-        .bind(&outbox.stream)
-        .bind(&outbox.aggregate_id)
-        .bind(&outbox.payload)
-        .bind(outbox.next_attempt_at_ms as i64)
-        .fetch_one(&mut **tx)
-        .await?;
-    Ok(row.try_get("id")?)
+fn enqueue_outbox_query<'a>(
+    tenant_id: &'a str,
+    stream: &'a str,
+    aggregate_id: &'a str,
+    payload: &'a Value,
+    next_attempt_at_ms: u64,
+) -> sqlx::query::Query<'a, Postgres, sqlx::postgres::PgArguments> {
+    sqlx::query(ENQUEUE_AUDIT_OUTBOX)
+        .bind(tenant_id)
+        .bind(stream)
+        .bind(aggregate_id)
+        .bind(payload)
+        .bind(next_attempt_at_ms as i64)
 }
 
 pub(super) fn validate_audit_outbox_payload(payload: &Value) -> PgRepositoryResult<()> {

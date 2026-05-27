@@ -8,8 +8,8 @@ use oar_core::domain::identity::{
 };
 use oar_core::domain::token_refresh::service::{AuthRefreshAdapter, TokenRefreshCommandSink};
 use oar_core::domain::token_refresh::types::{
-    RefreshOutcome, TokenRefreshApplyResult, TokenRefreshGrantSnapshot,
-    TokenRefreshRepositoryCommand,
+    EncryptedGrantMaterial, RefreshOutcome, TokenRefreshApplyResult, TokenRefreshAttempt,
+    TokenRefreshDecision, TokenRefreshGrantSnapshot, TokenRefreshRepositoryCommand,
 };
 
 pub(crate) fn sample_grant(state: TokenGrantState, refresh_token: Option<&str>) -> TokenGrant {
@@ -37,6 +37,62 @@ pub(crate) fn sample_grant(state: TokenGrantState, refresh_token: Option<&str>) 
 
 pub(crate) fn sample_snapshot(grant: &TokenGrant) -> TokenRefreshGrantSnapshot {
     TokenRefreshGrantSnapshot::from_grant(grant, "fp_old")
+}
+
+pub(crate) fn sample_rotated_material() -> EncryptedGrantMaterial {
+    EncryptedGrantMaterial {
+        encrypted_primary: vec![1, 2, 3],
+        encrypted_renewal: vec![4, 5, 6],
+    }
+}
+
+pub(crate) fn success_outcome(
+    refreshed_at: SystemTime,
+    expires_at: Option<SystemTime>,
+) -> RefreshOutcome {
+    RefreshOutcome::Success {
+        rotated_material: sample_rotated_material(),
+        key_id: "key_v2".to_string(),
+        new_fingerprint: "fp_new".to_string(),
+        refreshed_at,
+        expires_at,
+    }
+}
+
+pub(crate) fn transient_failure_outcome(safe_error: &str) -> RefreshOutcome {
+    RefreshOutcome::TransientFailure {
+        safe_error: safe_error.to_string(),
+    }
+}
+
+pub(crate) fn reauth_failure_outcome(safe_error: &str) -> RefreshOutcome {
+    RefreshOutcome::ReauthFailure {
+        safe_error: safe_error.to_string(),
+    }
+}
+
+pub(crate) fn config_required_outcome(safe_error: &str) -> RefreshOutcome {
+    RefreshOutcome::ConfigRequired {
+        safe_error: safe_error.to_string(),
+    }
+}
+
+pub(crate) fn sample_attempt(outcome: RefreshOutcome) -> TokenRefreshAttempt {
+    TokenRefreshAttempt {
+        grant_id: TokenGrantId("grant_01".to_string()),
+        tenant_id: TenantId("tenant_01".to_string()),
+        expected_fingerprint: "fp_old".to_string(),
+        outcome,
+    }
+}
+
+pub(crate) fn sample_mark_needs_refresh_decision(safe_error: &str) -> TokenRefreshDecision {
+    TokenRefreshDecision::MarkNeedsRefresh {
+        grant_id: TokenGrantId("grant_01".to_string()),
+        tenant_id: TenantId("tenant_01".to_string()),
+        expected_fingerprint: "fp_old".to_string(),
+        safe_error: safe_error.to_string(),
+    }
 }
 
 #[derive(Clone)]
