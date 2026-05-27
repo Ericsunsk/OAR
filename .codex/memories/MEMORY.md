@@ -1,192 +1,95 @@
-# OAR Project Memory
+# OAR Project Distillation: AGENTS.md & MEMORY.md
 
-Updated: 2026-05-26
+## 1. 核心定位与业务边界
 
-## Core Identity
+*   **业务定义**：飞书/Lark 租户的 **OKR 周度运营驾驶舱（收件箱模式）**。解决的是“目标执行与过程运营”，而非“制定 OKR”。
+*   **非目标 (Out of Scope)**：非通用 OKR SaaS、非飞书 OKR 替代品、非绩效/HR 评估工具、非全自动决策 Agent。
+*   **系统权威边界**：
+    *   **飞书 (Lark)**：OKR 基础数据、文档、任务、日历、IM 消息的**原始权威数据源**。
+    *   **OAR 后端**：评审风险队列、待办动作、审计日志、证据索引与决策反馈的**控制源**。
 
-OAR is an OKR review cockpit for Lark/Feishu enterprise tenants. It helps teams run weekly OKR operations by finding execution risks, gathering evidence, proposing actions, and writing back to Lark only after user confirmation.
+### MVP 功能范围划定
 
-The central product thesis is that the main OKR opportunity is not helping people create goals, but helping teams operate goal execution every week.
+| 准入功能 (In-Scope) | 严禁功能 (Forbidden) |
+| :--- | :--- |
+| 读取飞书 OKR 周期、Objective、KR 及 Progress | 自动创建/删除 Objective |
+| 跨应用同步证据链（文档、任务、会议纪要、IM、日历） | 自动修改 KR 目标值、权重、负责人或周期 |
+| 生成周度简报、风险队列及建议动作 | 自动批量回写 / 无人值守执行 |
+| **人机协同**：确认（Confirm）、编辑并确认、拒绝 | 外部 A2A（Agent-to-Agent）直连回写 |
+| 回写已确认的进度、评论、任务、日程草稿 | 自动删除 Progress（MVP 仅支持 Dry-Run 校验） |
+| 记录 `AuditEvent`（操作者、范围、目标、变更前后、结果） | 在日志/存储中泄露 Token、会议转录明文或 HR 敏感结论 |
 
-## Product Positioning
+---
 
-OAR should stay narrow:
+## 2. 安全与权限高压线
 
-- Not a generic OKR SaaS.
-- Not a Lark OKR replacement.
-- Not a performance management or HR evaluation product.
-- Not a generic agent desktop.
-- Not an autonomous company-management agent.
+> **核心原则**：Read first, dry-run before write, human confirmation before execution.
 
-The first version should be a weekly OKR review inbox. The user should be able to open OAR once a week and process OKR risks and pending actions in about 10 minutes.
+*   **执行链条**：`ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent`（一切飞书写入必须源自用户显式确认的 `ConfirmedAction`）。
+*   **沙箱机制**：严禁 LLM 执行原生 Shell、任意 CLI 命令或未经安全审查的 OpenAPI。
+*   **授权范围**：采用以用户为主体的默认执行身份，支持离线访问（`offline_access`）与用户 ID 读取（`auth:user.id:read`）。
 
-Long-term, OAR can become an AI chief-of-staff layer and agent gateway for Lark OKR, but only if the weekly review loop works.
+---
 
-## Target Users
+## 3. 技术栈与架构设计
 
-Primary ICP:
+```
+┌────────────────────────────────────────────────────────┐
+│ UI 客户端 (SwiftUI + AppKit bridge)                     │
+│ macOS 驾驶舱收件箱 (主界面) / iOS 审批轻量伴侣 (辅助)          │
+└──────────────────────────┬─────────────────────────────┘
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│ OAR 核心后端 (Rust 7x24 调度常驻服务)                     │
+│ 负责多源同步、风险检测、幂等账本 (OperationLedger)          │
+└──────────────────────────┬─────────────────────────────┘
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│ 适配层 (LarkAdapter)                                    │
+│ 生产环境：Rust 原生飞书 OpenAPI 适配器                     │
+│ 测试验证：Lark CLI (v1.0.39) 仅用于 Fixture 录制与回归       │
+└──────────────────────────┬─────────────────────────────┘
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│ 存储层 (Postgres + pgvector)                            │
+│ 拒绝图数据库；采用三层关系表存储 ONTOLOGY, VECTOR, DECISION│
+└────────────────────────────────────────────────┘
+```
 
-- 20-300 person teams.
-- Heavy Lark/Feishu users.
-- Already using OKRs.
-- OKR execution operations are still handled manually.
+---
 
-First user types:
+## 4. Phase 0.6 研发优先级 (当前聚焦)
 
-- Founder or CEO who wants company goal risks before weekly meetings.
-- Manager or team lead who wants to know which KRs are blocked and who needs follow-up.
-- PMO or chief of staff who wants to turn OKR reviews, reminders, and action follow-up into an inbox workflow.
+*   **领域模型构建**：实现 Rust 核心领域模型（`Tenant`, `OarUser`, `LarkIdentity`, `TokenGrant`, `DeviceSession`, `OperationLedger`, `AuditEvent`）。
+*   **安全认证落地**：实现加密 `TokenGrant` 存储、Refresh Token 原子性滚动更新、租户解绑与重新授权逻辑。
+*   **防重防并发**：实现 `OperationLedger` 幂等执行，编写并发测试，确保同一 `ConfirmedAction` 有且仅能执行一次。
+*   **适配器 Mock 编写**：将 Phase 0.5 沉淀 of Lark CLI 真实输出固化为 `LarkAdapter` 的本地 Fixture，实现解析器。
 
-## MVP Scope
+---
 
-MVP must include:
+## 5. 已知的 Lark CLI (v1.0.39) 行为偏离与 Quirks
 
-- Read OKR cycles, Objectives, Key Results, and progress from Lark.
-- Detect stale KRs, low-progress KRs, and owners missing updates.
-- Gather evidence summaries from Docs, Tasks, Meetings, Minutes, Calendar, and IM.
-- Generate weekly briefs, risk queues, and suggested actions.
-- Let users confirm, edit then confirm, or reject each suggestion.
-- Write back only confirmed progress, comments, reminders, tasks, or meeting drafts.
-- Record `AuditEvent` for actor, scope, target, before/after, and execution result.
+在解析本地 Fixture 或编写适配器时必须处理以下边界情况：
+*   **`auth status`**：返回 JSON 文本，但传入 `--format json` 会直接报错。
+*   **`auth check`**：必须显式传入 `--scope`。
+*   **模拟写入 (Dry-Run)**：输出中可能包含非结构化的 `=== Dry Run ===` 纯文本前缀。
+*   **`cycle-detail`**：返回的 Objective/KR `content` 字段是双重转义的 JSON 字符串，需要二次 Parse。
+*   **`progress-list`**：返回的数据键名为 `data.progress_list[]` 而非直觉上的 `data.progress[]`。
+*   **状态字段类型不一致**：真实 API 创建/更新响应中状态值为字符串（如 `"normal"`），而 Dry-Run Payload 里的状态值可能是数字。
+*   **接口限制**：Lark CLI 中不支持原生的 `okr.progress_records.*` 结构体，必须通过系统快捷键和模拟校验规避。
 
-MVP must not include:
+---
 
-- OKR creation.
-- Performance evaluation.
-- Automatic batch writeback.
-- Generic agent marketplace.
-- External A2A writeback to Lark.
-- Automatic Objective creation/deletion.
-- Automatic KR target, weight, owner, or cycle changes.
-- Automatic progress deletion.
+## 6. OAR 三层记忆模型 (Memory Architecture)
 
-## Product Experience
+1.  **Ontology Graph (关系型图谱)**：存储租户、用户、团队、OKR 周期、Objective、KR、任务、文档、实体关系（Postgres 物理表）。
+2.  **Vector Memory (向量语义记忆)**：对文档摘要、会议纪要、任务流、周报等进行语义检索（pgvector 插件）。
+3.  **Decision Memory (决策特征记忆)**：记录用户的历史确认、修改、拒绝行为，修正偏好并标定系统信任度。
+*   **铁律**：**Memory 绝不等于直接证据。** 记忆仅用于检索召回和排序，所有的最终回写动作必须基于**当前的飞书实时数据证据**以及**用户的最终物理确认**。
 
-Default entry is the review inbox, not a chat box and not a metrics dashboard.
+---
 
-Core weekly workflow:
+## 7. 商业与可用性度量 (KPI)
 
-1. Backend runtime syncs OKRs, tasks, meetings, docs, and progress.
-2. OAR detects stale KRs, low-progress KRs, and owners missing updates.
-3. OAR generates a risk queue, evidence chain, and suggested actions.
-4. User opens the review inbox.
-5. User reviews evidence and confirms, edits then confirms, or rejects actions.
-6. Backend writes confirmed actions through `LarkAdapter`.
-7. Audit timeline records who confirmed what, based on which evidence, and what was executed.
-
-Desktop should feel like an OKR review cockpit. iOS is a lightweight approval and reminder surface. Lark entry points are important for bot notifications, cards, shortcuts, and confirmations.
-
-Chat is only an auxiliary explanation and adjustment layer. It must not become the main workflow.
-
-## Technical Direction
-
-Preferred architecture:
-
-- macOS: SwiftUI + AppKit bridge.
-- iOS: SwiftUI companion and approval surface.
-- Backend/core: Rust service.
-- Integration: `LarkAdapter` with a Rust-native Feishu OpenAPI adapter as the production path; Lark CLI is only for local validation, fixture recording, and regression tests. Do not introduce a cross-language SDK bridge.
-- Storage: Postgres plus object storage plus vector index when needed.
-- Runtime: server-side 7x24 scheduling, sync, audit, and tool execution.
-
-Important system boundary:
-
-- Lark is the authority for OKRs, Docs, Tasks, Meetings, Calendar, and IM raw data.
-- OAR backend is the authority for reviews, pending actions, audit events, evidence indexes, memory, and sync cursors.
-- Clients are for interaction, viewing, approval, local UI cache, and drafts.
-
-## Current Validation State
-
-Current stage is Phase 0.6: identity and sync validation.
-
-Phase 0.5 is complete:
-
-- `lark-okr` is validated as the OKR read path.
-- `lark-okr` is validated for progress create and update writeback.
-- Progress delete is dry-run only and must not be a default MVP write capability.
-- CLI validation version was `1.0.39`.
-
-Phase 0.6 first checks are complete:
-
-- user and bot identities can be verified.
-- default execution identity is user.
-- `offline_access` is granted.
-- `auth:user.id:read` is granted.
-- token validity and expiry metadata are visible.
-- CLI did not expose access or refresh tokens in tested output.
-
-Phase 0.6 is in transition: contract/safe-boundary checks are partially validated, but production closure is not complete yet. It still needs backend implementation and verification for:
-
-- encrypted `TokenGrant` storage.
-- refresh token rotation with atomic persistence.
-- revoke and reauth behavior.
-- `OperationLedger` idempotent execution.
-- multi-device state sync.
-- scheduler/daemon runtime behavior with real Feishu network.
-- complete `AuditEvent` traceability.
-
-## Safety Model
-
-Default safety principle:
-
-> Read first, dry-run before write, human confirmation before execution.
-
-Human users remain responsible for goal judgment, authorization, organizational commitment, and final writeback decisions. Agents may observe, diagnose, draft, explain, and propose.
-
-All writebacks must come from `ConfirmedAction`.
-
-Never allow:
-
-- LLM direct raw command execution.
-- LLM-driven scope escalation.
-- Unconfirmed group messages, OKR edits, meeting creation, or batch task changes.
-- External A2A agents receiving identity tokens or raw CLI stdout/stderr.
-- Logs containing access tokens, refresh tokens, full meeting transcripts, sensitive HR conclusions, or raw cross-team data.
-
-## Phase 0.6 Priority
-
-The next engineering priority is not UI. Build the identity, sync, idempotency, and audit skeleton first.
-
-Recommended next work:
-
-1. Define Rust domain models for `Tenant`, `OarUser`, `LarkIdentity`, `TokenGrant`, `DeviceSession`, `OperationLedger`, and `AuditEvent`.
-2. Save Phase 0.5 Lark CLI outputs as `LarkAdapter` fixtures.
-3. Implement parsers for validated CLI outputs and quirks.
-4. Implement `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent`.
-5. Add concurrency tests proving the same `ConfirmedAction` executes only once.
-
-## Known Lark CLI Quirks
-
-Parser and fixture work must account for:
-
-- `auth status` returns JSON but does not support `--format json`.
-- `auth check` needs `--scope`.
-- dry-run output may be prefixed with `=== Dry Run ===`.
-- `cycle-detail` Objective/KR `content` is a JSON string and needs a second parse.
-- `progress-list` uses `data.progress_list[]`, not `data.progress[]`.
-- create/update responses use string status values such as `normal`; dry-run payload status may be numeric.
-- `okr.progress_records.*` native schema was not available in the validated CLI.
-
-## Memory Architecture
-
-OAR should use a three-layer memory model:
-
-- Ontology Graph: stable entities and relationships such as tenant, user, team, OKR cycle, Objective, KeyResult, task, document, meeting, evidence, action, and feedback.
-- Vector Memory: semantic retrieval over summaries from docs, meetings, tasks, OKR progress, reviews, and feedback.
-- Decision Memory: confirmations, edits, rejections, preferences, trust calibration, and user/team decision patterns.
-
-Memory is not evidence. It can help retrieve and rank context, but writeback must trace to current evidence, user confirmation, execution identity, scope, and audit result.
-
-MVP memory should use Postgres tables, relation tables, and possibly pgvector. Avoid complex graph databases, raw full-message indexing, cross-tenant memory, and hidden personal profiling.
-
-## Success Signals
-
-OAR is worth continuing if a real team uses it for 2-4 weeks and shows:
-
-- Review preparation time reduced by about 50%.
-- Confirm or edit-then-confirm rate reaches 30% or more.
-- Users can explain why they trust or distrust the evidence chain.
-- At least one active weekly review session.
-- 100% of writes have confirmation records and audit events.
-
-Stop or rethink if users do not return weekly, suggestions stay below 10% confirmation, evidence cannot be trusted, permissions cannot be safely handled, or enterprises prefer to keep the whole workflow inside Lark without a separate cockpit.
+*   **成功信号**：周会准备时间缩减 **50%**，建议采纳率 **>= 30%**，用户能明确溯源并信任证据链，**100%** 的回写有不可篡改的操作审计。
+*   **警示信号**：用户周留存差（无法形成周度习惯）、建议确认率 < 10%、安全权限合规受阻、或者用户依然偏好纯粹的飞书原生界面。

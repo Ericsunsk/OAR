@@ -2,107 +2,53 @@
 
 This file gives project-level instructions for AI agents working in this repository.
 
-## Project Snapshot
+## 1. Project Paradigm & Scope
 
-OAR is an OKR review cockpit for Lark/Feishu enterprise tenants. It helps teams run weekly OKR operations by finding execution risks, gathering evidence, proposing actions, and writing back to Lark only after user confirmation.
+*   **OAR**: A weekly OKR review cockpit (Review Inbox) for Lark/Feishu tenants. Focuses on **execution operations**, not creation.
+*   **Current State**: Phase 0.5 (CLI validated fixtures & write baseline) is complete. Phase 0.6 (identity, auth refresh, multi-device sync, idempotent execution, auditability) is in progress.
+*   **System Boundary**: Lark is the authority for raw tenant data (docs, tasks, calendar, IM). OAR is the authority for reviews, pending actions, audit events, and decisions.
 
-The product is not a generic OKR SaaS, not a Lark OKR replacement, not a performance review system, and not a generic agent desktop. Keep the first version narrow: a weekly OKR review inbox.
+---
 
-Current stage:
+## 2. Safety & Permission Rules
 
-- Phase 0.5 is complete. `lark-okr` is validated as the local OKR read/progress create-update validation path (fixture/regression baseline), not the production integration path. Progress delete is dry-run only for MVP.
-- Phase 0.6 is in progress. The current engineering focus is identity, authorization, token refresh, multi-device sync, idempotent execution, and auditability.
+> **Core Principle**: Read first, dry-run before write, human confirmation before execution.
 
-## Source Of Truth
+*   **All writebacks** must originate from a `ConfirmedAction` via `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent`.
+*   **LLMs must never**:
+    *   Execute raw shell, arbitrary CLI, or unreviewed OpenAPI calls.
+    *   Initiate automatic batch writes, OKR target/weight/owner edits, objective creation/deletion, or progress deletions.
+    *   Expose or log access tokens, refresh tokens, auth codes, full meeting transcripts, or raw cross-team/sensitive HR data.
+    *   Provide identity tokens or raw memory/CLI stdout to external A2A agents.
 
-Start with these documents, in this order:
+---
 
-1. `docs/product/one-page-brief.md`
-2. `docs/product/product-plan.md`
-3. `docs/architecture/technical-architecture.md`
-4. `docs/architecture/security-and-permissions.md`
-5. `docs/validation/validation-plan.md`
-6. `docs/validation/phase-0.5-lark-cli-validation-report.md`
-7. `docs/validation/phase-0.6-identity-sync-validation-report.md`
+## 3. Engineering & Tech Stack
 
-Use `docs/architecture/memory-architecture.md` when working on retrieval, memory, evidence, decision feedback, or long-term learning.
+*   **Architecture**: macOS client (SwiftUI + AppKit bridge), iOS companion surface (SwiftUI), Rust backend core.
+*   **Database**: Postgres (relational + pgvector) for the three-layer memory (Ontology, Vector, Decision). Avoid graph DBs.
+*   **Integration**: Production path is `LarkAdapter` (Rust OpenAPI adapter). Lark CLI is strictly for validation, fixtures, and regression tests.
+*   **Phase 0.6 Priority**: Focus on identity, sync, idempotency, and audit backend skeleton before investing in UI. Define: `Tenant`, `OarUser`, `LarkIdentity`, `TokenGrant`, `DeviceSession`, `OperationLedger`, `AuditEvent`.
 
-## Product Principles
+---
 
-- Default entry is the review inbox, not a chat box or dashboard.
-- The weekly workflow is: sync evidence, detect OKR risks, generate suggestions, let users confirm/edit/reject, then write back and audit.
-- Every suggested action must have an evidence chain.
-- `Confirm`, `edit then confirm`, and `reject` are first-class actions.
-- User trust matters more than automation speed.
-- If users do not return weekly, adding A2A, agents, dashboards, or complex architecture will not save the product.
+## 4. Lark CLI Quirks (v1.0.39) Reference
 
-## Safety And Permission Rules
+Parsers and mock fixtures must handle these anomalies:
+*   `auth status` returns JSON but rejects the `--format json` argument.
+*   `auth check` requires `--scope`.
+*   Dry-run output may contain a `=== Dry Run ===` prefix.
+*   `cycle-detail` Objective/KR `content` is double-serialized (nested JSON string) requiring a second parse.
+*   `progress-list` returns list in `data.progress_list[]`, not `data.progress[]`.
+*   Dry-run payload uses numeric status; create/update APIs use string status.
+*   `okr.progress_records.*` schemas are absent; progress operations use shortcuts and dry-run validation.
 
-- Default security model: read first, dry-run before write, human confirmation before execution.
-- All writebacks must come from a `ConfirmedAction`.
-- Never let an LLM execute raw shell, arbitrary CLI commands, or unreviewed OpenAPI calls.
-- All Lark calls must go through `LarkAdapter` or a deliberately designed adapter layer.
-- Do not log or expose access tokens, refresh tokens, authorization codes, full meeting transcripts, sensitive HR judgments, or raw cross-team data.
-- External A2A agents must never receive identity tokens, raw CLI stdout/stderr, raw OKR data, raw memory, or direct write access.
-- MVP must not automatically create/delete Objectives, modify KR target/weight/owner/cycle, delete progress, evaluate personal performance, or batch-write organizational changes.
+---
 
-## Engineering Direction
+## 5. Coding & Hygiene Guidelines
 
-Preferred technical shape:
-
-- macOS: SwiftUI + AppKit bridge.
-- iOS: SwiftUI approval and companion surface only.
-- Backend/core: Rust service.
-- Integration: `LarkAdapter` with a Rust-native Feishu OpenAPI adapter as the production path; Lark CLI is retained for local validation, fixtures, and regression tests. Do not introduce a cross-language SDK bridge.
-- Storage: Postgres plus object storage plus vector index when needed.
-- Runtime: server-side scheduling, sync, audit, and tool execution.
-
-Phase 0.6 should be implemented before investing heavily in UI:
-
-- Define `Tenant`, `OarUser`, `LarkIdentity`, `TokenGrant`, `DeviceSession`, `OperationLedger`, and `AuditEvent`.
-- Save Phase 0.5 CLI outputs as `LarkAdapter` fixtures; do not treat CLI as the production integration path.
-- Implement parser tests for CLI quirks.
-- Build the minimal state machine: `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent`.
-- Add local concurrency tests proving the same `ConfirmedAction` can only execute once.
-
-## Lark CLI Notes
-
-Validated CLI behavior to preserve in fixtures and parsers:
-
-- Installed CLI version during validation: `1.0.39`.
-- `auth status` returns JSON but does not support `--format json`.
-- `auth check` uses `--scope`.
-- Dry-run output may include a `=== Dry Run ===` prefix.
-- `cycle-detail` returns Objective/KR `content` as a JSON string that needs a second parse.
-- `progress-list` returns `data.progress_list[]`, not `data.progress[]`.
-- create/update responses may use string status values while dry-run payloads may use numeric status values.
-- `okr.progress_records.*` native schemas were not available in the validated CLI; progress support relies on shortcuts and dry-run validation.
-
-## Memory And Evidence
-
-OAR memory should follow a three-layer model:
-
-- Ontology graph for entities and relationships.
-- Vector memory for semantic retrieval over summaries and evidence.
-- Decision memory for user confirmations, edits, rejections, preferences, and trust calibration.
-
-Memory is not evidence. Memory may improve retrieval and ranking, but writeback decisions must trace back to current evidence, user confirmation, execution identity, scope, and audit events.
-
-For MVP, prefer Postgres tables and relation tables over a graph database. Store summaries, references, hashes, and visibility scopes before storing raw content.
-
-## Coding Guidelines For This Repo
-
-- Keep changes narrow and aligned with the current phase.
-- Prefer small, testable Rust modules for domain state, adapters, parsers, and audit logic.
-- Keep OpenAPI parsing isolated behind adapters; keep CLI parser quirks isolated to fixture/regression paths.
-- Add fixtures and regression tests whenever encoding known Lark CLI behavior.
-- Do not introduce broad platform abstractions until Phase 0.6 state and audit semantics are proven.
-- For Phase 0.6 auth work, implement token refresh and auth flows against real submodule paths; do not route new code through root facade/re-export shortcuts.
-- If adding frontend code, preserve the review inbox as the main surface and avoid making chat the primary workflow.
-
-## Git And Documentation Hygiene
-
-- Do not remove or rewrite project decisions without updating the relevant source document.
-- Keep README as an entry point and do not overload it with implementation detail.
-- Do not commit real tenant IDs, user IDs, object IDs, tokens, authorization codes, or sensitive raw outputs.
-- If a doc becomes redundant, merge the surviving information into the appropriate source-of-truth doc before deletion.
+*   **Changes**: Narrow scope, small testable Rust modules, isolated OpenAPI/CLI parsers.
+*   **Tests**: Add fixtures and regression tests for known Lark CLI quirks. Use local concurrency tests to verify single-execution of `ConfirmedAction`.
+*   **UI**: Keep the review inbox as the primary view. Avoid making chat the main workflow.
+*   **Secrets**: Never commit real tenant IDs, user IDs, object IDs, tokens, or sensitive raw payloads.
+*   **Docs**: Do not remove/rewrite decisions without updating source documents. Merge redundant information before deleting docs.
