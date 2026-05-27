@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/oar-core"]
+members = ["crates/oar-core", "crates/oar-lark-adapter"]
 resolver = "2"
