@@ -5,14 +5,13 @@ use oar_core::domain::token_refresh::types::TokenRefreshReportStatus;
 use oar_core::storage::postgres::{
     PostgresAuditEventRepository, PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
 };
-use oar_lark_adapter::{AesGcmGrantEncryptor, FeishuOpenApiConfig, HttpResponse};
+use oar_lark_adapter::{FeishuOpenApiConfig, HttpResponse};
 
 use super::harness::{
     assert_feishu_refresh_headers, assert_no_byte_secret, assert_no_sensitive_text, audit_context,
-    encrypted_blob_from_plaintext, make_material_provider, run_live_postgres_test,
-    seed_identity_graph, seed_refresh_candidate_grant, success_body, RecordingAsyncHttpClient,
-    ACTOR_ID, GRANT_ID, KEY_ID, NEW_REFRESH_TOKEN, OLD_FP, SEED_REFRESH_TOKEN, TENANT_ID, TRACE_ID,
-    TestResult,
+    encrypted_blob_from_plaintext, run_live_postgres_test, seed_identity_graph,
+    seed_refresh_candidate_grant, success_body, RecordingAsyncHttpClient, ACTOR_ID, GRANT_ID,
+    KEY_ID, NEW_REFRESH_TOKEN, OLD_FP, SEED_REFRESH_TOKEN, TENANT_ID, TRACE_ID, TestResult,
 };
 
 #[test]
@@ -20,6 +19,7 @@ fn postgres_live_feishu_adapter_success_rotates_grant_and_appends_audit() {
     run_live_postgres_test("adapter_success_rotate_audit", |pool| async move {
         let key = [7; 32];
         seed_identity_graph(&pool).await?;
+        let refresh_started_at_ms = current_time_ms();
 
         let initial_blob = encrypted_blob_from_plaintext(
             key,
@@ -29,20 +29,16 @@ fn postgres_live_feishu_adapter_success_rotates_grant_and_appends_audit() {
         );
         seed_refresh_candidate_grant(&pool, GRANT_ID, initial_blob.clone()).await?;
 
-        let material_provider = make_material_provider(pool.clone(), key);
         let http_client =
             RecordingAsyncHttpClient::from_response(HttpResponse::new(200, success_body()));
         let http_probe = http_client.clone();
-        let adapter = oar_lark_adapter::build_feishu_auth_refresh_adapter(
+        let adapter = oar_lark_adapter::build_postgres_feishu_auth_refresh_adapter_with_http(
+            pool.clone(),
             FeishuOpenApiConfig::default(),
-            material_provider,
-            AesGcmGrantEncryptor::with_clock(
-                KEY_ID,
-                key,
-                super::harness::FixedClock {
-                    now_ms: 1_779_466_000_000,
-                },
-            ),
+            "cli_test",
+            oar_lark_adapter::SecretString::new(super::harness::CLIENT_SECRET),
+            KEY_ID,
+            key,
             http_client,
         )?;
         let mut orchestrator = PostgresTokenRefreshOrchestrator::new(pool.clone(), adapter);
@@ -96,8 +92,15 @@ fn postgres_live_feishu_adapter_success_rotates_grant_and_appends_audit() {
         assert_ne!(rotated.oauth_grant_fingerprint, OLD_FP);
         assert_ne!(rotated.encrypted_oauth_grant, initial_blob);
         assert_eq!(rotated.last_refresh_error, None);
-        assert_eq!(rotated.refreshed_at_ms, Some(1_779_466_000_000));
-        assert_eq!(rotated.expires_at_ms, Some(1_779_473_200_000));
+        let refreshed_at_ms = rotated
+            .refreshed_at_ms
+            .expect("production builder should set refreshed_at_ms from system clock");
+        assert!(refreshed_at_ms >= refresh_started_at_ms);
+        assert!(refreshed_at_ms <= current_time_ms());
+        assert_eq!(
+            rotated.expires_at_ms,
+            Some(refreshed_at_ms.saturating_add(7_200_000))
+        );
         assert_no_byte_secret(&rotated.encrypted_oauth_grant);
 
         let audit_events = PostgresAuditEventRepository::new(pool.clone())
@@ -131,4 +134,11 @@ fn postgres_live_feishu_adapter_success_rotates_grant_and_appends_audit() {
 
         Ok(())
     });
+}
+
+fn current_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_millis() as u64
 }

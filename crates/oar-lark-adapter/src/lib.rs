@@ -25,7 +25,13 @@ pub use error::{
 pub use factory::{
     build_async_reqwest_feishu_auth_refresh_adapter, build_feishu_auth_refresh_adapter,
     build_reqwest_feishu_auth_refresh_adapter, FeishuAuthRefreshAdapter,
-    FeishuAuthRefreshAdapterBuildError,
+    FeishuAuthRefreshAdapterBuildError, StaticAesGcmKeyResolver, StaticAesGcmKeyResolverError,
+};
+#[cfg(feature = "postgres")]
+pub use factory::{
+    build_postgres_async_feishu_auth_refresh_adapter,
+    build_postgres_feishu_auth_refresh_adapter_with_http, PostgresAsyncFeishuAuthRefreshAdapter,
+    PostgresFeishuAuthRefreshAdapter, PostgresFeishuAuthRefreshMaterialProvider,
 };
 pub use material::{
     AesGcmKeyResolver, AesGcmRefreshMaterialProvider, AesGcmRefreshMaterialProviderError,
