@@ -86,24 +86,24 @@ MVP 不做：
 
 - macOS：SwiftUI + AppKit bridge。
 - 后端 / Core：Rust service。
-- 飞书集成：`LarkAdapter` 封装 Lark CLI 和 OpenAPI。
+- 飞书集成：Rust 原生 OpenAPI adapter 作为生产主路径，`LarkAdapter` 统一封装飞书能力。
 - 存储：Postgres + 对象存储 + 向量索引。
 - 智能体运行时：服务端 7x24 调度、同步、审计和工具执行。
 
 关键原则：
 
 - 业务代码不直接调用 CLI 或 OpenAPI，必须经过 `LarkAdapter`。
-- Lark CLI 可以作为智能体工具层，但生产必须锁定版本、保存 schema 快照，并保留 OpenAPI 兜底路径。
+- Lark CLI 仅用于本地验证、fixture 录制和行为回归；生产不引入跨语言 SDK bridge。
 - 所有写回必须来自 `ConfirmedAction`。
 - 客户端只负责体验、查看和审批，不能承担组织级后台运行。
 
 ## 8. 当前最大风险
 
-OAR 当前处于阶段 0.6：身份与同步验证。阶段 0.5 已确认 `lark-okr` 可以作为 OKR 只读主路径和 progress 创建 / 更新写回路径。
+OAR 当前处于阶段 0.6：身份与同步验证。阶段 0.5 已确认 `lark-okr` 可覆盖 OKR 读取和 progress 创建 / 更新的本地验证与 fixture 回归；生产飞书集成主路径为 Rust 原生 OpenAPI adapter。
 
 当前最大不确定性已经从 OKR CLI 能力转向“生产闭环仍未完成”的过渡态风险：
 
-- token refresh service 已部分验证，但真实 `AuthAdapter` / client 与撤销链路还需补齐。
+- token refresh service 已部分验证，但真实 Feishu live 调用、`AuthAdapter` 生产装配与撤销链路还需补齐。
 - Postgres UoW、audit 写入、`run_once` 幂等链路已跑通部分场景，但失败恢复覆盖不足。
 - macOS、iOS 和飞书入口的多端状态同步仍需在真实复盘流程中回归验证。
 - 后台 scheduler / daemon 在客户端离线时的持续运行能力仍在验证中。

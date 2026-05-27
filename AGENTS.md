@@ -10,7 +10,7 @@ The product is not a generic OKR SaaS, not a Lark OKR replacement, not a perform
 
 Current stage:
 
-- Phase 0.5 is complete. `lark-okr` is validated as the OKR read path and the progress create/update write path. Progress delete is dry-run only for MVP.
+- Phase 0.5 is complete. `lark-okr` is validated as the local OKR read/progress create-update validation path (fixture/regression baseline), not the production integration path. Progress delete is dry-run only for MVP.
 - Phase 0.6 is in progress. The current engineering focus is identity, authorization, token refresh, multi-device sync, idempotent execution, and auditability.
 
 ## Source Of Truth
@@ -53,14 +53,14 @@ Preferred technical shape:
 - macOS: SwiftUI + AppKit bridge.
 - iOS: SwiftUI approval and companion surface only.
 - Backend/core: Rust service.
-- Integration: `LarkAdapter` wrapping Lark CLI and OpenAPI fallback paths.
+- Integration: `LarkAdapter` with a Rust-native Feishu OpenAPI adapter as the production path; Lark CLI is retained for local validation, fixtures, and regression tests. Do not introduce a cross-language SDK bridge.
 - Storage: Postgres plus object storage plus vector index when needed.
 - Runtime: server-side scheduling, sync, audit, and tool execution.
 
 Phase 0.6 should be implemented before investing heavily in UI:
 
 - Define `Tenant`, `OarUser`, `LarkIdentity`, `TokenGrant`, `DeviceSession`, `OperationLedger`, and `AuditEvent`.
-- Save Phase 0.5 CLI outputs as `LarkAdapter` fixtures.
+- Save Phase 0.5 CLI outputs as `LarkAdapter` fixtures; do not treat CLI as the production integration path.
 - Implement parser tests for CLI quirks.
 - Build the minimal state machine: `ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent`.
 - Add local concurrency tests proving the same `ConfirmedAction` can only execute once.
@@ -94,7 +94,7 @@ For MVP, prefer Postgres tables and relation tables over a graph database. Store
 
 - Keep changes narrow and aligned with the current phase.
 - Prefer small, testable Rust modules for domain state, adapters, parsers, and audit logic.
-- Keep CLI/OpenAPI parsing isolated behind adapters.
+- Keep OpenAPI parsing isolated behind adapters; keep CLI parser quirks isolated to fixture/regression paths.
 - Add fixtures and regression tests whenever encoding known Lark CLI behavior.
 - Do not introduce broad platform abstractions until Phase 0.6 state and audit semantics are proven.
 - For Phase 0.6 auth work, implement token refresh and auth flows against real submodule paths; do not route new code through root facade/re-export shortcuts.

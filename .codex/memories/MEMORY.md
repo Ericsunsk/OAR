@@ -85,7 +85,7 @@ Preferred architecture:
 - macOS: SwiftUI + AppKit bridge.
 - iOS: SwiftUI companion and approval surface.
 - Backend/core: Rust service.
-- Integration: `LarkAdapter` wrapping Lark CLI and OpenAPI fallback paths.
+- Integration: `LarkAdapter` with a Rust-native Feishu OpenAPI adapter as the production path; Lark CLI is only for local validation, fixture recording, and regression tests. Do not introduce a cross-language SDK bridge.
 - Storage: Postgres plus object storage plus vector index when needed.
 - Runtime: server-side 7x24 scheduling, sync, audit, and tool execution.
 
@@ -115,14 +115,14 @@ Phase 0.6 first checks are complete:
 - token validity and expiry metadata are visible.
 - CLI did not expose access or refresh tokens in tested output.
 
-Phase 0.6 still needs backend implementation and verification:
+Phase 0.6 is in transition: contract/safe-boundary checks are partially validated, but production closure is not complete yet. It still needs backend implementation and verification for:
 
 - encrypted `TokenGrant` storage.
 - refresh token rotation with atomic persistence.
 - revoke and reauth behavior.
 - `OperationLedger` idempotent execution.
 - multi-device state sync.
-- background worker behavior.
+- scheduler/daemon runtime behavior with real Feishu network.
 - complete `AuditEvent` traceability.
 
 ## Safety Model

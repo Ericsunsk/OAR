@@ -8,13 +8,13 @@ OAR 当前处于 **阶段 0.6：身份与同步验证**。
 
 已完成：
 
-- 阶段 0.5：`lark-okr` 已通过目标验证，可作为 OKR 只读主路径和 progress 创建 / 更新写回路径。
+- 阶段 0.5：`lark-okr` 已通过 OKR 读取和 progress 创建 / 更新的本地验证，可作为 fixture / parser 回归基线。
 - 阶段 0.6 首轮：user / bot 身份、`offline_access`、`auth:user.id:read` 和 token valid 状态已验证。
 
 生产闭环未完成（前置与部分验证已完成）：
 
 - 已完成前置与部分验证：`TokenGrant` 领域边界、refresh 前置条件、`OperationLedger` 并发幂等切片、`DeviceSession` 同步语义切片。
-- 未完成生产闭环：真实 `AuthAdapter` / client 接入、后台 scheduler/daemon、多端真实联调与一致性验证。
+- 未完成生产闭环：真实 Feishu live network、后台 scheduler/daemon、多端真实联调与一致性验证。
 
 ## 2. 路线图
 
@@ -28,7 +28,7 @@ OAR 当前有两条验证轨道：
 | 轨道 | 阶段 | 目标 | 状态 | 决策门 |
 | --- | --- | --- | --- | --- |
 | 产品 | 阶段 0：交互原型验证 | 验证复盘收件箱是否成立 | 未开始 | 用户愿意按每周流程处理风险队列 |
-| 工程 | 阶段 0.5：Lark CLI 能力验证 | 决定 `LarkAdapter` OKR 主路径 | 已通过 | `T0-T9` 已完成；真实删除不进 MVP |
+| 工程 | 阶段 0.5：Lark CLI 能力验证 | 验证 Lark CLI 能力并沉淀 `LarkAdapter` fixture / parser 基线 | 已通过 | `T0-T9` 已完成；CLI 不作为生产主路径，真实删除不进 MVP |
 | 工程 | 阶段 0.6：身份与同步验证 | 验证代理身份、多端同步、幂等执行 | 进行中 | 后端能安全 refresh token，且同一动作只执行一次；过渡态：契约与编排已验证，真实客户端与后台调度待接入 |
 | 工程/产品 | 阶段 0.7：智能体运行时验证 | 验证模型、记忆、证据存储能否稳定生成建议 | 未开始 | 建议质量可回放评估 |
 | 产品/工程 | 阶段 1：内部 OAR 智能体 | 跑通真实每周复盘 | 未开始 | 1 个真实团队连续 2-4 周使用 |

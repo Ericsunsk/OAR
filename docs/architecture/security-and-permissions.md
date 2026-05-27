@@ -32,12 +32,12 @@ OAR 的默认安全原则：
 3. `LarkAdapter` 生成 dry-run 结果。
 4. OAR 将 dry-run 结果展示为 `ProposedAction`。
 5. 用户确认或编辑后确认。
-6. 后端执行 allowlist 中的 CLI/OpenAPI 操作。
+6. 后端执行 allowlist 中的 OpenAPI 操作；CLI 仅用于本地验证和 fixture 回归。
 7. 写入 `AuditEvent`，并显示到审计时间线。
 
 必须限制：
 
-- CLI command allowlist。
+- OpenAPI operation allowlist。
 - target object allowlist。
 - scope allowlist。
 - tenant/user context 校验。
@@ -140,7 +140,7 @@ sequenceDiagram
     OAR->>Repo: append-only AuditEvent
 ```
 
-当前已验证的是安全 parser、领域决策、Postgres CAS / audit 编排和显式 `run_once` sweep 前置能力；真实 `AuthAdapter` client 与后台 scheduler/daemon 仍未完成。
+当前已验证的是安全 parser、领域决策、Postgres CAS / audit 编排和显式 `run_once` sweep 前置能力；真实 `AuthAdapter` client 与后台 scheduler/daemon 仍未完成。生产接入不等待 Rust 官方 SDK，也不引入跨语言 SDK bridge；主路径采用 Rust 原生 OpenAPI adapter。
 
 ## 5. A2A 策略
 
@@ -148,7 +148,7 @@ sequenceDiagram
 
 协议分工：
 
-- MCP / Lark CLI / OpenAPI 是工具层。
+- MCP / Rust OpenAPI adapter 是生产工具层；Lark CLI 只作为本地验证和 fixture 工具。
 - A2A 是协作层。
 - OAR 是权限、确认、审计和 OKR 领域策略的控制层。
 

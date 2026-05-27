@@ -8,13 +8,13 @@ OAR 不是通用 OKR SaaS，不替代飞书 OKR，也不是绩效评价系统。
 
 ## 当前状态
 
-阶段 0.5 已完成：`lark-okr` 已验证可作为 OKR 读取主路径，也可支持 progress 创建 / 更新写回。progress 删除在 MVP 中仍保持 dry-run。
+阶段 0.5 已完成：`lark-okr` 已验证可用于本地 OKR 读取、progress 创建 / 更新验证和 fixture 回归。生产飞书集成主路径已收敛为 Rust 原生 OpenAPI adapter（`crates/oar-lark-adapter`）；progress 删除在 MVP 中仍保持 dry-run。
 
 阶段 0.6 正在进行。当前已经不只是初始骨架，而是进入“过渡态验证”：
 
 - `oar-core` 已包含 identity、token grant、device session、operation ledger、audit 和 Postgres schema contract。
 - token refresh service、Postgres UoW、audit 映射和显式 `run_once` refresh sweep 已完成部分验证。
-- 生产闭环尚未完成：真实 `AuthAdapter` / client、后台 scheduler/daemon、revoke/reauth 处理和真实多端同步仍需继续验证。
+- 生产闭环尚未完成：真实 Feishu live network、后台 scheduler/daemon、revoke/reauth 处理和真实多端同步仍需继续验证。
 
 ## 产品切口
 
@@ -58,7 +58,7 @@ flowchart LR
 
     subgraph Writeback["受控写回"]
         DryRun["dry-run<br/>展示预演结果"]
-        Adapter["LarkAdapter<br/>allowlist CLI / OpenAPI"]
+        Adapter["LarkAdapter<br/>allowlist OpenAPI"]
     end
 
     OKR --> Sync
@@ -127,19 +127,23 @@ OAR 默认保守：
 | `crates/oar-core/src/lark/` | Lark adapter、parser、fixtures 和 auth refresh 边界 |
 | `crates/oar-core/src/storage/postgres/` | SQL contract、Postgres repository、UoW、outbox worker |
 | `crates/oar-core/migrations/` | Phase 0.6 Postgres migration 草案 |
+| `crates/oar-lark-adapter/` | Rust 原生飞书 OpenAPI runtime adapter；生产集成放在 core 之外 |
 
 模块路径说明：`domain::token_refresh` 和 `lark::auth` 不再提供 root facade re-export。新 Rust 代码应使用真实子模块路径，例如 `domain::token_refresh::{bridge,decision,service,types}` 和 `lark::auth::{adapter,parser,types}`。
 
 ## 开发验证
 
-当前 workspace 只有一个 crate：`oar-core`。
+当前 workspace 包含 `oar-core` 和 `oar-lark-adapter`。`oar-core` 保持 core/storage/contracts 边界，不直接依赖 HTTP runtime、CLI 或 SDK；生产飞书集成固定收敛在 `oar-lark-adapter`，通过 Rust 原生 OpenAPI adapter 实现。refresh 生产装配走 async adapter：加密授权包来自 `token_grants`，Feishu app credential 由独立 provider 注入。当前只完成 fake transport / fixture / regression 验证，尚未宣称 live Feishu 已完成。
 
 常用检查：
 
 ```bash
 cargo fmt --check
+cargo check --workspace --tests
 cargo test -p oar-core
+cargo test -p oar-lark-adapter
 cargo test -p oar-core --features postgres
+cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy -p oar-core --all-targets -- -D warnings
 cargo clippy -p oar-core --features postgres --all-targets -- -D warnings
 ```
