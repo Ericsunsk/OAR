@@ -56,6 +56,10 @@ pub enum RuntimeTickReport<T> {
 }
 
 pub type RuntimeTickFuture<'a, R, E> = Pin<Box<dyn Future<Output = Result<R, E>> + Send + 'a>>;
+pub type RuntimeTenantDiscoveryFuture<'a, E> =
+    Pin<Box<dyn Future<Output = Result<Vec<String>, E>> + Send + 'a>>;
+pub type RuntimeTenantTickFactoryFuture<'a, T, E> =
+    Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeRunReport<T> {
@@ -95,6 +99,161 @@ pub struct RuntimeTenantTick<T> {
 
 pub type RuntimeTenantReport<T> = TenantRuntimeReport<T>;
 pub type RuntimeRegistryRunReport<T> = TenantMaintenanceRegistryRunReport<T>;
+
+pub trait RuntimeTenantDiscovery {
+    type Error: Error + Send + Sync + 'static;
+
+    fn discover_tenant_ids(&mut self) -> RuntimeTenantDiscoveryFuture<'_, Self::Error>;
+    fn safe_error(error: &Self::Error) -> String;
+}
+
+pub trait RuntimeTenantTickFactory<T>
+where
+    T: RuntimeTick,
+{
+    type Error: Error + Send + Sync + 'static;
+
+    fn build_tick(&mut self, tenant_id: &str)
+        -> RuntimeTenantTickFactoryFuture<'_, T, Self::Error>;
+    fn safe_error(error: &Self::Error) -> String;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TenantMaintenanceRuntimeRegistryBuildError {
+    InvalidRuntimeConfig(TenantMaintenanceRuntimeConfigValidationError),
+    DiscoveryFailed {
+        safe_error: String,
+    },
+    EmptyRegistry,
+    EmptyTenantId,
+    DuplicateTenantId(String),
+    TickFactoryFailed {
+        tenant_id: String,
+        safe_error: String,
+    },
+}
+
+impl fmt::Display for TenantMaintenanceRuntimeRegistryBuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidRuntimeConfig(error) => write!(f, "{error}"),
+            Self::DiscoveryFailed { .. } => {
+                write!(
+                    f,
+                    "tenant_maintenance_registry_build_failed: discovery_failed"
+                )
+            }
+            Self::EmptyRegistry => write!(
+                f,
+                "tenant_maintenance_registry_build_failed: empty_registry"
+            ),
+            Self::EmptyTenantId => {
+                write!(
+                    f,
+                    "tenant_maintenance_registry_build_failed: empty_tenant_id"
+                )
+            }
+            Self::DuplicateTenantId(_) => {
+                write!(
+                    f,
+                    "tenant_maintenance_registry_build_failed: duplicate_tenant_id"
+                )
+            }
+            Self::TickFactoryFailed { .. } => {
+                write!(
+                    f,
+                    "tenant_maintenance_registry_build_failed: tick_factory_failed"
+                )
+            }
+        }
+    }
+}
+
+impl Error for TenantMaintenanceRuntimeRegistryBuildError {}
+
+pub struct TenantMaintenanceRuntimeRegistryBuilder {
+    config: TenantMaintenanceRuntimeConfig,
+}
+
+impl TenantMaintenanceRuntimeRegistryBuilder {
+    pub fn new(config: TenantMaintenanceRuntimeConfig) -> Self {
+        Self { config }
+    }
+
+    pub async fn build<T, D, F>(
+        self,
+        discovery: &mut D,
+        factory: &mut F,
+    ) -> Result<TenantMaintenanceRuntimeRegistry<T>, TenantMaintenanceRuntimeRegistryBuildError>
+    where
+        T: RuntimeTick,
+        D: RuntimeTenantDiscovery,
+        F: RuntimeTenantTickFactory<T>,
+    {
+        self.config
+            .validate()
+            .map_err(TenantMaintenanceRuntimeRegistryBuildError::InvalidRuntimeConfig)?;
+
+        let discovered = discovery.discover_tenant_ids().await.map_err(|error| {
+            TenantMaintenanceRuntimeRegistryBuildError::DiscoveryFailed {
+                safe_error: D::safe_error(&error),
+            }
+        })?;
+        let tenant_ids = normalize_and_validate_tenant_ids(discovered)?;
+
+        let mut ticks = Vec::with_capacity(tenant_ids.len());
+        for tenant_id in tenant_ids {
+            let tick = factory.build_tick(&tenant_id).await.map_err(|error| {
+                TenantMaintenanceRuntimeRegistryBuildError::TickFactoryFailed {
+                    tenant_id: tenant_id.clone(),
+                    safe_error: F::safe_error(&error),
+                }
+            })?;
+            ticks.push(RuntimeTenantTick::new(tenant_id, tick));
+        }
+
+        TenantMaintenanceRuntimeRegistry::try_new(self.config, ticks).map_err(|error| match error {
+            TenantMaintenanceRuntimeRegistryValidationError::InvalidRuntimeConfig(inner) => {
+                TenantMaintenanceRuntimeRegistryBuildError::InvalidRuntimeConfig(inner)
+            }
+            TenantMaintenanceRuntimeRegistryValidationError::EmptyRegistry => {
+                TenantMaintenanceRuntimeRegistryBuildError::EmptyRegistry
+            }
+            TenantMaintenanceRuntimeRegistryValidationError::EmptyTenantId => {
+                TenantMaintenanceRuntimeRegistryBuildError::EmptyTenantId
+            }
+            TenantMaintenanceRuntimeRegistryValidationError::DuplicateTenantId(tenant_id) => {
+                TenantMaintenanceRuntimeRegistryBuildError::DuplicateTenantId(tenant_id)
+            }
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaticRuntimeTenantDiscovery {
+    tenant_ids: Vec<String>,
+}
+
+impl StaticRuntimeTenantDiscovery {
+    pub fn new(tenant_ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            tenant_ids: tenant_ids.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl RuntimeTenantDiscovery for StaticRuntimeTenantDiscovery {
+    type Error = std::convert::Infallible;
+
+    fn discover_tenant_ids(&mut self) -> RuntimeTenantDiscoveryFuture<'_, Self::Error> {
+        let tenant_ids = self.tenant_ids.clone();
+        Box::pin(async move { Ok(tenant_ids) })
+    }
+
+    fn safe_error(_error: &Self::Error) -> String {
+        "tenant_maintenance_registry_build_failed: static_discovery_unreachable".to_string()
+    }
+}
 
 impl<T> RuntimeTenantTick<T> {
     pub fn new(tenant_id: impl Into<String>, tick: T) -> Self {
@@ -176,7 +335,7 @@ where
             tenants: tenants
                 .into_iter()
                 .map(|tenant| TenantRuntimeState {
-                    tenant_id: tenant.tenant_id,
+                    tenant_id: canonicalize_tenant_id(&tenant.tenant_id),
                     tick: tenant.tick,
                     successful_ticks: 0,
                     failed_ticks: 0,
@@ -290,28 +449,73 @@ where
 fn validate_named_tenants<T>(
     tenants: &[RuntimeTenantTick<T>],
 ) -> Result<(), TenantMaintenanceRuntimeRegistryValidationError> {
+    validate_tenant_ids(
+        tenants
+            .iter()
+            .map(|tenant| tenant.tenant_id.clone())
+            .collect::<Vec<_>>(),
+    )
+    .map(|_| ())
+    .map_err(|error| match error {
+        TenantIdValidationError::EmptyRegistry => {
+            TenantMaintenanceRuntimeRegistryValidationError::EmptyRegistry
+        }
+        TenantIdValidationError::EmptyTenantId => {
+            TenantMaintenanceRuntimeRegistryValidationError::EmptyTenantId
+        }
+        TenantIdValidationError::DuplicateTenantId(tenant_id) => {
+            TenantMaintenanceRuntimeRegistryValidationError::DuplicateTenantId(tenant_id)
+        }
+    })
+}
+
+fn canonicalize_tenant_id(tenant_id: &str) -> String {
+    tenant_id.trim().to_string()
+}
+
+fn normalize_and_validate_tenant_ids(
+    tenant_ids: Vec<String>,
+) -> Result<Vec<String>, TenantMaintenanceRuntimeRegistryBuildError> {
+    validate_tenant_ids(tenant_ids).map_err(|error| match error {
+        TenantIdValidationError::EmptyRegistry => {
+            TenantMaintenanceRuntimeRegistryBuildError::EmptyRegistry
+        }
+        TenantIdValidationError::EmptyTenantId => {
+            TenantMaintenanceRuntimeRegistryBuildError::EmptyTenantId
+        }
+        TenantIdValidationError::DuplicateTenantId(tenant_id) => {
+            TenantMaintenanceRuntimeRegistryBuildError::DuplicateTenantId(tenant_id)
+        }
+    })
+}
+
+enum TenantIdValidationError {
+    EmptyRegistry,
+    EmptyTenantId,
+    DuplicateTenantId(String),
+}
+
+fn validate_tenant_ids(tenant_ids: Vec<String>) -> Result<Vec<String>, TenantIdValidationError> {
     use std::collections::HashSet;
 
-    if tenants.is_empty() {
-        return Err(TenantMaintenanceRuntimeRegistryValidationError::EmptyRegistry);
+    if tenant_ids.is_empty() {
+        return Err(TenantIdValidationError::EmptyRegistry);
     }
 
     let mut seen = HashSet::new();
-    for tenant in tenants {
-        let tenant_id = tenant.tenant_id.trim();
+    let mut normalized = Vec::with_capacity(tenant_ids.len());
+    for tenant_id in tenant_ids {
+        let tenant_id = canonicalize_tenant_id(&tenant_id);
         if tenant_id.is_empty() {
-            return Err(TenantMaintenanceRuntimeRegistryValidationError::EmptyTenantId);
+            return Err(TenantIdValidationError::EmptyTenantId);
         }
-        if !seen.insert(tenant_id.to_string()) {
-            return Err(
-                TenantMaintenanceRuntimeRegistryValidationError::DuplicateTenantId(
-                    tenant_id.to_string(),
-                ),
-            );
+        if !seen.insert(tenant_id.clone()) {
+            return Err(TenantIdValidationError::DuplicateTenantId(tenant_id));
         }
+        normalized.push(tenant_id);
     }
 
-    Ok(())
+    Ok(normalized)
 }
 
 pub struct TenantMaintenanceRuntime<T>
@@ -559,6 +763,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -570,10 +775,63 @@ mod tests {
     #[error("{0}")]
     struct TestError(&'static str);
 
+    #[derive(Debug, thiserror::Error)]
+    #[error("{0}")]
+    struct DiscoveryTestError(&'static str);
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("{0}")]
+    struct FactoryTestError(&'static str);
+
     struct RegistryTestTick {
         calls: Arc<AtomicUsize>,
         outcome: RegistryTestOutcome,
         cancellation: Option<CancellationToken>,
+    }
+
+    struct FailingDiscovery;
+
+    impl RuntimeTenantDiscovery for FailingDiscovery {
+        type Error = DiscoveryTestError;
+
+        fn discover_tenant_ids(&mut self) -> RuntimeTenantDiscoveryFuture<'_, Self::Error> {
+            Box::pin(async { Err(DiscoveryTestError("discovery_raw_error")) })
+        }
+
+        fn safe_error(_error: &Self::Error) -> String {
+            "tenant_discovery_failed".to_string()
+        }
+    }
+
+    struct QueueFactory {
+        outcomes: VecDeque<Result<RegistryTestTick, FactoryTestError>>,
+    }
+
+    impl QueueFactory {
+        fn new(outcomes: Vec<Result<RegistryTestTick, FactoryTestError>>) -> Self {
+            Self {
+                outcomes: outcomes.into_iter().collect(),
+            }
+        }
+    }
+
+    impl RuntimeTenantTickFactory<RegistryTestTick> for QueueFactory {
+        type Error = FactoryTestError;
+
+        fn build_tick(
+            &mut self,
+            _tenant_id: &str,
+        ) -> RuntimeTenantTickFactoryFuture<'_, RegistryTestTick, Self::Error> {
+            let next = self
+                .outcomes
+                .pop_front()
+                .expect("test factory should have enough queued outcomes");
+            Box::pin(async move { next })
+        }
+
+        fn safe_error(_error: &Self::Error) -> String {
+            "tenant_tick_factory_failed".to_string()
+        }
     }
 
     enum RegistryTestOutcome {
@@ -933,5 +1191,110 @@ mod tests {
         assert_eq!(report.tenant_reports[0].failed_ticks, 0);
         assert_eq!(report.tenant_reports[0].last_tick, None);
         assert!(report.cancelled);
+    }
+
+    #[tokio::test]
+    async fn registry_builder_supports_static_discovery_and_canonical_tenant_ids() {
+        let config = TenantMaintenanceRuntimeConfig {
+            tick_interval: Duration::from_secs(10),
+        };
+        let builder = TenantMaintenanceRuntimeRegistryBuilder::new(config);
+        let mut discovery = StaticRuntimeTenantDiscovery::new(vec![" tenant_a ", "tenant_b"]);
+        let mut factory = QueueFactory::new(vec![
+            Ok(RegistryTestTick::succeeded(
+                Arc::new(AtomicUsize::new(0)),
+                1,
+            )),
+            Ok(RegistryTestTick::succeeded(
+                Arc::new(AtomicUsize::new(0)),
+                2,
+            )),
+        ]);
+
+        let mut registry = builder
+            .build::<RegistryTestTick, _, _>(&mut discovery, &mut factory)
+            .await
+            .expect("builder should create registry");
+        let report = registry.run_once_round().await;
+
+        assert_eq!(report.completed_rounds, 1);
+        assert_eq!(report.tenant_reports.len(), 2);
+        assert_eq!(report.tenant_reports[0].tenant_id, "tenant_a");
+        assert_eq!(report.tenant_reports[1].tenant_id, "tenant_b");
+    }
+
+    #[tokio::test]
+    async fn registry_builder_rejects_empty_blank_and_duplicate_tenants() {
+        let config = TenantMaintenanceRuntimeConfig {
+            tick_interval: Duration::from_secs(10),
+        };
+
+        let mut empty_discovery = StaticRuntimeTenantDiscovery::new(Vec::<String>::new());
+        let mut factory = QueueFactory::new(Vec::new());
+        let empty = TenantMaintenanceRuntimeRegistryBuilder::new(config.clone())
+            .build::<RegistryTestTick, _, _>(&mut empty_discovery, &mut factory)
+            .await;
+        assert!(matches!(
+            empty,
+            Err(TenantMaintenanceRuntimeRegistryBuildError::EmptyRegistry)
+        ));
+
+        let mut blank_discovery = StaticRuntimeTenantDiscovery::new(vec![" "]);
+        let blank = TenantMaintenanceRuntimeRegistryBuilder::new(config.clone())
+            .build::<RegistryTestTick, _, _>(&mut blank_discovery, &mut factory)
+            .await;
+        assert!(matches!(
+            blank,
+            Err(TenantMaintenanceRuntimeRegistryBuildError::EmptyTenantId)
+        ));
+
+        let mut duplicate_discovery =
+            StaticRuntimeTenantDiscovery::new(vec!["tenant_a", " tenant_a "]);
+        let duplicate = TenantMaintenanceRuntimeRegistryBuilder::new(config)
+            .build::<RegistryTestTick, _, _>(&mut duplicate_discovery, &mut factory)
+            .await;
+        assert!(matches!(
+            duplicate,
+            Err(TenantMaintenanceRuntimeRegistryBuildError::DuplicateTenantId(tenant_id))
+                if tenant_id == "tenant_a"
+        ));
+    }
+
+    #[tokio::test]
+    async fn registry_builder_maps_discovery_error_to_safe_error() {
+        let mut discovery = FailingDiscovery;
+        let mut factory = QueueFactory::new(Vec::new());
+        let result = TenantMaintenanceRuntimeRegistryBuilder::new(TenantMaintenanceRuntimeConfig {
+            tick_interval: Duration::from_secs(10),
+        })
+        .build::<RegistryTestTick, _, _>(&mut discovery, &mut factory)
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(TenantMaintenanceRuntimeRegistryBuildError::DiscoveryFailed { safe_error })
+                if safe_error == "tenant_discovery_failed"
+        ));
+    }
+
+    #[tokio::test]
+    async fn registry_builder_maps_factory_error_with_tenant_id_and_safe_error() {
+        let mut discovery = StaticRuntimeTenantDiscovery::new(vec!["tenant_a"]);
+        let mut factory = QueueFactory::new(vec![Err(FactoryTestError(
+            "raw_factory_error_should_not_leak",
+        ))]);
+        let result = TenantMaintenanceRuntimeRegistryBuilder::new(TenantMaintenanceRuntimeConfig {
+            tick_interval: Duration::from_secs(10),
+        })
+        .build::<RegistryTestTick, _, _>(&mut discovery, &mut factory)
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(TenantMaintenanceRuntimeRegistryBuildError::TickFactoryFailed {
+                tenant_id,
+                safe_error
+            }) if tenant_id == "tenant_a" && safe_error == "tenant_tick_factory_failed"
+        ));
     }
 }

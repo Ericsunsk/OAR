@@ -3,9 +3,11 @@
 pub mod runtime;
 
 pub use runtime::{
-    RuntimeRegistryRunReport, RuntimeRunReport, RuntimeTenantReport, RuntimeTenantTick,
-    RuntimeTick, RuntimeTickFailure, RuntimeTickFuture, RuntimeTickReport,
-    TenantMaintenanceRuntime, TenantMaintenanceRuntimeConfig,
-    TenantMaintenanceRuntimeConfigValidationError, TenantMaintenanceRuntimeRegistry,
-    TenantMaintenanceRuntimeRegistryValidationError,
+    RuntimeRegistryRunReport, RuntimeRunReport, RuntimeTenantDiscovery,
+    RuntimeTenantDiscoveryFuture, RuntimeTenantReport, RuntimeTenantTick, RuntimeTenantTickFactory,
+    RuntimeTenantTickFactoryFuture, RuntimeTick, RuntimeTickFailure, RuntimeTickFuture,
+    RuntimeTickReport, StaticRuntimeTenantDiscovery, TenantMaintenanceRuntime,
+    TenantMaintenanceRuntimeConfig, TenantMaintenanceRuntimeConfigValidationError,
+    TenantMaintenanceRuntimeRegistry, TenantMaintenanceRuntimeRegistryBuildError,
+    TenantMaintenanceRuntimeRegistryBuilder, TenantMaintenanceRuntimeRegistryValidationError,
 };
