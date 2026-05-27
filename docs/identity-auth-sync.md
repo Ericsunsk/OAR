@@ -104,7 +104,7 @@
 2. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
 3. 接入真实 `AuthAdapter` 与后台调度前，持续维护 refresh scheduler 前置能力：Postgres 租户级 due-candidate 安全筛选（`due` / `needs_refresh` / `expired`），并在查询层排除 `revoked` / `reauth_required` / `refresh_config_required` grant，确保候选快照不返回 `encrypted_oauth_grant` 或任何明文 token；CAS fingerprint 仅作为编排元数据使用，不写入日志或审计。
 4. 在已验证的单次 sweep / `run_once` 之上补齐 scheduler 触发前契约：基于已落地 lease gate、per-attempt audit sequence window 与 recurring `pending` / `running` 状态模型，继续完善失败中断/后续重试语义、租户粒度触发入口，以及真实 adapter 接入前的安全边界验证；继续明确它不是常驻 daemon，也不将整轮 sweep 包装为单个大事务。
-5. 在 tenant maintenance one-shot tick 契约上继续扩展 runtime 装配：最小 `oar-runtime` 已定义 Tokio interval + cancellation 语义，并已补齐多租户 registry 与 tenant discovery / registry builder 前置边界；后续补齐 repository-backed tenant discovery、真实 adapter builder、retry/backoff 和生产监控；循环语义继续禁止下沉进 `oar-core`。
+5. 在 tenant maintenance one-shot tick 契约上继续扩展 runtime 装配：最小 `oar-runtime` 已定义 Tokio interval + cancellation 语义，并已补齐多租户 registry、tenant discovery / registry builder 与 repository-backed active tenant discovery 前置边界；后续补齐真实 adapter builder、retry/backoff 和生产监控；循环语义继续禁止下沉进 `oar-core`。
 6. 将 `PostgresTokenRefreshOrchestrator` 接入 Rust 原生 OpenAPI auth transport 与后台调度，验证从 refresh attempt 到 Postgres CAS + audit 事务边界的生产路径；当前不引入跨语言 SDK bridge。
 7. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露 access token、refresh token、authorization code、raw CLI stdout/stderr、sink 内部错误、encrypted blob 或 fingerprint。
 8. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
@@ -167,5 +167,5 @@
 - token refresh background scheduler/daemon 仍未完成；当前仅补到“可安全选择候选 grant + lease-gated 显式单次 `run_once` sweep + recurring `pending` / `running` 持久化基础”切片，不代表已具备无人值守 refresh 执行能力。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
 - Postgres executor / outbox worker 尚未接入真实后台调度、外部审计投递 sink、failed outbox 运维恢复入口和 crash recovery。
-- tenant maintenance 已从 one-shot contract 向外层 runtime 壳推进：`oar-runtime` 可周期触发 `run_once` 并支持 cancellation；多租户 registry 与 tenant discovery / registry builder 前置边界已能以静态 discovery/fake factory 方式验证构建路径；具体 Rust OpenAPI auth transport production 装配、repository-backed tenant discovery、重试策略、stage-level alerting 与生产监控闭环仍待完成。
+- tenant maintenance 已从 one-shot contract 向外层 runtime 壳推进：`oar-runtime` 可周期触发 `run_once` 并支持 cancellation；多租户 registry 与 tenant discovery / registry builder 前置边界已能以静态 discovery/fake factory 方式验证构建路径，并已接入 repository-backed active tenant discovery；具体 Rust OpenAPI auth transport production 装配、runtime tick factory production wiring、重试策略、stage-level alerting 与生产监控闭环仍待完成。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

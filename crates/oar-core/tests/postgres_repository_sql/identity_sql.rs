@@ -1,6 +1,7 @@
 use oar_core::storage::postgres::identity_sql::{
     GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_TENANT_BY_ID,
-    GET_WORKSPACE_USER_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_TENANT, UPSERT_WORKSPACE_USER,
+    GET_WORKSPACE_USER_BY_ID, LIST_ACTIVE_TENANT_IDS, UPSERT_LARK_IDENTITY, UPSERT_TENANT,
+    UPSERT_WORKSPACE_USER,
 };
 
 use crate::compact;
@@ -63,4 +64,16 @@ fn identity_sql_is_tenant_scoped_and_conflict_guarded() {
     assert!(get_identity_external.contains("and actor_kind = $2"));
     assert!(get_identity_external.contains("and actor_external_id = $3"));
     assert!(get_identity_external.contains("limit 1"));
+}
+
+#[test]
+fn list_active_tenant_ids_sql_is_readonly_filtered_and_stable_sorted() {
+    let list = compact(LIST_ACTIVE_TENANT_IDS);
+    assert!(list.starts_with("select id from tenants"));
+    assert!(list.contains("where status = 'active'"));
+    assert!(list.contains("order by id asc"));
+    assert!(!list.contains("token"));
+    assert!(!list.contains("grant"));
+    assert!(!list.contains("fingerprint"));
+    assert!(!list.contains("encrypted"));
 }

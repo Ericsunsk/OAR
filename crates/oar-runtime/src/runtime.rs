@@ -10,6 +10,7 @@ use tracing::{info, warn};
 
 use oar_core::storage::postgres::{
     PostgresRepositoryError, PostgresTenantMaintenanceReport, PostgresTenantMaintenanceWorker,
+    PostgresTenantRepository,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -252,6 +253,147 @@ impl RuntimeTenantDiscovery for StaticRuntimeTenantDiscovery {
 
     fn safe_error(_error: &Self::Error) -> String {
         "tenant_maintenance_registry_build_failed: static_discovery_unreachable".to_string()
+    }
+}
+
+pub struct PostgresRuntimeTenantDiscovery {
+    repository: PostgresTenantRepository,
+}
+
+impl PostgresRuntimeTenantDiscovery {
+    pub fn new(repository: PostgresTenantRepository) -> Self {
+        Self { repository }
+    }
+
+    fn map_safe_error(error: &PostgresRepositoryError) -> String {
+        match error {
+            PostgresRepositoryError::Sqlx(_) => {
+                "tenant_discovery_failed: postgres_query_failed".to_string()
+            }
+            PostgresRepositoryError::UnknownActionStatus(_) => {
+                "tenant_discovery_failed: unknown_action_status".to_string()
+            }
+            PostgresRepositoryError::UnknownAuditActorKind(_) => {
+                "tenant_discovery_failed: unknown_audit_actor_kind".to_string()
+            }
+            PostgresRepositoryError::UnknownAuditEventType(_) => {
+                "tenant_discovery_failed: unknown_audit_event_type".to_string()
+            }
+            PostgresRepositoryError::UnknownExecutionStatus(_) => {
+                "tenant_discovery_failed: unknown_execution_status".to_string()
+            }
+            PostgresRepositoryError::UnknownDeviceEntryPoint(_) => {
+                "tenant_discovery_failed: unknown_device_entry_point".to_string()
+            }
+            PostgresRepositoryError::UnknownDeviceSessionState(_) => {
+                "tenant_discovery_failed: unknown_device_session_state".to_string()
+            }
+            PostgresRepositoryError::UnknownTokenGrantState(_) => {
+                "tenant_discovery_failed: unknown_token_grant_state".to_string()
+            }
+            PostgresRepositoryError::UnknownTenantStatus(_) => {
+                "tenant_discovery_failed: unknown_tenant_status".to_string()
+            }
+            PostgresRepositoryError::UnknownWorkspaceUserStatus(_) => {
+                "tenant_discovery_failed: unknown_workspace_user_status".to_string()
+            }
+            PostgresRepositoryError::UnknownIdentityActorKind(_) => {
+                "tenant_discovery_failed: unknown_identity_actor_kind".to_string()
+            }
+            PostgresRepositoryError::UnknownScopeBoundary(_) => {
+                "tenant_discovery_failed: unknown_scope_boundary".to_string()
+            }
+            PostgresRepositoryError::UnknownEvidenceSourceKind(_) => {
+                "tenant_discovery_failed: unknown_evidence_source_kind".to_string()
+            }
+            PostgresRepositoryError::UnknownEvidenceVisibilityScope(_) => {
+                "tenant_discovery_failed: unknown_evidence_visibility_scope".to_string()
+            }
+            PostgresRepositoryError::UnknownProposedActionStatus(_) => {
+                "tenant_discovery_failed: unknown_proposed_action_status".to_string()
+            }
+            PostgresRepositoryError::UnknownProposedActionKind(_) => {
+                "tenant_discovery_failed: unknown_proposed_action_kind".to_string()
+            }
+            PostgresRepositoryError::UnknownRiskSeverity(_) => {
+                "tenant_discovery_failed: unknown_risk_severity".to_string()
+            }
+            PostgresRepositoryError::UnknownProposedActionDecision(_) => {
+                "tenant_discovery_failed: unknown_proposed_action_decision".to_string()
+            }
+            PostgresRepositoryError::UnknownReviewInboxItemStatus(_) => {
+                "tenant_discovery_failed: unknown_review_inbox_item_status".to_string()
+            }
+            PostgresRepositoryError::UnknownSchedulerJobKind(_) => {
+                "tenant_discovery_failed: unknown_scheduler_job_kind".to_string()
+            }
+            PostgresRepositoryError::UnknownSchedulerJobStatus(_) => {
+                "tenant_discovery_failed: unknown_scheduler_job_status".to_string()
+            }
+            PostgresRepositoryError::UnsafeSchedulerJobErrorCode => {
+                "tenant_discovery_failed: unsafe_scheduler_job_error_code".to_string()
+            }
+            PostgresRepositoryError::UnsafeAuditOutboxPayload => {
+                "tenant_discovery_failed: unsafe_audit_outbox_payload".to_string()
+            }
+            PostgresRepositoryError::ActionNotConfirmed(_) => {
+                "tenant_discovery_failed: action_not_confirmed".to_string()
+            }
+            PostgresRepositoryError::TenantMismatch { .. } => {
+                "tenant_discovery_failed: tenant_mismatch".to_string()
+            }
+            PostgresRepositoryError::LarkIdentityActorExternalBindingConflict { .. } => {
+                "tenant_discovery_failed: lark_identity_actor_external_binding_conflict".to_string()
+            }
+            PostgresRepositoryError::NegativeInteger { .. } => {
+                "tenant_discovery_failed: negative_integer".to_string()
+            }
+            PostgresRepositoryError::Json(_) => {
+                "tenant_discovery_failed: invalid_json_payload".to_string()
+            }
+            PostgresRepositoryError::TokenRefreshDecisionBridge(_) => {
+                "tenant_discovery_failed: token_refresh_decision_bridge_failed".to_string()
+            }
+            PostgresRepositoryError::InvalidOperationStatusTransition { .. } => {
+                "tenant_discovery_failed: invalid_operation_status_transition".to_string()
+            }
+            PostgresRepositoryError::UnknownOperationIdempotencyKey(_) => {
+                "tenant_discovery_failed: unknown_operation_idempotency_key".to_string()
+            }
+            PostgresRepositoryError::TokenRefreshPlanMismatch { .. } => {
+                "tenant_discovery_failed: token_refresh_plan_mismatch".to_string()
+            }
+            PostgresRepositoryError::ReviewDecisionRequestMismatch { .. } => {
+                "tenant_discovery_failed: review_decision_request_mismatch".to_string()
+            }
+            PostgresRepositoryError::MissingConfirmedActionForDecision => {
+                "tenant_discovery_failed: missing_confirmed_action_for_decision".to_string()
+            }
+            PostgresRepositoryError::MissingConfirmedAtForDecision => {
+                "tenant_discovery_failed: missing_confirmed_at_for_decision".to_string()
+            }
+            PostgresRepositoryError::MissingOperationIdForDecision => {
+                "tenant_discovery_failed: missing_operation_id_for_decision".to_string()
+            }
+            PostgresRepositoryError::UnexpectedConfirmedActionForDecision => {
+                "tenant_discovery_failed: unexpected_confirmed_action_for_decision".to_string()
+            }
+            PostgresRepositoryError::UnexpectedOperationIdForDecision => {
+                "tenant_discovery_failed: unexpected_operation_id_for_decision".to_string()
+            }
+        }
+    }
+}
+
+impl RuntimeTenantDiscovery for PostgresRuntimeTenantDiscovery {
+    type Error = PostgresRepositoryError;
+
+    fn discover_tenant_ids(&mut self) -> RuntimeTenantDiscoveryFuture<'_, Self::Error> {
+        Box::pin(async move { self.repository.list_active_ids().await })
+    }
+
+    fn safe_error(error: &Self::Error) -> String {
+        Self::map_safe_error(error)
     }
 }
 
@@ -1296,5 +1438,24 @@ mod tests {
                 safe_error
             }) if tenant_id == "tenant_a" && safe_error == "tenant_tick_factory_failed"
         ));
+    }
+
+    #[test]
+    fn postgres_runtime_tenant_discovery_safe_error_does_not_echo_raw_input() {
+        let raw = "db password leaked in SQL";
+        let safe = PostgresRuntimeTenantDiscovery::map_safe_error(
+            &PostgresRepositoryError::UnknownTenantStatus(raw.to_string()),
+        );
+        assert_eq!(safe, "tenant_discovery_failed: unknown_tenant_status");
+        assert!(!safe.contains("password"));
+        assert!(!safe.contains("sql"));
+    }
+
+    #[test]
+    fn postgres_runtime_tenant_discovery_safe_error_maps_typed_errors() {
+        let safe = PostgresRuntimeTenantDiscovery::map_safe_error(
+            &PostgresRepositoryError::UnknownTenantStatus("active-ish".to_string()),
+        );
+        assert_eq!(safe, "tenant_discovery_failed: unknown_tenant_status");
     }
 }

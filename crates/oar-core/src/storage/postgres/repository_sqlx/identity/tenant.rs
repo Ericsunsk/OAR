@@ -26,4 +26,14 @@ impl PostgresTenantRepository {
             .await?;
         row.as_ref().map(stored_tenant_from_row).transpose()
     }
+
+    pub async fn list_active_ids(&self) -> PgRepositoryResult<Vec<String>> {
+        let rows = sqlx::query(LIST_ACTIVE_TENANT_IDS)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| row.get::<String, _>("id"))
+            .collect())
+    }
 }

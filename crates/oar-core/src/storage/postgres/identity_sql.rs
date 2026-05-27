@@ -50,6 +50,14 @@ WHERE id = $1
 LIMIT 1
 "#;
 
+pub const LIST_ACTIVE_TENANT_IDS: &str = r#"
+SELECT
+id
+FROM tenants
+WHERE status = 'active'
+ORDER BY id ASC
+"#;
+
 pub const UPSERT_WORKSPACE_USER: &str = r#"
 WITH upserted AS (
     INSERT INTO workspace_users (

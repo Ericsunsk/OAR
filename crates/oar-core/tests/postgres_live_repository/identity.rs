@@ -12,12 +12,18 @@ fn postgres_live_identity_repositories_upsert_lookup_and_tenant_conflict_guards(
             display_name: "Tenant A".to_string(),
             status: TenantStatus::Active,
         };
+        let tenant_0 = Tenant {
+            id: TenantId("tenant_identity_0".to_string()),
+            display_name: "Tenant 0".to_string(),
+            status: TenantStatus::Active,
+        };
         let tenant_b = Tenant {
             id: TenantId("tenant_identity_b".to_string()),
             display_name: "Tenant B".to_string(),
             status: TenantStatus::Suspended,
         };
 
+        tenant_repo.upsert(&tenant_0).await?;
         let stored_tenant_a = tenant_repo.upsert(&tenant_a).await?;
         let stored_tenant_b = tenant_repo.upsert(&tenant_b).await?;
         assert_eq!(stored_tenant_a.status, TenantStatus::Active);
@@ -29,6 +35,13 @@ fn postgres_live_identity_repositories_upsert_lookup_and_tenant_conflict_guards(
             .expect("tenant should exist");
         assert_eq!(fetched_tenant.display_name, "Tenant B");
         assert_eq!(fetched_tenant.status, TenantStatus::Suspended);
+        assert_eq!(
+            tenant_repo.list_active_ids().await?,
+            vec![
+                "tenant_identity_0".to_string(),
+                "tenant_identity_a".to_string()
+            ]
+        );
 
         let user_a = WorkspaceUser {
             id: WorkspaceUserId("user_identity_shared".to_string()),
