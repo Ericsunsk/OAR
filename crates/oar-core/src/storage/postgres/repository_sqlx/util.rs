@@ -3,6 +3,7 @@ use super::{
     REDACTED_TENANT_ACTUAL,
 };
 use serde_json::Value;
+use sqlx::PgPool;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub(super) fn option_u64_to_i64(value: Option<u64>) -> Option<i64> {
@@ -70,6 +71,28 @@ pub(super) fn ms_to_system_time(value: u64) -> SystemTime {
 
 pub(super) fn redacted_tenant_actual() -> String {
     REDACTED_TENANT_ACTUAL.to_string()
+}
+
+pub(super) async fn tenant_mismatch_or_row_not_found<T>(
+    pool: &PgPool,
+    exists_by_id_sql: &'static str,
+    id: &str,
+    expected_tenant_id: &str,
+) -> PgRepositoryResult<T> {
+    let conflicting_tenant = sqlx::query(exists_by_id_sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+    if conflicting_tenant.is_some() {
+        return Err(PostgresRepositoryError::TenantMismatch {
+            field: "tenant_id",
+            expected: expected_tenant_id.to_string(),
+            actual: redacted_tenant_actual(),
+        });
+    }
+
+    Err(sqlx::Error::RowNotFound.into())
 }
 
 pub(super) fn sanitize_refresh_error_for_storage(reason: &str) -> String {

@@ -8,7 +8,7 @@ use oar_core::action::operation_ledger::SubmitResult;
 use oar_core::action::operation_ledger_repository::InMemoryOperationLedgerRepository;
 use oar_core::lark::adapter::MockLarkAdapter;
 
-use crate::common::{confirmed_action, MockAdapter};
+use crate::common::{assert_success_event_sequence, confirmed_action, MockAdapter};
 
 #[test]
 fn executes_confirmed_action_through_ledger_adapter_and_audit() {
@@ -24,16 +24,7 @@ fn executes_confirmed_action_through_ledger_adapter_and_audit() {
     assert_eq!(report.operation.status, ActionStatus::Succeeded);
     assert_eq!(adapter.dry_run_calls(), 1);
     assert_eq!(adapter.execute_calls(), 1);
-    assert_eq!(report.events.len(), 3);
-    assert_eq!(
-        report.events[0].event_type,
-        AuditEventType::ConfirmedActionRecorded
-    );
-    assert_eq!(report.events[1].event_type, AuditEventType::DryRunExecuted);
-    assert_eq!(
-        report.events[2].event_type,
-        AuditEventType::ExecutionSucceeded
-    );
+    assert_success_event_sequence(&report.events);
     assert_eq!(
         report.events[2]
             .execution
@@ -93,11 +84,7 @@ fn resumes_from_existing_confirmed_record_without_recreating_operation() {
     assert_eq!(report.operation.status, ActionStatus::Succeeded);
     assert_eq!(adapter.dry_run_calls(), 1);
     assert_eq!(adapter.execute_calls(), 1);
-    assert_eq!(report.events.len(), 3);
-    assert_eq!(
-        report.events[0].event_type,
-        AuditEventType::ConfirmedActionRecorded
-    );
+    assert_success_event_sequence(&report.events);
 }
 
 #[test]
@@ -168,16 +155,7 @@ fn mock_lark_adapter_runs_through_action_executor() {
     let report = executor.execute_confirmed_action(&action).unwrap();
 
     assert_eq!(report.operation.status, ActionStatus::Succeeded);
-    assert_eq!(report.events.len(), 3);
-    assert_eq!(
-        report.events[0].event_type,
-        AuditEventType::ConfirmedActionRecorded
-    );
-    assert_eq!(report.events[1].event_type, AuditEventType::DryRunExecuted);
-    assert_eq!(
-        report.events[2].event_type,
-        AuditEventType::ExecutionSucceeded
-    );
+    assert_success_event_sequence(&report.events);
     assert_eq!(
         report.events[2]
             .execution

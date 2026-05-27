@@ -49,20 +49,13 @@ impl PostgresLarkIdentityRepository {
             return stored_lark_identity_from_row(row);
         }
 
-        let conflicting_tenant = sqlx::query("SELECT 1 FROM lark_identities WHERE id = $1 LIMIT 1")
-            .bind(&identity.id.0)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        if conflicting_tenant.is_some() {
-            return Err(PostgresRepositoryError::TenantMismatch {
-                field: "tenant_id",
-                expected: identity.tenant_id.0.clone(),
-                actual: redacted_tenant_actual(),
-            });
-        }
-
-        Err(sqlx::Error::RowNotFound.into())
+        tenant_mismatch_or_row_not_found(
+            &self.pool,
+            "SELECT 1 FROM lark_identities WHERE id = $1 LIMIT 1",
+            &identity.id.0,
+            &identity.tenant_id.0,
+        )
+        .await
     }
 
     pub async fn get_by_id(

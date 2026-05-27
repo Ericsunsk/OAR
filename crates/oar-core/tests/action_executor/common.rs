@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::time::SystemTime;
 
 use oar_core::action::audit_event::AuditStateSummary;
+use oar_core::action::audit_event::{AuditEvent, AuditEventType};
 use oar_core::action::confirmed_action::ConfirmedAction;
 use oar_core::action::execution_policy::{ActionActorBinding, ExecutionPolicy};
 use oar_core::action::executor::{ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution};
@@ -48,6 +49,16 @@ pub fn progress_update_policy() -> ExecutionPolicy {
         ["okr.progress.update"],
         [ActorKind::User, ActorKind::Service],
     )
+}
+
+pub fn assert_success_event_sequence(events: &[AuditEvent]) {
+    assert_eq!(events.len(), 3);
+    assert_eq!(
+        events[0].event_type,
+        AuditEventType::ConfirmedActionRecorded
+    );
+    assert_eq!(events[1].event_type, AuditEventType::DryRunExecuted);
+    assert_eq!(events[2].event_type, AuditEventType::ExecutionSucceeded);
 }
 
 #[derive(Clone)]

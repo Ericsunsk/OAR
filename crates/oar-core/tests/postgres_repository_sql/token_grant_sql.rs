@@ -6,6 +6,16 @@ use oar_core::storage::postgres::token_grant_sql::{
 
 use crate::compact;
 
+fn assert_token_grant_cas_guard(sql: &str) {
+    assert!(sql.contains("where tenant_id = $1"));
+    assert!(sql.contains("and id = $2"));
+    assert!(sql.contains("and oauth_grant_fingerprint = $3"));
+    assert!(sql.contains("and state in ('valid', 'needs_refresh', 'expired')"));
+    assert!(sql.contains("and revoked_at is null"));
+    assert!(sql.contains("and reauth_required_at is null"));
+    assert!(sql.contains("returning"));
+}
+
 #[test]
 fn token_grant_sql_uses_encrypted_grant_material_only() {
     for sql in [
@@ -44,13 +54,7 @@ fn token_grant_rotation_is_cas_guarded_and_clears_refresh_error() {
     assert!(sql.contains("encrypted_oauth_grant = $6"));
     assert!(sql.contains("oauth_grant_key_id = $7"));
     assert!(sql.contains("oauth_grant_fingerprint = $8"));
-    assert!(sql.contains("where tenant_id = $1"));
-    assert!(sql.contains("and id = $2"));
-    assert!(sql.contains("and oauth_grant_fingerprint = $3"));
-    assert!(sql.contains("and state in ('valid', 'needs_refresh', 'expired')"));
-    assert!(sql.contains("and revoked_at is null"));
-    assert!(sql.contains("and reauth_required_at is null"));
-    assert!(sql.contains("returning"));
+    assert_token_grant_cas_guard(&sql);
 }
 
 #[test]
@@ -60,14 +64,8 @@ fn token_grant_refresh_failure_and_reauth_marks_are_guarded() {
 
     for sql in [&refresh_failed, &reauth_required] {
         assert!(sql.contains("update token_grants"));
-        assert!(sql.contains("where tenant_id = $1"));
-        assert!(sql.contains("and id = $2"));
-        assert!(sql.contains("and oauth_grant_fingerprint = $3"));
-        assert!(sql.contains("and state in ('valid', 'needs_refresh', 'expired')"));
-        assert!(sql.contains("and revoked_at is null"));
-        assert!(sql.contains("and reauth_required_at is null"));
         assert!(sql.contains("last_refresh_error = $5"));
-        assert!(sql.contains("returning"));
+        assert_token_grant_cas_guard(sql);
     }
 
     assert!(refresh_failed.contains("set state = 'needs_refresh'"));

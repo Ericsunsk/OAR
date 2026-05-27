@@ -7,7 +7,8 @@ use oar_core::action::executor::{ActionExecutor, ExecutionError};
 use oar_core::domain::identity::TokenGrantState;
 
 use crate::common::{
-    actor_binding, confirmed_action, progress_update_policy, token_grant, MockAdapter,
+    actor_binding, assert_success_event_sequence, confirmed_action, progress_update_policy,
+    token_grant, MockAdapter,
 };
 
 #[test]
@@ -109,14 +110,5 @@ fn allowed_policy_preserves_happy_path_execution() {
     assert_eq!(adapter.execute_calls(), 1);
     assert!(!report.duplicate);
     assert_eq!(report.operation.status, ActionStatus::Succeeded);
-    assert_eq!(report.events.len(), 3);
-    assert_eq!(
-        report.events[0].event_type,
-        AuditEventType::ConfirmedActionRecorded
-    );
-    assert_eq!(report.events[1].event_type, AuditEventType::DryRunExecuted);
-    assert_eq!(
-        report.events[2].event_type,
-        AuditEventType::ExecutionSucceeded
-    );
+    assert_success_event_sequence(&report.events);
 }

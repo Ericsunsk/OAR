@@ -21,20 +21,13 @@ impl PostgresWorkspaceUserRepository {
             return stored_workspace_user_from_row(row);
         }
 
-        let conflicting_tenant = sqlx::query("SELECT 1 FROM workspace_users WHERE id = $1 LIMIT 1")
-            .bind(&user.id.0)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        if conflicting_tenant.is_some() {
-            return Err(PostgresRepositoryError::TenantMismatch {
-                field: "tenant_id",
-                expected: user.tenant_id.0.clone(),
-                actual: redacted_tenant_actual(),
-            });
-        }
-
-        Err(sqlx::Error::RowNotFound.into())
+        tenant_mismatch_or_row_not_found(
+            &self.pool,
+            "SELECT 1 FROM workspace_users WHERE id = $1 LIMIT 1",
+            &user.id.0,
+            &user.tenant_id.0,
+        )
+        .await
     }
 
     pub async fn get_by_id(
