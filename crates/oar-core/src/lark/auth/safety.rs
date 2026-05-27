@@ -2,6 +2,7 @@ use super::types::LarkAuthRefreshParseError;
 
 pub(crate) const SAFE_TRANSIENT_ERROR: &str = "temporarily unavailable";
 pub(crate) const SAFE_REAUTH_ERROR: &str = "reauthentication required";
+pub(crate) const SAFE_CONFIG_ERROR: &str = "refresh_config_required";
 pub(crate) const SAFE_PARSE_ERROR: &str = "invalid lark auth refresh envelope";
 
 pub(crate) fn sanitize_safe_error(value: &str, fallback: &str) -> String {
@@ -11,7 +12,9 @@ pub(crate) fn sanitize_safe_error(value: &str, fallback: &str) -> String {
     }
 
     match trimmed {
-        "invalid_grant" | SAFE_TRANSIENT_ERROR | SAFE_REAUTH_ERROR => trimmed.to_string(),
+        "invalid_grant" | SAFE_TRANSIENT_ERROR | SAFE_REAUTH_ERROR | SAFE_CONFIG_ERROR => {
+            trimmed.to_string()
+        }
         _ => fallback.to_string(),
     }
 }

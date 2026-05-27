@@ -36,6 +36,12 @@ pub fn decide_token_refresh(attempt: TokenRefreshAttempt) -> TokenRefreshDecisio
             expected_fingerprint: attempt.expected_fingerprint,
             safe_error: sanitize_refresh_error_for_report(&safe_error),
         },
+        RefreshOutcome::ConfigRequired { safe_error } => TokenRefreshDecision::MarkConfigRequired {
+            grant_id: attempt.grant_id,
+            tenant_id: attempt.tenant_id,
+            expected_fingerprint: attempt.expected_fingerprint,
+            safe_error: sanitize_refresh_error_for_report(&safe_error),
+        },
     }
 }
 
@@ -58,13 +64,17 @@ impl TokenRefreshDecision {
             TokenRefreshDecision::MarkReauthRequired { .. } => {
                 TokenRefreshDecisionKind::MarkReauthRequired
             }
+            TokenRefreshDecision::MarkConfigRequired { .. } => {
+                TokenRefreshDecisionKind::MarkConfigRequired
+            }
         }
     }
 
     pub fn safe_error(&self) -> Option<&str> {
         match self {
             TokenRefreshDecision::MarkNeedsRefresh { safe_error, .. }
-            | TokenRefreshDecision::MarkReauthRequired { safe_error, .. } => Some(safe_error),
+            | TokenRefreshDecision::MarkReauthRequired { safe_error, .. }
+            | TokenRefreshDecision::MarkConfigRequired { safe_error, .. } => Some(safe_error),
             TokenRefreshDecision::RotateGrantCas { .. } => None,
         }
     }
@@ -81,6 +91,9 @@ impl TokenRefreshRepositoryCommand {
             }
             TokenRefreshRepositoryCommand::MarkReauthRequired { .. } => {
                 TokenRefreshCommandKind::MarkReauthRequired
+            }
+            TokenRefreshRepositoryCommand::MarkConfigRequired { .. } => {
+                TokenRefreshCommandKind::MarkConfigRequired
             }
         }
     }

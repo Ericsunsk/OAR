@@ -80,6 +80,18 @@ impl TokenRefreshDecision {
                 reauth_required_at_ms: system_time_to_ms(now)?,
                 safe_error,
             }),
+            TokenRefreshDecision::MarkConfigRequired {
+                grant_id,
+                tenant_id,
+                expected_fingerprint,
+                safe_error,
+            } => Ok(TokenRefreshRepositoryCommand::MarkConfigRequired {
+                grant_id,
+                tenant_id,
+                expected_fingerprint,
+                refreshed_at_ms: system_time_to_ms(now)?,
+                safe_error,
+            }),
         }
     }
 }
