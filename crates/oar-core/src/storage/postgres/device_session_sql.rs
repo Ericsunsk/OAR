@@ -112,6 +112,7 @@ WHERE tenant_id = $1
   AND id = $2
   AND sync_cursor_value = $5
   AND $3 > sync_cursor_value
+  AND to_timestamp($4::double precision / 1000.0) >= last_seen_at
   AND state = 'active'
   AND revoked_at IS NULL
   AND expired_at IS NULL

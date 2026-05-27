@@ -73,6 +73,15 @@ where
                 duplicate: true,
             });
         }
+        if confirmed.duplicate && confirmed.operation.status == ActionStatus::Executing {
+            // Fail closed: without lease/timeout ownership, an existing executing record
+            // means this worker did not acquire execution rights.
+            return Ok(ExecutionReport {
+                operation: confirmed.operation,
+                events,
+                duplicate: true,
+            });
+        }
         if !confirmed.duplicate {
             events.push(confirmed_event);
         }
@@ -93,6 +102,15 @@ where
             .await
             .map_err(postgres_error_to_execution_error)?;
         if dry_run_report.duplicate && is_terminal_status(dry_run_report.operation.status) {
+            return Ok(ExecutionReport {
+                operation: dry_run_report.operation,
+                events,
+                duplicate: true,
+            });
+        }
+        if dry_run_report.duplicate && dry_run_report.operation.status == ActionStatus::Executing {
+            // Another worker may acquire execution rights between confirmation replay
+            // and this dry-run attempt. Do not continue to write without ownership.
             return Ok(ExecutionReport {
                 operation: dry_run_report.operation,
                 events,
@@ -130,7 +148,7 @@ where
                 Ok(ExecutionReport {
                     operation: report.operation,
                     events,
-                    duplicate: false,
+                    duplicate: report.duplicate,
                 })
             }
             Err(error) => {
@@ -156,7 +174,7 @@ where
                 Ok(ExecutionReport {
                     operation: report.operation,
                     events,
-                    duplicate: false,
+                    duplicate: report.duplicate,
                 })
             }
         }

@@ -47,6 +47,25 @@ fn stale_cursor_is_rejected() {
 }
 
 #[test]
+fn last_seen_going_backwards_is_rejected() {
+    let now = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+    let mut session = sample_session(now);
+    let later = now + Duration::from_secs(60);
+    session.advance_cursor(11, later).unwrap();
+
+    let err = session
+        .advance_cursor(12, later - Duration::from_secs(1))
+        .unwrap_err();
+    assert_eq!(
+        err,
+        DeviceSyncError::LastSeenWentBackwards {
+            current: later,
+            proposed: later - Duration::from_secs(1),
+        }
+    );
+}
+
+#[test]
 fn revoke_sets_revoked_state_and_timestamp() {
     let now = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
     let mut session = sample_session(now);

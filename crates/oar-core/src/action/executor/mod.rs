@@ -93,7 +93,10 @@ where
         match self.ledger.submit_confirmed_action(action)? {
             SubmitResult::Created(created) => self.run_from_submitted(action, created),
             SubmitResult::Existing(existing) if is_terminal_status(existing.status) => {
-                Ok(self.terminal_duplicate_report(existing))
+                Ok(self.duplicate_report(existing))
+            }
+            SubmitResult::Existing(existing) if existing.status == ActionStatus::Executing => {
+                Ok(self.duplicate_report(existing))
             }
             SubmitResult::Existing(existing) => self.run_from_submitted(action, existing),
         }
@@ -180,7 +183,7 @@ where
         })
     }
 
-    fn terminal_duplicate_report(&self, operation: OperationRecord) -> ExecutionReport {
+    fn duplicate_report(&self, operation: OperationRecord) -> ExecutionReport {
         ExecutionReport {
             operation,
             events: Vec::new(),

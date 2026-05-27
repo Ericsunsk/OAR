@@ -101,9 +101,8 @@ fn resumes_from_existing_confirmed_record_without_recreating_operation() {
 }
 
 #[test]
-fn resumes_from_existing_executing_record_only_executes_terminal_step() {
+fn existing_executing_record_is_reported_as_inflight_duplicate() {
     let adapter = MockAdapter::new();
-    let mut ticks = VecDeque::from([21_u64]);
     let action = confirmed_action("idem-resume-executing");
     let ledger = InMemoryOperationLedgerRepository::new();
     ledger.submit_confirmed_action(&action).unwrap();
@@ -111,22 +110,18 @@ fn resumes_from_existing_executing_record_only_executes_terminal_step() {
 
     let mut executor = ActionExecutor::with_repositories(
         adapter.clone(),
-        move || ticks.pop_front().unwrap_or(999),
+        || 999,
         ledger,
         InMemoryAuditEventRepository::new(),
     );
 
     let report = executor.execute_confirmed_action(&action).unwrap();
 
-    assert!(!report.duplicate);
-    assert_eq!(report.operation.status, ActionStatus::Succeeded);
+    assert!(report.duplicate);
+    assert_eq!(report.operation.status, ActionStatus::Executing);
     assert_eq!(adapter.dry_run_calls(), 0);
-    assert_eq!(adapter.execute_calls(), 1);
-    assert_eq!(report.events.len(), 1);
-    assert_eq!(
-        report.events[0].event_type,
-        AuditEventType::ExecutionSucceeded
-    );
+    assert_eq!(adapter.execute_calls(), 0);
+    assert!(report.events.is_empty());
 }
 
 #[test]

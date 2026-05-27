@@ -97,6 +97,31 @@ fn postgres_live_device_session_advance_cursor_cas_and_terminal_state_guards() {
             11
         );
 
+        let backwards_now = repository
+            .advance_cursor_cas(
+                "tenant_ds_cas",
+                "session_ds_cas",
+                11,
+                12,
+                base + std::time::Duration::from_secs(5),
+            )
+            .await?;
+        assert_eq!(backwards_now, None);
+
+        let after_backwards_attempt = repository
+            .get_by_id("tenant_ds_cas", "session_ds_cas")
+            .await?
+            .expect("session should still exist");
+        assert_eq!(after_backwards_attempt.sync_cursor_value, 11);
+        assert_eq!(
+            after_backwards_attempt.sync_cursor_updated_at,
+            base + std::time::Duration::from_secs(10)
+        );
+        assert_eq!(
+            after_backwards_attempt.last_seen_at,
+            base + std::time::Duration::from_secs(10)
+        );
+
         let stale = repository
             .advance_cursor_cas(
                 "tenant_ds_cas",

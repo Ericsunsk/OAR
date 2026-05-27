@@ -129,6 +129,58 @@ fn postgres_live_operation_repository_preserves_idempotent_transitions() {
 }
 
 #[test]
+fn postgres_live_operation_repository_sanitizes_last_error_at_storage_boundary() {
+    run_live_postgres_test("operation_repository_error_sanitize", |pool| async move {
+        seed_user(&pool, "tenant_error_sanitize", "user_error_sanitize").await?;
+
+        let repository = PostgresOperationLedgerRepository::new(pool);
+        let action = confirmed_action(
+            "action_error_sanitize",
+            "tenant_error_sanitize",
+            "user_error_sanitize",
+            "idem_error_sanitize",
+        );
+
+        repository
+            .submit_confirmed_action(&action, 1_748_250_000_000, "op_error_sanitize")
+            .await?;
+        repository
+            .mark_executing(
+                "tenant_error_sanitize",
+                "idem_error_sanitize",
+                1_748_250_001_000,
+            )
+            .await
+            .map_err(|error| format!("mark_executing failed: {error:?}"))?;
+        let failed = repository
+            .mark_failed(
+                "tenant_error_sanitize",
+                "idem_error_sanitize",
+                "stderr leaked refresh_token=raw-secret",
+                1_748_250_002_000,
+            )
+            .await
+            .map_err(|error| format!("mark_failed failed: {error:?}"))?;
+
+        assert_eq!(
+            failed.last_error.as_deref(),
+            Some("adapter execution failed")
+        );
+
+        let persisted = repository
+            .get_by_idempotency_key("tenant_error_sanitize", "idem_error_sanitize")
+            .await?
+            .expect("failed operation should be persisted");
+        assert_eq!(
+            persisted.last_error.as_deref(),
+            Some("adapter execution failed")
+        );
+
+        Ok(())
+    });
+}
+
+#[test]
 fn postgres_live_operation_lookup_is_tenant_scoped() {
     run_live_postgres_test("operation_tenant_scope", |pool| async move {
         seed_user(&pool, "tenant_a", "user_a").await?;

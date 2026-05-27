@@ -160,7 +160,8 @@ impl PostgresOperationLedgerRepository {
             MARK_FAILED => ActionStatus::Failed,
             _ => ActionStatus::Failed,
         };
-        let row = match error {
+        let safe_error = error.map(crate::action::safety::sanitize_adapter_error_message);
+        let row = match safe_error.as_deref() {
             Some(error) => {
                 sqlx::query(sql)
                     .bind(tenant_id)
@@ -560,7 +561,8 @@ pub(super) async fn transition_in_tx(
     error: Option<&str>,
     now_ms: u64,
 ) -> PgRepositoryResult<(OperationRecord, bool)> {
-    let row = match error {
+    let safe_error = error.map(crate::action::safety::sanitize_adapter_error_message);
+    let row = match safe_error.as_deref() {
         Some(error) => {
             sqlx::query(sql)
                 .bind(tenant_id)

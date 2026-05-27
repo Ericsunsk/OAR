@@ -35,6 +35,7 @@ fn device_session_sql_is_tenant_scoped_and_state_guarded() {
     assert!(advance.contains("and id = $2"));
     assert!(advance.contains("and sync_cursor_value = $5"));
     assert!(advance.contains("and $3 > sync_cursor_value"));
+    assert!(advance.contains("and to_timestamp($4::double precision / 1000.0) >= last_seen_at"));
     assert!(advance.contains("and state = 'active'"));
     assert!(advance.contains("and revoked_at is null"));
     assert!(advance.contains("and expired_at is null"));

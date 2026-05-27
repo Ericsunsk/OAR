@@ -54,8 +54,8 @@ fn success_response_is_encrypted_before_core_sees_it() {
 }
 
 #[test]
-fn feishu_invalid_grant_codes_map_to_reauth_required() {
-    for code in [20037, 20064, 20073] {
+fn feishu_reauth_required_codes_map_to_reauth_required() {
+    for code in [20024, 20026, 20037, 20064, 20073] {
         let transport = sample_transport(HttpResponse::new(400, error_body(code)));
         let mut client = LarkAuthRefreshSafeClient::new(transport);
 
@@ -73,20 +73,40 @@ fn feishu_invalid_grant_codes_map_to_reauth_required() {
 }
 
 #[test]
-fn feishu_refresh_disabled_maps_to_config_required() {
-    let transport = sample_transport(HttpResponse::new(400, error_body(20074)));
-    let mut client = LarkAuthRefreshSafeClient::new(transport);
+fn feishu_config_codes_and_http_4xx_fallback_map_to_config_required() {
+    for code in [
+        20002, 20008, 20009, 20010, 20036, 20048, 20063, 20066, 20067, 20068, 20069, 20070, 20074,
+    ] {
+        let transport = sample_transport(HttpResponse::new(400, error_body(code)));
+        let mut client = LarkAuthRefreshSafeClient::new(transport);
+        let response = client
+            .refresh(&sample_request())
+            .expect("safe failure envelope should parse");
+        assert_eq!(
+            response,
+            LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::ConfigRequired {
+                safe_error: "refresh_config_required".to_string()
+            })
+        );
+    }
 
-    let response = client
-        .refresh(&sample_request())
-        .expect("safe failure envelope should parse");
-
-    assert_eq!(
-        response,
-        LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::ConfigRequired {
-            safe_error: "refresh_config_required".to_string()
-        })
-    );
+    let unknown_4xx = [
+        sample_transport(HttpResponse::new(400, error_body(29999))),
+        sample_transport(HttpResponse::new(401, error_body(29999))),
+        sample_transport(HttpResponse::new(403, error_body(29999))),
+    ];
+    for transport in unknown_4xx {
+        let mut client = LarkAuthRefreshSafeClient::new(transport);
+        let response = client
+            .refresh(&sample_request())
+            .expect("safe failure envelope should parse");
+        assert_eq!(
+            response,
+            LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::ConfigRequired {
+                safe_error: "refresh_config_required".to_string()
+            })
+        );
+    }
 }
 
 #[test]

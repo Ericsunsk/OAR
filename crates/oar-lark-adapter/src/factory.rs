@@ -154,12 +154,12 @@ mod tests {
 
         assert_eq!(adapter.client().config().max_response_bytes, 8);
         match adapter.refresh(&sample_snapshot()) {
-            RefreshOutcome::TransientFailure { safe_error } => {
-                assert_eq!(safe_error, "temporarily unavailable");
+            RefreshOutcome::ConfigRequired { safe_error } => {
+                assert_eq!(safe_error, "auth_refresh_oversized_response");
                 assert!(!safe_error.contains(ACCESS_TOKEN));
                 assert!(!safe_error.contains(REFRESH_TOKEN));
             }
-            other => panic!("expected transient failure, got {other:?}"),
+            other => panic!("expected config required failure, got {other:?}"),
         }
     }
 

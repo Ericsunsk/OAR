@@ -1180,7 +1180,7 @@ fn postgres_live_execution_uow_records_failure_terminal_idempotently() {
             .record_failure(
                 "tenant_uow_failure",
                 "idem_uow_failure",
-                "adapter timeout",
+                "stderr leaked refresh_token=raw-secret",
                 1_748_250_003_000,
                 &AuditEvent::execution_failed(
                     audit_context(
@@ -1203,7 +1203,7 @@ fn postgres_live_execution_uow_records_failure_terminal_idempotently() {
         assert_eq!(failed.operation.status, ActionStatus::Failed);
         assert_eq!(
             failed.operation.last_error.as_deref(),
-            Some("adapter timeout")
+            Some("adapter execution failed")
         );
         assert!(failed.outbox_id.is_some());
 
@@ -1235,7 +1235,7 @@ fn postgres_live_execution_uow_records_failure_terminal_idempotently() {
         assert_eq!(duplicate_failed.outbox_id, None);
         assert_eq!(
             duplicate_failed.operation.last_error.as_deref(),
-            Some("adapter timeout")
+            Some("adapter execution failed")
         );
 
         let events = audit
