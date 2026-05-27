@@ -215,6 +215,11 @@ mod tests {
             "kind": "update_kr_progress",
         }))
         .is_ok());
+        assert!(validate_audit_outbox_payload(&serde_json::json!({
+            "trace_id": "trace_token_refresh_sweep_success",
+            "kind": "token_refresh_sweep",
+        }))
+        .is_ok());
     }
 
     #[test]
@@ -231,6 +236,12 @@ mod tests {
             validate_audit_outbox_payload(&serde_json::json!({
                 "trace_id": "trace_sensitive",
                 "event_type": "Authorization: Bearer abc123"
+            })),
+            Err(PostgresRepositoryError::UnsafeAuditOutboxPayload)
+        ));
+        assert!(matches!(
+            validate_audit_outbox_payload(&serde_json::json!({
+                "trace_id": "token=abc123",
             })),
             Err(PostgresRepositoryError::UnsafeAuditOutboxPayload)
         ));

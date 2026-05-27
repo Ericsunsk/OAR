@@ -65,12 +65,253 @@ pub struct RuntimeRunReport<T> {
     pub cancelled: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TenantRuntimeReport<T> {
+    pub tenant_id: String,
+    pub successful_ticks: usize,
+    pub failed_ticks: usize,
+    pub last_tick: Option<RuntimeTickReport<T>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TenantMaintenanceRegistryRunReport<T> {
+    pub tenant_reports: Vec<TenantRuntimeReport<T>>,
+    pub completed_rounds: usize,
+    pub cancelled: bool,
+}
+
 pub trait RuntimeTick {
     type Report: Send + 'static;
     type Error: Error + Send + Sync + 'static;
 
     fn tick(&mut self) -> RuntimeTickFuture<'_, Self::Report, Self::Error>;
     fn safe_error(error: &Self::Error) -> String;
+}
+
+pub struct RuntimeTenantTick<T> {
+    tenant_id: String,
+    tick: T,
+}
+
+pub type RuntimeTenantReport<T> = TenantRuntimeReport<T>;
+pub type RuntimeRegistryRunReport<T> = TenantMaintenanceRegistryRunReport<T>;
+
+impl<T> RuntimeTenantTick<T> {
+    pub fn new(tenant_id: impl Into<String>, tick: T) -> Self {
+        Self {
+            tenant_id: tenant_id.into(),
+            tick,
+        }
+    }
+
+    pub fn tenant_id(&self) -> &str {
+        &self.tenant_id
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TenantMaintenanceRuntimeRegistryValidationError {
+    InvalidRuntimeConfig(TenantMaintenanceRuntimeConfigValidationError),
+    EmptyRegistry,
+    EmptyTenantId,
+    DuplicateTenantId(String),
+}
+
+impl fmt::Display for TenantMaintenanceRuntimeRegistryValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidRuntimeConfig(error) => write!(f, "{error}"),
+            Self::EmptyRegistry => write!(f, "tenant_maintenance_registry_invalid: empty_registry"),
+            Self::EmptyTenantId => {
+                write!(f, "tenant_maintenance_registry_invalid: empty_tenant_id")
+            }
+            Self::DuplicateTenantId(_) => {
+                write!(
+                    f,
+                    "tenant_maintenance_registry_invalid: duplicate_tenant_id"
+                )
+            }
+        }
+    }
+}
+
+impl Error for TenantMaintenanceRuntimeRegistryValidationError {}
+
+struct TenantRuntimeState<T>
+where
+    T: RuntimeTick,
+{
+    tenant_id: String,
+    tick: T,
+    successful_ticks: usize,
+    failed_ticks: usize,
+    last_tick: Option<RuntimeTickReport<T::Report>>,
+}
+
+pub struct TenantMaintenanceRuntimeRegistry<T>
+where
+    T: RuntimeTick,
+{
+    config: TenantMaintenanceRuntimeConfig,
+    tenants: Vec<TenantRuntimeState<T>>,
+}
+
+impl<T> TenantMaintenanceRuntimeRegistry<T>
+where
+    T: RuntimeTick,
+{
+    pub fn try_new(
+        config: TenantMaintenanceRuntimeConfig,
+        tenants: impl IntoIterator<Item = RuntimeTenantTick<T>>,
+    ) -> Result<Self, TenantMaintenanceRuntimeRegistryValidationError> {
+        config
+            .validate()
+            .map_err(TenantMaintenanceRuntimeRegistryValidationError::InvalidRuntimeConfig)?;
+
+        let tenants: Vec<_> = tenants.into_iter().collect();
+        validate_named_tenants(&tenants)?;
+
+        Ok(Self {
+            config,
+            tenants: tenants
+                .into_iter()
+                .map(|tenant| TenantRuntimeState {
+                    tenant_id: tenant.tenant_id,
+                    tick: tenant.tick,
+                    successful_ticks: 0,
+                    failed_ticks: 0,
+                    last_tick: None,
+                })
+                .collect(),
+        })
+    }
+
+    pub async fn run_once_round(&mut self) -> TenantMaintenanceRegistryRunReport<T::Report>
+    where
+        T::Report: Clone,
+    {
+        self.run_round(None).await;
+        self.snapshot(1, false)
+    }
+
+    pub async fn run_until_cancelled(
+        &mut self,
+        cancellation: &CancellationToken,
+    ) -> TenantMaintenanceRegistryRunReport<T::Report>
+    where
+        T::Report: Clone,
+    {
+        let mut interval = time::interval(self.config.tick_interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+        let mut completed_rounds = 0usize;
+
+        loop {
+            if cancellation.is_cancelled() {
+                info!("tenant maintenance registry cancelled");
+                break;
+            }
+
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    info!("tenant maintenance registry cancelled");
+                    break;
+                }
+                _ = interval.tick() => {
+                    if self.run_round(Some(cancellation)).await {
+                        completed_rounds = completed_rounds.saturating_add(1);
+                    } else {
+                        info!("tenant maintenance registry cancelled during round");
+                        break;
+                    }
+                }
+            }
+        }
+
+        self.snapshot(completed_rounds, true)
+    }
+
+    async fn run_round(&mut self, cancellation: Option<&CancellationToken>) -> bool {
+        for tenant in &mut self.tenants {
+            if cancellation
+                .map(CancellationToken::is_cancelled)
+                .unwrap_or(false)
+            {
+                return false;
+            }
+
+            match tenant.tick.tick().await {
+                Ok(report) => {
+                    tenant.successful_ticks = tenant.successful_ticks.saturating_add(1);
+                    tenant.last_tick = Some(RuntimeTickReport::Succeeded(report));
+                }
+                Err(error) => {
+                    tenant.failed_ticks = tenant.failed_ticks.saturating_add(1);
+                    let safe_error = T::safe_error(&error);
+                    warn!(
+                        tenant_id = %tenant.tenant_id,
+                        safe_error = %safe_error,
+                        "tenant maintenance registry tick failed"
+                    );
+                    tenant.last_tick =
+                        Some(RuntimeTickReport::Failed(RuntimeTickFailure { safe_error }));
+                }
+            }
+        }
+
+        true
+    }
+
+    fn snapshot(
+        &self,
+        completed_rounds: usize,
+        cancelled: bool,
+    ) -> TenantMaintenanceRegistryRunReport<T::Report>
+    where
+        T::Report: Clone,
+    {
+        TenantMaintenanceRegistryRunReport {
+            tenant_reports: self
+                .tenants
+                .iter()
+                .map(|tenant| TenantRuntimeReport {
+                    tenant_id: tenant.tenant_id.clone(),
+                    successful_ticks: tenant.successful_ticks,
+                    failed_ticks: tenant.failed_ticks,
+                    last_tick: tenant.last_tick.clone(),
+                })
+                .collect(),
+            completed_rounds,
+            cancelled,
+        }
+    }
+}
+
+fn validate_named_tenants<T>(
+    tenants: &[RuntimeTenantTick<T>],
+) -> Result<(), TenantMaintenanceRuntimeRegistryValidationError> {
+    use std::collections::HashSet;
+
+    if tenants.is_empty() {
+        return Err(TenantMaintenanceRuntimeRegistryValidationError::EmptyRegistry);
+    }
+
+    let mut seen = HashSet::new();
+    for tenant in tenants {
+        let tenant_id = tenant.tenant_id.trim();
+        if tenant_id.is_empty() {
+            return Err(TenantMaintenanceRuntimeRegistryValidationError::EmptyTenantId);
+        }
+        if !seen.insert(tenant_id.to_string()) {
+            return Err(
+                TenantMaintenanceRuntimeRegistryValidationError::DuplicateTenantId(
+                    tenant_id.to_string(),
+                ),
+            );
+        }
+    }
+
+    Ok(())
 }
 
 pub struct TenantMaintenanceRuntime<T>
@@ -329,6 +570,62 @@ mod tests {
     #[error("{0}")]
     struct TestError(&'static str);
 
+    struct RegistryTestTick {
+        calls: Arc<AtomicUsize>,
+        outcome: RegistryTestOutcome,
+        cancellation: Option<CancellationToken>,
+    }
+
+    enum RegistryTestOutcome {
+        Succeeded(usize),
+        Failed(&'static str),
+    }
+
+    impl RegistryTestTick {
+        fn succeeded(calls: Arc<AtomicUsize>, report: usize) -> Self {
+            Self {
+                calls,
+                outcome: RegistryTestOutcome::Succeeded(report),
+                cancellation: None,
+            }
+        }
+
+        fn failed(calls: Arc<AtomicUsize>, safe_error: &'static str) -> Self {
+            Self {
+                calls,
+                outcome: RegistryTestOutcome::Failed(safe_error),
+                cancellation: None,
+            }
+        }
+
+        fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
+            self.cancellation = Some(cancellation);
+            self
+        }
+    }
+
+    impl RuntimeTick for RegistryTestTick {
+        type Report = usize;
+        type Error = TestError;
+
+        fn tick(&mut self) -> RuntimeTickFuture<'_, Self::Report, Self::Error> {
+            Box::pin(async move {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                if let Some(cancellation) = &self.cancellation {
+                    cancellation.cancel();
+                }
+                match self.outcome {
+                    RegistryTestOutcome::Succeeded(report) => Ok(report),
+                    RegistryTestOutcome::Failed(safe_error) => Err(TestError(safe_error)),
+                }
+            })
+        }
+
+        fn safe_error(error: &Self::Error) -> String {
+            error.to_string()
+        }
+    }
+
     fn assert_send<T: Send>() {}
 
     #[test]
@@ -512,5 +809,129 @@ mod tests {
             result,
             Err(TenantMaintenanceRuntimeConfigValidationError::ZeroTickInterval)
         );
+    }
+
+    #[test]
+    fn registry_rejects_empty_duplicate_or_blank_tenants() {
+        let config = TenantMaintenanceRuntimeConfig {
+            tick_interval: Duration::from_secs(10),
+        };
+
+        let empty = TenantMaintenanceRuntimeRegistry::<RegistryTestTick>::try_new(
+            config.clone(),
+            Vec::new(),
+        );
+        assert!(matches!(
+            empty,
+            Err(TenantMaintenanceRuntimeRegistryValidationError::EmptyRegistry)
+        ));
+
+        let blank = TenantMaintenanceRuntimeRegistry::try_new(
+            config.clone(),
+            vec![RuntimeTenantTick::new(
+                " ",
+                RegistryTestTick::succeeded(Arc::new(AtomicUsize::new(0)), 1),
+            )],
+        );
+        assert!(matches!(
+            blank,
+            Err(TenantMaintenanceRuntimeRegistryValidationError::EmptyTenantId)
+        ));
+
+        let duplicate = TenantMaintenanceRuntimeRegistry::try_new(
+            config,
+            vec![
+                RuntimeTenantTick::new(
+                    "tenant_a",
+                    RegistryTestTick::succeeded(Arc::new(AtomicUsize::new(0)), 1),
+                ),
+                RuntimeTenantTick::new(
+                    "tenant_a",
+                    RegistryTestTick::succeeded(Arc::new(AtomicUsize::new(0)), 2),
+                ),
+            ],
+        );
+        assert!(matches!(
+            duplicate,
+            Err(TenantMaintenanceRuntimeRegistryValidationError::DuplicateTenantId(
+                tenant_id
+            )) if tenant_id == "tenant_a"
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registry_runs_multiple_tenants_and_isolates_failures() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_first = Arc::clone(&calls);
+        let calls_for_second = Arc::clone(&calls);
+        let cancellation = CancellationToken::new();
+        let cancellation_for_second = cancellation.clone();
+
+        let first = RuntimeTenantTick::new(
+            "tenant_a",
+            RegistryTestTick::failed(calls_for_first, "first_failed"),
+        );
+        let second = RuntimeTenantTick::new(
+            "tenant_b",
+            RegistryTestTick::succeeded(calls_for_second, 7)
+                .with_cancellation(cancellation_for_second),
+        );
+
+        let mut registry = TenantMaintenanceRuntimeRegistry::try_new(
+            TenantMaintenanceRuntimeConfig {
+                tick_interval: Duration::from_secs(10),
+            },
+            vec![first, second],
+        )
+        .expect("registry config should be valid");
+
+        let (report, _) = tokio::join!(registry.run_until_cancelled(&cancellation), async {
+            time::advance(Duration::from_secs(1)).await;
+        });
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(report.completed_rounds, 1);
+        assert_eq!(report.tenant_reports.len(), 2);
+        assert_eq!(report.tenant_reports[0].tenant_id, "tenant_a");
+        assert_eq!(report.tenant_reports[0].failed_ticks, 1);
+        assert!(matches!(
+            &report.tenant_reports[0].last_tick,
+            Some(RuntimeTickReport::Failed(RuntimeTickFailure { safe_error }))
+                if safe_error == "first_failed"
+        ));
+        assert_eq!(report.tenant_reports[1].tenant_id, "tenant_b");
+        assert_eq!(report.tenant_reports[1].successful_ticks, 1);
+        assert!(matches!(
+            report.tenant_reports[1].last_tick,
+            Some(RuntimeTickReport::Succeeded(7))
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registry_already_cancelled_token_does_not_tick_any_tenant() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_tick = Arc::clone(&calls);
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let mut registry = TenantMaintenanceRuntimeRegistry::try_new(
+            TenantMaintenanceRuntimeConfig {
+                tick_interval: Duration::from_secs(10),
+            },
+            vec![RuntimeTenantTick::new(
+                "tenant_a",
+                RegistryTestTick::succeeded(calls_for_tick, 1),
+            )],
+        )
+        .expect("registry config should be valid");
+
+        let report = registry.run_until_cancelled(&cancellation).await;
+
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(report.completed_rounds, 0);
+        assert_eq!(report.tenant_reports[0].successful_ticks, 0);
+        assert_eq!(report.tenant_reports[0].failed_ticks, 0);
+        assert_eq!(report.tenant_reports[0].last_tick, None);
+        assert!(report.cancelled);
     }
 }

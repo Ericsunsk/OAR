@@ -274,7 +274,50 @@ fn validate_audit_outbox_payload_value(value: &Value) -> PgRepositoryResult<()> 
 
 fn contains_sensitive_audit_payload_marker(value: &str) -> bool {
     let lowered = value.to_ascii_lowercase();
-    crate::security::contains_sensitive_marker(&lowered)
+    contains_sensitive_audit_payload_direct_marker(&lowered)
         || lowered.contains("encrypted")
         || lowered.contains("fingerprint")
+}
+
+fn contains_sensitive_audit_payload_direct_marker(value: &str) -> bool {
+    [
+        "access token",
+        "access_token",
+        "accesstoken",
+        "refresh token",
+        "refresh_token",
+        "refreshtoken",
+        "authorization:",
+        "authorization code",
+        "authorization_code",
+        "authorizationcode",
+        "auth code",
+        "auth_code",
+        "bearer ",
+        "client_secret",
+        "oauth_grant",
+        "stdout",
+        "stderr",
+    ]
+    .iter()
+    .any(|needle| value.contains(needle))
+        || contains_sensitive_audit_payload_segments(value)
+}
+
+fn contains_sensitive_audit_payload_segments(value: &str) -> bool {
+    let segments = value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+
+    for (index, segment) in segments.iter().enumerate() {
+        if matches!(*segment, "secret" | "password" | "credential") {
+            return true;
+        }
+        if *segment == "token" && segments.get(index + 1).copied() != Some("refresh") {
+            return true;
+        }
+    }
+
+    false
 }

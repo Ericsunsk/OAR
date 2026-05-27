@@ -3,7 +3,9 @@
 pub mod runtime;
 
 pub use runtime::{
-    RuntimeRunReport, RuntimeTick, RuntimeTickFailure, RuntimeTickFuture, RuntimeTickReport,
+    RuntimeRegistryRunReport, RuntimeRunReport, RuntimeTenantReport, RuntimeTenantTick,
+    RuntimeTick, RuntimeTickFailure, RuntimeTickFuture, RuntimeTickReport,
     TenantMaintenanceRuntime, TenantMaintenanceRuntimeConfig,
-    TenantMaintenanceRuntimeConfigValidationError,
+    TenantMaintenanceRuntimeConfigValidationError, TenantMaintenanceRuntimeRegistry,
+    TenantMaintenanceRuntimeRegistryValidationError,
 };

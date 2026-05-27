@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "postgres")]
+pub mod audit_outbox;
 pub mod config;
 pub mod credentials;
 pub mod crypto;
@@ -11,6 +13,11 @@ pub mod oauth;
 pub mod postgres;
 pub mod redaction;
 
+#[cfg(feature = "postgres")]
+pub use audit_outbox::{
+    sink_unavailable_error, AuditOutboxDeliveryEnvelope, AuditOutboxSafePayload, AuditOutboxSink,
+    AuditOutboxSinkDelivery, AuditOutboxSinkDispatcher, AuditOutboxSinkError, NoopAuditOutboxSink,
+};
 pub use config::FeishuOpenApiConfig;
 pub use credentials::{
     AsyncFeishuAppCredentialProvider, FeishuAppCredential, FeishuAppCredentialProvider,
