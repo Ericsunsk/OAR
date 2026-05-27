@@ -81,6 +81,9 @@ fn action_type(summary: &TokenRefreshAuditSummary) -> String {
             Some(TokenRefreshCommandKind::MarkReauthRequired) => {
                 "token_refresh.mark_reauth_required"
             }
+            Some(TokenRefreshCommandKind::MarkConfigRequired) => {
+                "token_refresh.mark_config_required"
+            }
             None => "token_refresh.refresh",
         },
         TokenRefreshReportStatus::ConflictNoop => "token_refresh.conflict_noop",

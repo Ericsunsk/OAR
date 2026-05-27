@@ -52,6 +52,28 @@ fn success_rotation_emits_execution_succeeded_event() {
 }
 
 #[test]
+fn config_required_success_uses_stable_action_type() {
+    let mut summary = base_summary();
+    summary.decision = Some(TokenRefreshDecisionKind::MarkConfigRequired);
+    summary.command = Some(TokenRefreshCommandKind::MarkConfigRequired);
+    summary.safe_error = Some("refresh_config_required".to_string());
+
+    let event = token_refresh_audit_event(base_context(), &summary);
+
+    assert_eq!(event.event_type, AuditEventType::ExecutionSucceeded);
+    assert_eq!(
+        event.target.action_type,
+        "token_refresh.mark_config_required"
+    );
+
+    let serialized = serde_json::to_string(&event).expect("serialize token refresh audit event");
+    assert!(serialized.contains("refresh_config_required"));
+    assert!(!serialized.to_lowercase().contains("refresh_token"));
+    assert!(!serialized.to_lowercase().contains("access_token"));
+    assert!(!serialized.to_lowercase().contains("fingerprint"));
+}
+
+#[test]
 fn conflict_noop_emits_execution_failed_event_with_redacted_message() {
     let mut summary = base_summary();
     summary.status = TokenRefreshReportStatus::ConflictNoop;
