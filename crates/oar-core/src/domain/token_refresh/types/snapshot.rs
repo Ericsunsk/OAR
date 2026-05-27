@@ -45,6 +45,7 @@ pub struct TokenRefreshApplyResult {
     pub grant_id: TokenGrantId,
     pub tenant_id: TenantId,
     pub state: TokenGrantState,
+    pub fingerprint: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
