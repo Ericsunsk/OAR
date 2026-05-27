@@ -28,9 +28,9 @@ pub(crate) use oar_core::domain::evidence::{
     EvidenceId, EvidenceItem, EvidenceRef, EvidenceSourceKind, EvidenceVisibilityScope,
 };
 pub(crate) use oar_core::domain::identity::{
-    ActorKind, DeviceSessionId, LarkIdentity, LarkIdentityId, OAuthTokens, OarUser, OarUserId,
-    OarUserStatus, ScopeBoundary, SecretString, Tenant, TenantId, TenantStatus, TokenGrant,
-    TokenGrantId, TokenGrantState,
+    ActorKind, DeviceSessionId, LarkIdentity, LarkIdentityId, OAuthTokens, ScopeBoundary,
+    SecretString, Tenant, TenantId, TenantStatus, TokenGrant, TokenGrantId, TokenGrantState,
+    WorkspaceUser, WorkspaceUserId, WorkspaceUserStatus,
 };
 pub(crate) use oar_core::domain::proposed_action::{
     ProposedAction, ProposedActionDecision, ProposedActionId, ProposedActionKind, RiskSeverity,
@@ -51,10 +51,10 @@ pub(crate) use oar_core::domain::token_refresh::types::{
     TokenRefreshRepositoryCommand,
 };
 pub(crate) use oar_core::lark::auth::adapter::{
-    AsyncLarkAuthRefreshClient, LarkAuthRefreshAdapter, LarkAuthRefreshClient,
+    AsyncFeishuAuthRefreshClient, FeishuAuthRefreshAdapter, FeishuAuthRefreshClient,
 };
-pub(crate) use oar_core::lark::auth::parser::parse_lark_auth_refresh_response;
-pub(crate) use oar_core::lark::auth::types::{LarkAuthRefreshRequest, LarkAuthRefreshResponse};
+pub(crate) use oar_core::lark::auth::parser::parse_feishu_auth_refresh_response;
+pub(crate) use oar_core::lark::auth::types::{FeishuAuthRefreshRequest, FeishuAuthRefreshResponse};
 pub(crate) use oar_core::lark::fixtures::{
     AUTH_REFRESH_PLAINTEXT_TOKEN_LEAK_JSON, AUTH_REFRESH_REAUTH_REQUIRED_JSON,
     AUTH_REFRESH_ROTATED_ENCRYPTED_JSON,
@@ -68,13 +68,13 @@ pub(crate) use oar_core::storage::postgres::tenant_maintenance::{
 pub(crate) use oar_core::storage::postgres::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
     InsertProposedActionDecisionRequest, PostgresAuditEventRepository,
-    PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork, PostgresLarkIdentityRepository,
-    PostgresOarUserRepository, PostgresOperationLedgerRepository, PostgresRepositoryError,
-    PostgresReviewDecisionUnitOfWork, PostgresReviewDecisionUnitOfWorkRequest,
-    PostgresReviewInboxRepository, PostgresSchedulerJobRepository, PostgresTenantRepository,
-    PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
+    PostgresDeviceSessionRepository, PostgresExecutionRecorder, PostgresLarkIdentityRepository,
+    PostgresOperationLedgerRepository, PostgresRepositoryError, PostgresReviewDecisionRecorder,
+    PostgresReviewDecisionRecorderRequest, PostgresReviewInboxRepository,
+    PostgresSchedulerJobRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
+    PostgresTokenRefreshOrchestrator, PostgresTokenRefreshRecorder,
     PostgresTokenRefreshScheduledSweep, PostgresTokenRefreshSweep,
-    PostgresTokenRefreshSweepRequest, PostgresTokenRefreshUnitOfWork, RotateEncryptedGrantRequest,
+    PostgresTokenRefreshSweepRequest, PostgresWorkspaceUserRepository, RotateEncryptedGrantRequest,
     TokenRefreshScheduledSweepConfig,
 };
 pub(crate) use serde_json::json;
@@ -271,28 +271,28 @@ impl FixtureClient {
     }
 }
 
-impl LarkAuthRefreshClient for FixtureClient {
+impl FeishuAuthRefreshClient for FixtureClient {
     type Error = &'static str;
 
     fn refresh(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshResponse, Self::Error> {
+        _request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshResponse, Self::Error> {
         let mut calls = self.calls.lock().expect("fixture client mutex");
         *calls += 1;
-        parse_lark_auth_refresh_response(self.fixture).map_err(|_| "fixture_parse_failed")
+        parse_feishu_auth_refresh_response(self.fixture).map_err(|_| "fixture_parse_failed")
     }
 }
 
 #[async_trait::async_trait(?Send)]
-impl AsyncLarkAuthRefreshClient for FixtureClient {
+impl AsyncFeishuAuthRefreshClient for FixtureClient {
     type Error = &'static str;
 
     async fn refresh(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshResponse, Self::Error> {
-        LarkAuthRefreshClient::refresh(self, request)
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshResponse, Self::Error> {
+        FeishuAuthRefreshClient::refresh(self, request)
     }
 }
 
@@ -411,7 +411,7 @@ pub(crate) fn postgres_action_executor(
             tick += 1_000;
             tick
         },
-        PostgresExecutionUnitOfWork::new(pool.clone()),
+        PostgresExecutionRecorder::new(pool.clone()),
         PostgresAuditEventRepository::new(pool),
     )
 }
@@ -572,7 +572,7 @@ pub(crate) async fn seed_user(
 
     sqlx::query(
         r#"
-        INSERT INTO oar_users (id, tenant_id, display_name, status)
+        INSERT INTO workspace_users (id, tenant_id, display_name, status)
         VALUES ($1, $2, $3, 'active')
         "#,
     )
@@ -721,7 +721,7 @@ pub(crate) fn device_session(
     DeviceSession::new(
         DeviceSessionId(session_id.to_string()),
         TenantId(tenant_id.to_string()),
-        OarUserId(user_id.to_string()),
+        WorkspaceUserId(user_id.to_string()),
         DeviceEntryPoint::MacOs,
         stream.to_string(),
         cursor,

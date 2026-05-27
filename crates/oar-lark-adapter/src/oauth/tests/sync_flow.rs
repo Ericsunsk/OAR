@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use oar_core::lark::auth::adapter::LarkAuthRefreshClient;
-use oar_core::lark::auth::client::{LarkAuthRefreshSafeClient, LarkAuthRefreshTransport};
-use oar_core::lark::auth::types::{LarkAuthRefreshFailure, LarkAuthRefreshResponse};
+use oar_core::lark::auth::adapter::FeishuAuthRefreshClient;
+use oar_core::lark::auth::client::{FeishuAuthRefreshSafeClient, FeishuAuthRefreshTransport};
+use oar_core::lark::auth::types::{FeishuAuthRefreshFailure, FeishuAuthRefreshResponse};
 use serde_json::json;
 
 use super::helpers::{
@@ -18,14 +18,14 @@ use crate::FeishuOpenApiConfig;
 #[test]
 fn success_response_is_encrypted_before_core_sees_it() {
     let transport = sample_transport(HttpResponse::new(200, success_body()));
-    let mut client = LarkAuthRefreshSafeClient::new(transport);
+    let mut client = FeishuAuthRefreshSafeClient::new(transport);
 
     let response = client
         .refresh(&sample_request())
         .expect("safe envelope should parse");
 
     match response {
-        LarkAuthRefreshResponse::Success(success) => {
+        FeishuAuthRefreshResponse::Success(success) => {
             assert_eq!(success.encrypted_primary, vec![11, 12, 13]);
             assert_eq!(success.encrypted_renewal, vec![21, 22, 23]);
             assert_eq!(success.key_id, "kms-test");
@@ -57,7 +57,7 @@ fn success_response_is_encrypted_before_core_sees_it() {
 fn feishu_reauth_required_codes_map_to_reauth_required() {
     for code in [20024, 20026, 20037, 20064, 20073] {
         let transport = sample_transport(HttpResponse::new(400, error_body(code)));
-        let mut client = LarkAuthRefreshSafeClient::new(transport);
+        let mut client = FeishuAuthRefreshSafeClient::new(transport);
 
         let response = client
             .refresh(&sample_request())
@@ -65,7 +65,7 @@ fn feishu_reauth_required_codes_map_to_reauth_required() {
 
         assert_eq!(
             response,
-            LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::ReauthRequired {
+            FeishuAuthRefreshResponse::Failure(FeishuAuthRefreshFailure::ReauthRequired {
                 safe_error: "invalid_grant".to_string()
             })
         );
@@ -78,13 +78,13 @@ fn feishu_config_codes_and_http_4xx_fallback_map_to_config_required() {
         20002, 20008, 20009, 20010, 20036, 20048, 20063, 20066, 20067, 20068, 20069, 20070, 20074,
     ] {
         let transport = sample_transport(HttpResponse::new(400, error_body(code)));
-        let mut client = LarkAuthRefreshSafeClient::new(transport);
+        let mut client = FeishuAuthRefreshSafeClient::new(transport);
         let response = client
             .refresh(&sample_request())
             .expect("safe failure envelope should parse");
         assert_eq!(
             response,
-            LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::ConfigRequired {
+            FeishuAuthRefreshResponse::Failure(FeishuAuthRefreshFailure::ConfigRequired {
                 safe_error: "refresh_config_required".to_string()
             })
         );
@@ -96,13 +96,13 @@ fn feishu_config_codes_and_http_4xx_fallback_map_to_config_required() {
         sample_transport(HttpResponse::new(403, error_body(29999))),
     ];
     for transport in unknown_4xx {
-        let mut client = LarkAuthRefreshSafeClient::new(transport);
+        let mut client = FeishuAuthRefreshSafeClient::new(transport);
         let response = client
             .refresh(&sample_request())
             .expect("safe failure envelope should parse");
         assert_eq!(
             response,
-            LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::ConfigRequired {
+            FeishuAuthRefreshResponse::Failure(FeishuAuthRefreshFailure::ConfigRequired {
                 safe_error: "refresh_config_required".to_string()
             })
         );
@@ -122,13 +122,13 @@ fn feishu_transient_codes_http_5xx_transport_and_oversized_map_to_transient() {
     ];
 
     for transport in cases {
-        let mut client = LarkAuthRefreshSafeClient::new(transport);
+        let mut client = FeishuAuthRefreshSafeClient::new(transport);
         let response = client
             .refresh(&sample_request())
             .expect("transient safe envelope should parse");
         assert_eq!(
             response,
-            LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::Transient {
+            FeishuAuthRefreshResponse::Failure(FeishuAuthRefreshFailure::Transient {
                 safe_error: "temporarily unavailable".to_string()
             })
         );
@@ -144,7 +144,7 @@ fn material_provider_failure_maps_to_transient_and_skips_http_in_safe_client() {
         FakeEncryptor,
         CountingHttpClient::new(sent_requests.clone()),
     );
-    let mut client = LarkAuthRefreshSafeClient::new(transport);
+    let mut client = FeishuAuthRefreshSafeClient::new(transport);
 
     let response = client
         .refresh(&sample_request())
@@ -152,7 +152,7 @@ fn material_provider_failure_maps_to_transient_and_skips_http_in_safe_client() {
 
     assert_eq!(
         response,
-        LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::Transient {
+        FeishuAuthRefreshResponse::Failure(FeishuAuthRefreshFailure::Transient {
             safe_error: "temporarily unavailable".to_string()
         })
     );

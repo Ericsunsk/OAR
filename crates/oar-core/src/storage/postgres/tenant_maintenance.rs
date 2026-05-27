@@ -298,8 +298,8 @@ fn safe_stage_error_message(error: &PostgresRepositoryError) -> String {
         PostgresRepositoryError::UnknownTenantStatus(_) => {
             "tenant_maintenance_stage_failed: unknown_tenant_status".to_string()
         }
-        PostgresRepositoryError::UnknownOarUserStatus(_) => {
-            "tenant_maintenance_stage_failed: unknown_oar_user_status".to_string()
+        PostgresRepositoryError::UnknownWorkspaceUserStatus(_) => {
+            "tenant_maintenance_stage_failed: unknown_workspace_user_status".to_string()
         }
         PostgresRepositoryError::UnknownIdentityActorKind(_) => {
             "tenant_maintenance_stage_failed: unknown_identity_actor_kind".to_string()

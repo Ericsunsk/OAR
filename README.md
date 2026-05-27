@@ -13,7 +13,7 @@ OAR 不是通用 OKR SaaS，不替代飞书 OKR，也不是绩效评价系统。
 阶段 0.6 正在进行。当前已经不只是初始骨架，而是进入“过渡态验证”：
 
 - `oar-core` 已包含 identity、token grant、device session、operation ledger、audit 和 Postgres schema contract。
-- token refresh service、Postgres UoW、audit 映射和显式 `run_once` refresh sweep 已完成部分验证。
+- token refresh service、Postgres Recorder、audit 映射和显式 `run_once` refresh sweep 已完成部分验证。
 - 生产闭环尚未完成：真实 Feishu live network、后台 scheduler/daemon、revoke/reauth 处理和真实多端同步仍需继续验证。
 
 ## 产品切口
@@ -125,7 +125,7 @@ OAR 默认保守：
 | `crates/oar-core/src/domain/token_refresh/` | Token refresh 类型、决策、bridge 和 service |
 | `crates/oar-core/src/action/` | ConfirmedAction、OperationLedger、AuditEvent、ExecutionPolicy |
 | `crates/oar-core/src/lark/` | Lark adapter、parser、fixtures 和 auth refresh 边界 |
-| `crates/oar-core/src/storage/postgres/` | SQL contract、Postgres repository、UoW、outbox worker |
+| `crates/oar-core/src/storage/postgres/` | SQL contract、Postgres repository、Recorder、outbox worker |
 | `crates/oar-core/migrations/` | Phase 0.6 Postgres migration 草案 |
 | `crates/oar-lark-adapter/` | Rust 原生飞书 OpenAPI runtime adapter；生产集成放在 core 之外 |
 
@@ -175,6 +175,6 @@ DATABASE_URL=postgres://... cargo test -p oar-core --features postgres --test po
 
 1. 接入真实 `AuthAdapter` / client，并验证安全解析到 `RefreshOutcome`。
 2. 在现有显式 `run_once` sweep 边界上接入 scheduler/daemon 触发。
-3. 扩展 Postgres UoW / audit 测试，覆盖 retry、timeout、stale fingerprint、revoke 和 reauth。
+3. 扩展 Postgres Recorder / audit 测试，覆盖 retry、timeout、stale fingerprint、revoke 和 reauth。
 4. 证明 macOS、iOS 和飞书卡片入口能看到同一个后端动作状态。
 5. 用真实团队跑复盘收件箱原型，验证每周使用习惯是否成立。

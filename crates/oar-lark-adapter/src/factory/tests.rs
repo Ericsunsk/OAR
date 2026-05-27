@@ -1,7 +1,7 @@
 use oar_core::domain::identity::{TenantId, TokenGrantId, TokenGrantState};
 use oar_core::domain::token_refresh::service::AuthRefreshAdapter;
 use oar_core::domain::token_refresh::types::{RefreshOutcome, TokenRefreshGrantSnapshot};
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 use serde_json::json;
 
 use super::*;
@@ -137,7 +137,7 @@ impl FeishuRefreshMaterialProvider for FakeMaterialProvider {
 
     fn refresh_material(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
+        _request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuRefreshMaterial, Self::Error> {
         Ok(FeishuRefreshMaterial {
             client_id: "cli_test".to_string(),

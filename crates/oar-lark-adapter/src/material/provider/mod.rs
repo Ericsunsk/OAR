@@ -4,7 +4,7 @@ mod errors;
 use std::fmt;
 
 use async_trait::async_trait;
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 
 use crate::credentials::{
     AsyncFeishuAppCredentialProvider, FeishuAppCredential, FeishuAppCredentialProvider,
@@ -37,7 +37,7 @@ impl<S, K> AesGcmRefreshMaterialProvider<S, K> {
 
     pub fn decrypted_grant_material(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<
         crate::material::types::DecryptedFeishuGrantMaterial,
         AesGcmRefreshMaterialProviderError<S::Error, K::Error>,
@@ -55,7 +55,7 @@ impl<S, K> AesGcmRefreshMaterialProvider<S, K> {
 
     pub async fn decrypted_grant_material_async(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<
         crate::material::types::DecryptedFeishuGrantMaterial,
         AesGcmRefreshMaterialProviderError<S::Error, K::Error>,
@@ -130,7 +130,7 @@ where
 
     fn refresh_material(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuRefreshMaterial, Self::Error> {
         let grant_material = self
             .grant_provider
@@ -167,7 +167,7 @@ where
 
     async fn refresh_material(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuRefreshMaterial, Self::Error> {
         let grant_material = self
             .grant_provider

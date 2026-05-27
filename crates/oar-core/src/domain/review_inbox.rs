@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::time::SystemTime;
 
-use crate::domain::identity::{OarUserId, TenantId};
+use crate::domain::identity::{TenantId, WorkspaceUserId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReviewInboxItemId(pub String);
@@ -33,7 +33,7 @@ impl ReviewInboxItemStatus {
 pub struct ReviewInboxItem {
     pub id: ReviewInboxItemId,
     pub tenant_id: TenantId,
-    pub user_id: OarUserId,
+    pub user_id: WorkspaceUserId,
     pub proposed_action_id: String,
     pub proposed_action_version: u64,
     pub risk_score: u32,
@@ -67,7 +67,7 @@ impl ReviewInboxItem {
     pub fn new(
         id: ReviewInboxItemId,
         tenant_id: TenantId,
-        user_id: OarUserId,
+        user_id: WorkspaceUserId,
         proposed_action_id: impl Into<String>,
         proposed_action_version: u64,
         risk_score: u32,

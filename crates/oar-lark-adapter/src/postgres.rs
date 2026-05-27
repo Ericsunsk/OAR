@@ -1,7 +1,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 use sqlx::{PgPool, Row};
 
 use crate::material::{AsyncFeishuGrantMaterialStore, StoredFeishuGrantMaterial};
@@ -41,7 +41,7 @@ impl AsyncFeishuGrantMaterialStore for PostgresFeishuGrantMaterialStore {
 
     async fn load(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<StoredFeishuGrantMaterial, Self::Error> {
         let row = sqlx::query(
             r#"

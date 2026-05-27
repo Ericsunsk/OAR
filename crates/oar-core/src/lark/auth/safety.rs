@@ -1,4 +1,4 @@
-use super::types::LarkAuthRefreshParseError;
+use super::types::FeishuAuthRefreshParseError;
 
 pub(crate) const SAFE_TRANSIENT_ERROR: &str = "temporarily unavailable";
 pub(crate) const SAFE_REAUTH_ERROR: &str = "reauthentication required";
@@ -26,12 +26,12 @@ pub(crate) fn sanitize_safe_error(value: &str, fallback: &str) -> String {
 
 pub(crate) fn reject_sensitive_json(
     value: &serde_json::Value,
-) -> Result<(), LarkAuthRefreshParseError> {
+) -> Result<(), FeishuAuthRefreshParseError> {
     match value {
         serde_json::Value::Object(map) => {
             for (key, nested) in map {
                 if contains_sensitive_marker(key) {
-                    return Err(LarkAuthRefreshParseError::SensitiveContentDetected);
+                    return Err(FeishuAuthRefreshParseError::SensitiveContentDetected);
                 }
                 reject_sensitive_json(nested)?;
             }
@@ -45,7 +45,7 @@ pub(crate) fn reject_sensitive_json(
         }
         serde_json::Value::String(text) => {
             if contains_sensitive_marker(text) {
-                Err(LarkAuthRefreshParseError::SensitiveContentDetected)
+                Err(FeishuAuthRefreshParseError::SensitiveContentDetected)
             } else {
                 Ok(())
             }

@@ -9,8 +9,8 @@ use oar_core::storage::postgres::device_session_sql::{
     REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
 };
 use oar_core::storage::postgres::identity_sql::{
-    GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_OAR_USER_BY_ID,
-    GET_TENANT_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_OAR_USER, UPSERT_TENANT,
+    GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_TENANT_BY_ID,
+    GET_WORKSPACE_USER_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_TENANT, UPSERT_WORKSPACE_USER,
 };
 use oar_core::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
@@ -94,8 +94,8 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let _ = EXPIRE_DEVICE_SESSION;
     let _ = UPSERT_TENANT;
     let _ = GET_TENANT_BY_ID;
-    let _ = UPSERT_OAR_USER;
-    let _ = GET_OAR_USER_BY_ID;
+    let _ = UPSERT_WORKSPACE_USER;
+    let _ = GET_WORKSPACE_USER_BY_ID;
     let _ = UPSERT_LARK_IDENTITY;
     let _ = GET_LARK_IDENTITY_BY_ID;
     let _ = GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL;
@@ -136,17 +136,17 @@ mod postgres_feature_api_contract {
     };
     use oar_core::storage::postgres::{
         AuditOutboxEnvelope, EncryptedTokenGrantRecord, PostgresAuditEventRepository,
-        PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
-        PostgresExecutionUnitOfWorkReport, PostgresIdentityRepository,
-        PostgresLarkIdentityRepository, PostgresOarUserRepository,
-        PostgresOperationLedgerRepository, PostgresReviewDecisionUnitOfWork,
-        PostgresReviewDecisionUnitOfWorkReport, PostgresReviewDecisionUnitOfWorkRequest,
-        PostgresSchedulerJobRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
-        PostgresTokenRefreshOrchestrator, PostgresTokenRefreshScheduledSweep,
+        PostgresDeviceSessionRepository, PostgresExecutionRecorder,
+        PostgresExecutionRecorderReport, PostgresIdentityRepository,
+        PostgresLarkIdentityRepository, PostgresOperationLedgerRepository,
+        PostgresReviewDecisionRecorder, PostgresReviewDecisionRecorderReport,
+        PostgresReviewDecisionRecorderRequest, PostgresSchedulerJobRepository,
+        PostgresTenantRepository, PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
+        PostgresTokenRefreshRecorder, PostgresTokenRefreshScheduledSweep,
         PostgresTokenRefreshSweep, PostgresTokenRefreshSweepReport,
-        PostgresTokenRefreshSweepRequest, PostgresTokenRefreshUnitOfWork,
-        RotateEncryptedGrantRequest, StoredDeviceSession, StoredLarkIdentity, StoredOarUser,
-        StoredSchedulerJob, StoredTenant, TokenRefreshScheduledSweepConfig,
+        PostgresTokenRefreshSweepRequest, PostgresWorkspaceUserRepository,
+        RotateEncryptedGrantRequest, StoredDeviceSession, StoredLarkIdentity, StoredSchedulerJob,
+        StoredTenant, StoredWorkspaceUser, TokenRefreshScheduledSweepConfig,
         TokenRefreshScheduledSweepReport,
     };
     use sqlx::PgPool;
@@ -160,20 +160,20 @@ mod postgres_feature_api_contract {
             PostgresOperationLedgerRepository::new;
         let _from_pool_ctor_audit: fn(PgPool) -> PostgresAuditEventRepository =
             PostgresAuditEventRepository::new;
-        let _from_pool_ctor_uow: fn(PgPool) -> PostgresExecutionUnitOfWork =
-            PostgresExecutionUnitOfWork::new;
-        let _from_pool_ctor_review_decision_uow: fn(PgPool) -> PostgresReviewDecisionUnitOfWork =
-            PostgresReviewDecisionUnitOfWork::new;
-        let _from_pool_ctor_token_refresh_uow: fn(PgPool) -> PostgresTokenRefreshUnitOfWork =
-            PostgresTokenRefreshUnitOfWork::new;
+        let _from_pool_ctor_recorder: fn(PgPool) -> PostgresExecutionRecorder =
+            PostgresExecutionRecorder::new;
+        let _from_pool_ctor_review_decision_recorder: fn(PgPool) -> PostgresReviewDecisionRecorder =
+            PostgresReviewDecisionRecorder::new;
+        let _from_pool_ctor_token_refresh_recorder: fn(PgPool) -> PostgresTokenRefreshRecorder =
+            PostgresTokenRefreshRecorder::new;
         let _from_pool_ctor_token_grant: fn(PgPool) -> PostgresTokenGrantRepository =
             PostgresTokenGrantRepository::new;
         let _from_pool_ctor_device_session: fn(PgPool) -> PostgresDeviceSessionRepository =
             PostgresDeviceSessionRepository::new;
         let _from_pool_ctor_tenant: fn(PgPool) -> PostgresTenantRepository =
             PostgresTenantRepository::new;
-        let _from_pool_ctor_oar_user: fn(PgPool) -> PostgresOarUserRepository =
-            PostgresOarUserRepository::new;
+        let _from_pool_ctor_workspace_user: fn(PgPool) -> PostgresWorkspaceUserRepository =
+            PostgresWorkspaceUserRepository::new;
         let _from_pool_ctor_lark_identity: fn(PgPool) -> PostgresLarkIdentityRepository =
             PostgresLarkIdentityRepository::new;
         let _from_pool_ctor_identity_repo: fn(PgPool) -> PostgresIdentityRepository =
@@ -206,11 +206,11 @@ mod postgres_feature_api_contract {
         let _token_refresh_mapping = token_refresh_audit_event;
         let _token_refresh_append = PostgresAuditEventRepository::append;
         let _token_refresh_audit_pipeline = (_token_refresh_mapping, _token_refresh_append);
-        let _record_confirmation = PostgresExecutionUnitOfWork::record_confirmation;
-        let _record_dry_run = PostgresExecutionUnitOfWork::record_dry_run;
-        let _record_success = PostgresExecutionUnitOfWork::record_success;
-        let _record_failure = PostgresExecutionUnitOfWork::record_failure;
-        let _record_review_decision = PostgresReviewDecisionUnitOfWork::record_decision;
+        let _record_confirmation = PostgresExecutionRecorder::record_confirmation;
+        let _record_dry_run = PostgresExecutionRecorder::record_dry_run;
+        let _record_success = PostgresExecutionRecorder::record_success;
+        let _record_failure = PostgresExecutionRecorder::record_failure;
+        let _record_review_decision = PostgresReviewDecisionRecorder::record_decision;
         let _execute =
             PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action;
         let _execute_with_policy =
@@ -219,7 +219,7 @@ mod postgres_feature_api_contract {
         let _get_grant = PostgresTokenGrantRepository::get_by_id;
         let _apply_refresh_command = PostgresTokenGrantRepository::apply_refresh_command;
         let _apply_planned_refresh_command_with_audit =
-            PostgresTokenRefreshUnitOfWork::apply_planned_command_with_audit;
+            PostgresTokenRefreshRecorder::apply_planned_command_with_audit;
         let _token_refresh_orchestrator_ctor =
             PostgresTokenRefreshOrchestrator::<NoopRefreshAdapter>::new;
         let _token_refresh_orchestrator_refresh =
@@ -261,8 +261,8 @@ mod postgres_feature_api_contract {
         let _expire_session = PostgresDeviceSessionRepository::expire;
         let _upsert_tenant = PostgresTenantRepository::upsert;
         let _get_tenant = PostgresTenantRepository::get_by_id;
-        let _upsert_oar_user = PostgresOarUserRepository::upsert;
-        let _get_oar_user = PostgresOarUserRepository::get_by_id;
+        let _upsert_workspace_user = PostgresWorkspaceUserRepository::upsert;
+        let _get_workspace_user = PostgresWorkspaceUserRepository::get_by_id;
         let _upsert_lark_identity = PostgresLarkIdentityRepository::upsert;
         let _get_lark_identity = PostgresLarkIdentityRepository::get_by_id;
         let _get_lark_identity_external = PostgresLarkIdentityRepository::get_by_actor_external_id;
@@ -272,10 +272,10 @@ mod postgres_feature_api_contract {
         let _phantom_action: Option<ConfirmedAction> = None;
         let _phantom_event: Option<AuditEvent> = None;
         let _phantom_envelope: Option<AuditOutboxEnvelope> = None;
-        let _phantom_report: Option<PostgresExecutionUnitOfWorkReport> = None;
-        let _phantom_review_decision_report: Option<PostgresReviewDecisionUnitOfWorkReport> = None;
+        let _phantom_report: Option<PostgresExecutionRecorderReport> = None;
+        let _phantom_review_decision_report: Option<PostgresReviewDecisionRecorderReport> = None;
         let _phantom_review_decision_request: Option<
-            PostgresReviewDecisionUnitOfWorkRequest<'static>,
+            PostgresReviewDecisionRecorderRequest<'static>,
         > = None;
         let _phantom_delivery: Option<AuditOutboxDelivery> = None;
         let _phantom_drain_report: Option<AuditOutboxDrainReport> = None;
@@ -284,7 +284,7 @@ mod postgres_feature_api_contract {
         let _phantom_maintenance_worker: Option<NoopTenantMaintenanceWorker> = None;
         let _phantom_session: Option<StoredDeviceSession> = None;
         let _phantom_tenant: Option<StoredTenant> = None;
-        let _phantom_oar_user: Option<StoredOarUser> = None;
+        let _phantom_workspace_user: Option<StoredWorkspaceUser> = None;
         let _phantom_lark_identity: Option<StoredLarkIdentity> = None;
         let _phantom_token_refresh_context: Option<TokenRefreshAuditContext> = None;
         let _phantom_token_refresh_sweep_request: Option<PostgresTokenRefreshSweepRequest> = None;

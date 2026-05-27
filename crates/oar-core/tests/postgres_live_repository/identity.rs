@@ -4,7 +4,7 @@ use super::harness::*;
 fn postgres_live_identity_repositories_upsert_lookup_and_tenant_conflict_guards() {
     run_live_postgres_test("identity_repo_upsert_lookup_conflict", |pool| async move {
         let tenant_repo = PostgresTenantRepository::new(pool.clone());
-        let user_repo = PostgresOarUserRepository::new(pool.clone());
+        let user_repo = PostgresWorkspaceUserRepository::new(pool.clone());
         let identity_repo = PostgresLarkIdentityRepository::new(pool.clone());
 
         let tenant_a = Tenant {
@@ -30,15 +30,15 @@ fn postgres_live_identity_repositories_upsert_lookup_and_tenant_conflict_guards(
         assert_eq!(fetched_tenant.display_name, "Tenant B");
         assert_eq!(fetched_tenant.status, TenantStatus::Suspended);
 
-        let user_a = OarUser {
-            id: OarUserId("user_identity_shared".to_string()),
+        let user_a = WorkspaceUser {
+            id: WorkspaceUserId("user_identity_shared".to_string()),
             tenant_id: TenantId("tenant_identity_a".to_string()),
             display_name: "User Shared A".to_string(),
-            status: OarUserStatus::Active,
+            status: WorkspaceUserStatus::Active,
         };
         let stored_user_a = user_repo.upsert(&user_a).await?;
         assert_eq!(stored_user_a.tenant_id, "tenant_identity_a");
-        assert_eq!(stored_user_a.status, OarUserStatus::Active);
+        assert_eq!(stored_user_a.status, WorkspaceUserStatus::Active);
 
         let fetched_user_a = user_repo
             .get_by_id("tenant_identity_a", "user_identity_shared")
@@ -52,11 +52,11 @@ fn postgres_live_identity_repositories_upsert_lookup_and_tenant_conflict_guards(
             None
         );
 
-        let conflicting_user = OarUser {
-            id: OarUserId("user_identity_shared".to_string()),
+        let conflicting_user = WorkspaceUser {
+            id: WorkspaceUserId("user_identity_shared".to_string()),
             tenant_id: TenantId("tenant_identity_b".to_string()),
             display_name: "User Shared B".to_string(),
-            status: OarUserStatus::Disabled,
+            status: WorkspaceUserStatus::Disabled,
         };
         match user_repo.upsert(&conflicting_user).await {
             Err(PostgresRepositoryError::TenantMismatch {
@@ -68,7 +68,7 @@ fn postgres_live_identity_repositories_upsert_lookup_and_tenant_conflict_guards(
                 assert_eq!(expected, "tenant_identity_b");
                 assert_eq!(actual, "<redacted>");
             }
-            other => panic!("expected tenant mismatch for oar_users, got {other:?}"),
+            other => panic!("expected tenant mismatch for workspace_users, got {other:?}"),
         }
 
         let identity_a = LarkIdentity {

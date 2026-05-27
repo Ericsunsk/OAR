@@ -1,6 +1,6 @@
 use super::*;
 
-impl PostgresReviewDecisionUnitOfWork {
+impl PostgresReviewDecisionRecorder {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -11,8 +11,8 @@ impl PostgresReviewDecisionUnitOfWork {
 
     pub async fn record_decision(
         &self,
-        request: PostgresReviewDecisionUnitOfWorkRequest<'_>,
-    ) -> PgRepositoryResult<PostgresReviewDecisionUnitOfWorkReport> {
+        request: PostgresReviewDecisionRecorderRequest<'_>,
+    ) -> PgRepositoryResult<PostgresReviewDecisionRecorderReport> {
         validate_review_decision_request(&request)?;
 
         let mut tx = self.pool.begin().await?;
@@ -24,7 +24,7 @@ impl PostgresReviewDecisionUnitOfWork {
 
         if !inserted_decision {
             tx.commit().await?;
-            return Ok(PostgresReviewDecisionUnitOfWorkReport {
+            return Ok(PostgresReviewDecisionRecorderReport {
                 operation: None,
                 inbox_item_id: None,
                 outbox_id: None,
@@ -65,7 +65,7 @@ impl PostgresReviewDecisionUnitOfWork {
         let outbox_id = super::audit::enqueue_outbox_in_tx(&mut tx, request.outbox).await?;
         tx.commit().await?;
 
-        Ok(PostgresReviewDecisionUnitOfWorkReport {
+        Ok(PostgresReviewDecisionRecorderReport {
             operation,
             inbox_item_id,
             outbox_id: Some(outbox_id),

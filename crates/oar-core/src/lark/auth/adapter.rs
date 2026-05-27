@@ -12,31 +12,31 @@ use super::safety::{
     sanitize_safe_error, SAFE_AUTH_REFRESH_OVERSIZED_RESPONSE, SAFE_AUTH_REFRESH_PARSE_FAILED,
     SAFE_CONFIG_ERROR, SAFE_REAUTH_ERROR, SAFE_TRANSIENT_ERROR,
 };
-use super::types::{LarkAuthRefreshFailure, LarkAuthRefreshRequest, LarkAuthRefreshResponse};
+use super::types::{FeishuAuthRefreshFailure, FeishuAuthRefreshRequest, FeishuAuthRefreshResponse};
 
-pub trait LarkAuthRefreshClient {
+pub trait FeishuAuthRefreshClient {
     type Error;
 
     fn refresh(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshResponse, Self::Error>;
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshResponse, Self::Error>;
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct LarkAuthRefreshAdapter<C> {
+pub struct FeishuAuthRefreshAdapter<C> {
     client: C,
 }
 
-impl<C> fmt::Debug for LarkAuthRefreshAdapter<C> {
+impl<C> fmt::Debug for FeishuAuthRefreshAdapter<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LarkAuthRefreshAdapter")
+        f.debug_struct("FeishuAuthRefreshAdapter")
             .field("client", &"[REDACTED]")
             .finish()
     }
 }
 
-impl<C> LarkAuthRefreshAdapter<C> {
+impl<C> FeishuAuthRefreshAdapter<C> {
     pub fn new(client: C) -> Self {
         Self { client }
     }
@@ -50,9 +50,9 @@ impl<C> LarkAuthRefreshAdapter<C> {
     }
 }
 
-impl<C> AuthRefreshAdapter for LarkAuthRefreshAdapter<C>
+impl<C> AuthRefreshAdapter for FeishuAuthRefreshAdapter<C>
 where
-    C: LarkAuthRefreshClient,
+    C: FeishuAuthRefreshClient,
     C::Error: 'static,
 {
     fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
@@ -61,59 +61,59 @@ where
 }
 
 #[async_trait(?Send)]
-pub trait AsyncLarkAuthRefreshClient {
+pub trait AsyncFeishuAuthRefreshClient {
     type Error;
 
     async fn refresh(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshResponse, Self::Error>;
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshResponse, Self::Error>;
 }
 
 #[async_trait(?Send)]
-impl<T> AsyncLarkAuthRefreshClient for super::client::LarkAuthRefreshSafeClient<T>
+impl<T> AsyncFeishuAuthRefreshClient for super::client::FeishuAuthRefreshSafeClient<T>
 where
-    T: super::client::AsyncLarkAuthRefreshTransport,
+    T: super::client::AsyncFeishuAuthRefreshTransport,
 {
-    type Error = super::client::LarkAuthRefreshClientError;
+    type Error = super::client::FeishuAuthRefreshClientError;
 
     async fn refresh(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshResponse, Self::Error> {
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshResponse, Self::Error> {
         self.refresh_async(request).await
     }
 }
 
 #[async_trait(?Send)]
-impl<C> AsyncAuthRefreshAdapter for LarkAuthRefreshAdapter<C>
+impl<C> AsyncAuthRefreshAdapter for FeishuAuthRefreshAdapter<C>
 where
-    C: AsyncLarkAuthRefreshClient,
+    C: AsyncFeishuAuthRefreshClient,
     C::Error: 'static,
 {
     async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
-        let request = LarkAuthRefreshRequest::from_snapshot(snapshot);
+        let request = FeishuAuthRefreshRequest::from_snapshot(snapshot);
         response_to_outcome(self.client.refresh(&request).await)
     }
 }
 
-impl<C> LarkAuthRefreshAdapter<C> {
+impl<C> FeishuAuthRefreshAdapter<C> {
     fn refresh_sync(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome
     where
-        C: LarkAuthRefreshClient,
+        C: FeishuAuthRefreshClient,
         C::Error: 'static,
     {
-        let request = LarkAuthRefreshRequest::from_snapshot(snapshot);
+        let request = FeishuAuthRefreshRequest::from_snapshot(snapshot);
         response_to_outcome(self.client.refresh(&request))
     }
 }
 
-fn response_to_outcome<E>(response: Result<LarkAuthRefreshResponse, E>) -> RefreshOutcome
+fn response_to_outcome<E>(response: Result<FeishuAuthRefreshResponse, E>) -> RefreshOutcome
 where
     E: 'static,
 {
     match response {
-        Ok(LarkAuthRefreshResponse::Success(success)) => RefreshOutcome::Success {
+        Ok(FeishuAuthRefreshResponse::Success(success)) => RefreshOutcome::Success {
             rotated_material: EncryptedGrantMaterial {
                 encrypted_primary: success.encrypted_primary,
                 encrypted_renewal: success.encrypted_renewal,
@@ -123,17 +123,17 @@ where
             refreshed_at: ms_to_system_time(success.refreshed_at_ms),
             expires_at: success.expires_at_ms.map(ms_to_system_time),
         },
-        Ok(LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::Transient { safe_error })) => {
-            RefreshOutcome::TransientFailure {
-                safe_error: sanitize_safe_error(&safe_error, SAFE_TRANSIENT_ERROR),
-            }
-        }
-        Ok(LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::ReauthRequired {
+        Ok(FeishuAuthRefreshResponse::Failure(FeishuAuthRefreshFailure::Transient {
+            safe_error,
+        })) => RefreshOutcome::TransientFailure {
+            safe_error: sanitize_safe_error(&safe_error, SAFE_TRANSIENT_ERROR),
+        },
+        Ok(FeishuAuthRefreshResponse::Failure(FeishuAuthRefreshFailure::ReauthRequired {
             safe_error,
         })) => RefreshOutcome::ReauthFailure {
             safe_error: sanitize_safe_error(&safe_error, SAFE_REAUTH_ERROR),
         },
-        Ok(LarkAuthRefreshResponse::Failure(LarkAuthRefreshFailure::ConfigRequired {
+        Ok(FeishuAuthRefreshResponse::Failure(FeishuAuthRefreshFailure::ConfigRequired {
             safe_error,
         })) => RefreshOutcome::ConfigRequired {
             safe_error: sanitize_safe_error(&safe_error, SAFE_CONFIG_ERROR),
@@ -147,19 +147,19 @@ where
     E: 'static,
 {
     let any = error as &dyn std::any::Any;
-    if let Some(client_error) = any.downcast_ref::<super::client::LarkAuthRefreshClientError>() {
+    if let Some(client_error) = any.downcast_ref::<super::client::FeishuAuthRefreshClientError>() {
         return match client_error {
-            super::client::LarkAuthRefreshClientError::Transport => {
+            super::client::FeishuAuthRefreshClientError::Transport => {
                 RefreshOutcome::TransientFailure {
                     safe_error: SAFE_TRANSIENT_ERROR.to_string(),
                 }
             }
-            super::client::LarkAuthRefreshClientError::OversizedResponse { .. } => {
+            super::client::FeishuAuthRefreshClientError::OversizedResponse { .. } => {
                 RefreshOutcome::ConfigRequired {
                     safe_error: SAFE_AUTH_REFRESH_OVERSIZED_RESPONSE.to_string(),
                 }
             }
-            super::client::LarkAuthRefreshClientError::Parse => RefreshOutcome::ConfigRequired {
+            super::client::FeishuAuthRefreshClientError::Parse => RefreshOutcome::ConfigRequired {
                 safe_error: SAFE_AUTH_REFRESH_PARSE_FAILED.to_string(),
             },
         };

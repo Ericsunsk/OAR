@@ -9,7 +9,7 @@ CREATE TABLE tenants (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE oar_users (
+CREATE TABLE workspace_users (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL REFERENCES tenants(id),
     display_name TEXT NOT NULL,
@@ -72,7 +72,7 @@ CREATE TABLE device_sessions (
     expired_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    FOREIGN KEY (tenant_id, user_id) REFERENCES oar_users(tenant_id, id),
+    FOREIGN KEY (tenant_id, user_id) REFERENCES workspace_users(tenant_id, id),
     UNIQUE (tenant_id, session_identity_hash)
 );
 
@@ -88,7 +88,7 @@ CREATE TABLE confirmed_actions (
     confirmed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    FOREIGN KEY (tenant_id, actor_user_id) REFERENCES oar_users(tenant_id, id),
+    FOREIGN KEY (tenant_id, actor_user_id) REFERENCES workspace_users(tenant_id, id),
     UNIQUE (tenant_id, action_id),
     UNIQUE (tenant_id, idempotency_key)
 );

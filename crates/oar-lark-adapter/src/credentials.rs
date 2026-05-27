@@ -1,7 +1,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 
 use crate::redaction::SecretString;
 
@@ -25,7 +25,7 @@ pub trait FeishuAppCredentialProvider {
 
     fn credentials(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuAppCredential, Self::Error>;
 }
 
@@ -35,7 +35,7 @@ pub trait AsyncFeishuAppCredentialProvider {
 
     async fn credentials(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuAppCredential, Self::Error>;
 }
 
@@ -48,7 +48,7 @@ where
 
     async fn credentials(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuAppCredential, Self::Error> {
         FeishuAppCredentialProvider::credentials(self, request)
     }
@@ -83,7 +83,7 @@ impl FeishuAppCredentialProvider for StaticFeishuAppCredentialProvider {
 
     fn credentials(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
+        _request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuAppCredential, Self::Error> {
         Ok(self.credential.clone())
     }

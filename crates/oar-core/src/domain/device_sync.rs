@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use crate::domain::identity::{DeviceSessionId, OarUserId, TenantId};
+use crate::domain::identity::{DeviceSessionId, TenantId, WorkspaceUserId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceEntryPoint {
@@ -28,7 +28,7 @@ pub struct SyncCursor {
 pub struct DeviceSession {
     pub id: DeviceSessionId,
     pub tenant_id: TenantId,
-    pub user_id: OarUserId,
+    pub user_id: WorkspaceUserId,
     pub entry_point: DeviceEntryPoint,
     pub state: SessionState,
     pub cursor: SyncCursor,
@@ -55,7 +55,7 @@ impl DeviceSession {
     pub fn new(
         id: DeviceSessionId,
         tenant_id: TenantId,
-        user_id: OarUserId,
+        user_id: WorkspaceUserId,
         entry_point: DeviceEntryPoint,
         stream: impl Into<String>,
         initial_cursor: u64,

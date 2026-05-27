@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime};
 
-use oar_core::domain::identity::{OarUserId, TenantId};
+use oar_core::domain::identity::{TenantId, WorkspaceUserId};
 use oar_core::domain::review_inbox::{
     ReviewInboxError, ReviewInboxItem, ReviewInboxItemId, ReviewInboxItemStatus,
 };
@@ -9,7 +9,7 @@ fn sample_item(now: SystemTime) -> ReviewInboxItem {
     ReviewInboxItem::new(
         ReviewInboxItemId("inbox_item_01".to_string()),
         TenantId("tenant_01".to_string()),
-        OarUserId("user_01".to_string()),
+        WorkspaceUserId("user_01".to_string()),
         "proposed_action_01",
         1,
         80,

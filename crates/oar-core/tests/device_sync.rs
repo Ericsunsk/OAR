@@ -3,13 +3,13 @@ use std::time::{Duration, SystemTime};
 use oar_core::domain::device_sync::{
     DeviceEntryPoint, DeviceSession, DeviceSyncError, SessionState,
 };
-use oar_core::domain::identity::{DeviceSessionId, OarUserId, TenantId};
+use oar_core::domain::identity::{DeviceSessionId, TenantId, WorkspaceUserId};
 
 fn sample_session(now: SystemTime) -> DeviceSession {
     DeviceSession::new(
         DeviceSessionId("session_sync_01".to_string()),
         TenantId("tenant_sync_01".to_string()),
-        OarUserId("user_sync_01".to_string()),
+        WorkspaceUserId("user_sync_01".to_string()),
         DeviceEntryPoint::MacOs,
         "okr_review_inbox",
         10,

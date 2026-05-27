@@ -51,11 +51,11 @@ CREATE TABLE proposed_actions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, id, version),
     FOREIGN KEY (tenant_id, actor_user_id)
-        REFERENCES oar_users(tenant_id, id),
+        REFERENCES workspace_users(tenant_id, id),
     FOREIGN KEY (tenant_id, target_user_id)
-        REFERENCES oar_users(tenant_id, id),
+        REFERENCES workspace_users(tenant_id, id),
     FOREIGN KEY (tenant_id, owner_user_id)
-        REFERENCES oar_users(tenant_id, id),
+        REFERENCES workspace_users(tenant_id, id),
     CHECK ((kind = 'custom') = (custom_kind IS NOT NULL))
 );
 
@@ -90,7 +90,7 @@ CREATE TABLE proposed_action_decisions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (tenant_id, proposed_action_id, proposed_action_version),
     FOREIGN KEY (tenant_id, actor_user_id)
-        REFERENCES oar_users(tenant_id, id),
+        REFERENCES workspace_users(tenant_id, id),
     FOREIGN KEY (tenant_id, proposed_action_id, proposed_action_version)
         REFERENCES proposed_actions(tenant_id, id, version),
     FOREIGN KEY (tenant_id, confirmed_action_id)
@@ -142,7 +142,7 @@ CREATE TABLE review_inbox_items (
     UNIQUE (tenant_id, user_id, proposed_action_id),
     UNIQUE (tenant_id, operation_id),
     FOREIGN KEY (tenant_id, user_id)
-        REFERENCES oar_users(tenant_id, id),
+        REFERENCES workspace_users(tenant_id, id),
     FOREIGN KEY (tenant_id, proposed_action_id, proposed_action_version)
         REFERENCES proposed_actions(tenant_id, id, version),
     FOREIGN KEY (tenant_id, operation_id)

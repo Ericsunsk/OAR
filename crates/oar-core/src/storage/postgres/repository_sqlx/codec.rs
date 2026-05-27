@@ -4,7 +4,7 @@ use crate::action::confirmed_action::ActionStatus;
 use crate::domain::device_sync::{DeviceEntryPoint, SessionState};
 use crate::domain::evidence::{EvidenceSourceKind, EvidenceVisibilityScope};
 use crate::domain::identity::{
-    ActorKind, OarUserStatus, ScopeBoundary, TenantStatus, TokenGrantState,
+    ActorKind, ScopeBoundary, TenantStatus, TokenGrantState, WorkspaceUserStatus,
 };
 use crate::domain::proposed_action::{
     ProposedActionDecision, ProposedActionKind, ProposedActionStatus, RiskSeverity,
@@ -122,18 +122,20 @@ pub(super) fn tenant_status_from_db(value: &str) -> PgRepositoryResult<TenantSta
     }
 }
 
-pub(super) fn oar_user_status_to_db(status: &OarUserStatus) -> &'static str {
+pub(super) fn workspace_user_status_to_db(status: &WorkspaceUserStatus) -> &'static str {
     match status {
-        OarUserStatus::Active => "active",
-        OarUserStatus::Disabled => "disabled",
+        WorkspaceUserStatus::Active => "active",
+        WorkspaceUserStatus::Disabled => "disabled",
     }
 }
 
-pub(super) fn oar_user_status_from_db(value: &str) -> PgRepositoryResult<OarUserStatus> {
+pub(super) fn workspace_user_status_from_db(
+    value: &str,
+) -> PgRepositoryResult<WorkspaceUserStatus> {
     match value {
-        "active" => Ok(OarUserStatus::Active),
-        "disabled" => Ok(OarUserStatus::Disabled),
-        other => Err(PostgresRepositoryError::UnknownOarUserStatus(
+        "active" => Ok(WorkspaceUserStatus::Active),
+        "disabled" => Ok(WorkspaceUserStatus::Disabled),
+        other => Err(PostgresRepositoryError::UnknownWorkspaceUserStatus(
             other.to_string(),
         )),
     }

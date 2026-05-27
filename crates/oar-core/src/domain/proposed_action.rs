@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use serde_json::Value;
 
 use crate::action::confirmed_action::ConfirmedAction;
-use crate::domain::identity::{OarUserId, TenantId};
+use crate::domain::identity::{TenantId, WorkspaceUserId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProposedActionId(pub String);
@@ -44,9 +44,9 @@ pub enum ProposedActionDecision {
 pub struct ProposedAction {
     pub id: ProposedActionId,
     pub tenant_id: TenantId,
-    pub actor_user_id: OarUserId,
-    pub target_user_id: Option<OarUserId>,
-    pub owner_user_id: Option<OarUserId>,
+    pub actor_user_id: WorkspaceUserId,
+    pub target_user_id: Option<WorkspaceUserId>,
+    pub owner_user_id: Option<WorkspaceUserId>,
     pub version: u64,
     pub status: ProposedActionStatus,
     pub kind: ProposedActionKind,
@@ -73,9 +73,9 @@ impl ProposedAction {
     pub fn draft(
         id: ProposedActionId,
         tenant_id: TenantId,
-        actor_user_id: OarUserId,
-        target_user_id: Option<OarUserId>,
-        owner_user_id: Option<OarUserId>,
+        actor_user_id: WorkspaceUserId,
+        target_user_id: Option<WorkspaceUserId>,
+        owner_user_id: Option<WorkspaceUserId>,
         version: u64,
         kind: ProposedActionKind,
         risk_severity: RiskSeverity,

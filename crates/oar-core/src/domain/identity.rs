@@ -5,7 +5,7 @@ use std::time::SystemTime;
 pub struct TenantId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct OarUserId(pub String);
+pub struct WorkspaceUserId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LarkIdentityId(pub String);
@@ -30,15 +30,15 @@ pub enum TenantStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OarUser {
-    pub id: OarUserId,
+pub struct WorkspaceUser {
+    pub id: WorkspaceUserId,
     pub tenant_id: TenantId,
     pub display_name: String,
-    pub status: OarUserStatus,
+    pub status: WorkspaceUserStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OarUserStatus {
+pub enum WorkspaceUserStatus {
     Active,
     Disabled,
 }

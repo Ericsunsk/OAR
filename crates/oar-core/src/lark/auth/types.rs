@@ -17,7 +17,7 @@ pub enum LarkAuthGrantState {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct LarkAuthRefreshRequest {
+pub struct FeishuAuthRefreshRequest {
     pub grant_id: String,
     pub tenant_id: String,
     pub expected_fingerprint: String,
@@ -27,9 +27,9 @@ pub struct LarkAuthRefreshRequest {
     pub reauth_marked: bool,
 }
 
-impl fmt::Debug for LarkAuthRefreshRequest {
+impl fmt::Debug for FeishuAuthRefreshRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LarkAuthRefreshRequest")
+        f.debug_struct("FeishuAuthRefreshRequest")
             .field("grant_id", &self.grant_id)
             .field("tenant_id", &self.tenant_id)
             .field("expected_fingerprint", &"[REDACTED]")
@@ -41,7 +41,7 @@ impl fmt::Debug for LarkAuthRefreshRequest {
     }
 }
 
-impl LarkAuthRefreshRequest {
+impl FeishuAuthRefreshRequest {
     pub fn from_snapshot(snapshot: &TokenRefreshGrantSnapshot) -> Self {
         Self {
             grant_id: snapshot.grant_id.0.clone(),
@@ -55,14 +55,14 @@ impl LarkAuthRefreshRequest {
     }
 }
 
-impl From<&TokenRefreshGrantSnapshot> for LarkAuthRefreshRequest {
+impl From<&TokenRefreshGrantSnapshot> for FeishuAuthRefreshRequest {
     fn from(value: &TokenRefreshGrantSnapshot) -> Self {
         Self::from_snapshot(value)
     }
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct LarkAuthRefreshSuccess {
+pub struct FeishuAuthRefreshSuccess {
     pub encrypted_primary: Vec<u8>,
     pub encrypted_renewal: Vec<u8>,
     pub key_id: String,
@@ -71,9 +71,9 @@ pub struct LarkAuthRefreshSuccess {
     pub expires_at_ms: Option<u64>,
 }
 
-impl fmt::Debug for LarkAuthRefreshSuccess {
+impl fmt::Debug for FeishuAuthRefreshSuccess {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LarkAuthRefreshSuccess")
+        f.debug_struct("FeishuAuthRefreshSuccess")
             .field("encrypted_primary", &"[REDACTED]")
             .field("encrypted_renewal", &"[REDACTED]")
             .field("key_id", &"[REDACTED]")
@@ -85,30 +85,30 @@ impl fmt::Debug for LarkAuthRefreshSuccess {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum LarkAuthRefreshFailure {
+pub enum FeishuAuthRefreshFailure {
     Transient { safe_error: String },
     ReauthRequired { safe_error: String },
     ConfigRequired { safe_error: String },
 }
 
-impl fmt::Debug for LarkAuthRefreshFailure {
+impl fmt::Debug for FeishuAuthRefreshFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LarkAuthRefreshFailure::Transient { safe_error } => f
+            FeishuAuthRefreshFailure::Transient { safe_error } => f
                 .debug_struct("Transient")
                 .field(
                     "safe_error",
                     &sanitize_safe_error(safe_error, SAFE_TRANSIENT_ERROR),
                 )
                 .finish(),
-            LarkAuthRefreshFailure::ReauthRequired { safe_error } => f
+            FeishuAuthRefreshFailure::ReauthRequired { safe_error } => f
                 .debug_struct("ReauthRequired")
                 .field(
                     "safe_error",
                     &sanitize_safe_error(safe_error, SAFE_REAUTH_ERROR),
                 )
                 .finish(),
-            LarkAuthRefreshFailure::ConfigRequired { safe_error } => f
+            FeishuAuthRefreshFailure::ConfigRequired { safe_error } => f
                 .debug_struct("ConfigRequired")
                 .field(
                     "safe_error",
@@ -120,18 +120,18 @@ impl fmt::Debug for LarkAuthRefreshFailure {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum LarkAuthRefreshResponse {
-    Success(LarkAuthRefreshSuccess),
-    Failure(LarkAuthRefreshFailure),
+pub enum FeishuAuthRefreshResponse {
+    Success(FeishuAuthRefreshSuccess),
+    Failure(FeishuAuthRefreshFailure),
 }
 
-impl fmt::Debug for LarkAuthRefreshResponse {
+impl fmt::Debug for FeishuAuthRefreshResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LarkAuthRefreshResponse::Success(success) => {
+            FeishuAuthRefreshResponse::Success(success) => {
                 f.debug_tuple("Success").field(success).finish()
             }
-            LarkAuthRefreshResponse::Failure(failure) => {
+            FeishuAuthRefreshResponse::Failure(failure) => {
                 f.debug_tuple("Failure").field(failure).finish()
             }
         }
@@ -139,36 +139,36 @@ impl fmt::Debug for LarkAuthRefreshResponse {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum LarkAuthRefreshParseError {
+pub enum FeishuAuthRefreshParseError {
     InvalidEnvelope,
     SensitiveContentDetected,
 }
 
-impl fmt::Debug for LarkAuthRefreshParseError {
+impl fmt::Debug for FeishuAuthRefreshParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LarkAuthRefreshParseError::InvalidEnvelope => {
-                write!(f, "LarkAuthRefreshParseError(InvalidEnvelope)")
+            FeishuAuthRefreshParseError::InvalidEnvelope => {
+                write!(f, "FeishuAuthRefreshParseError(InvalidEnvelope)")
             }
-            LarkAuthRefreshParseError::SensitiveContentDetected => {
-                write!(f, "LarkAuthRefreshParseError(SensitiveContentDetected)")
+            FeishuAuthRefreshParseError::SensitiveContentDetected => {
+                write!(f, "FeishuAuthRefreshParseError(SensitiveContentDetected)")
             }
         }
     }
 }
 
-impl fmt::Display for LarkAuthRefreshParseError {
+impl fmt::Display for FeishuAuthRefreshParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LarkAuthRefreshParseError::InvalidEnvelope => write!(f, "{}", SAFE_PARSE_ERROR),
-            LarkAuthRefreshParseError::SensitiveContentDetected => {
+            FeishuAuthRefreshParseError::InvalidEnvelope => write!(f, "{}", SAFE_PARSE_ERROR),
+            FeishuAuthRefreshParseError::SensitiveContentDetected => {
                 write!(f, "{}", SAFE_PARSE_ERROR)
             }
         }
     }
 }
 
-impl std::error::Error for LarkAuthRefreshParseError {}
+impl std::error::Error for FeishuAuthRefreshParseError {}
 
 fn map_grant_state(state: crate::domain::identity::TokenGrantState) -> LarkAuthGrantState {
     match state {

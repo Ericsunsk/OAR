@@ -1,6 +1,6 @@
 use std::fmt;
 
-use oar_core::lark::auth::types::{LarkAuthGrantState, LarkAuthRefreshRequest};
+use oar_core::lark::auth::types::{FeishuAuthRefreshRequest, LarkAuthGrantState};
 
 use crate::crypto::{AesGcmGrantDecryptError, AesGcmGrantEncryptor, AesGcmGrantEncryptorError};
 use crate::material::blob::{compose_encrypted_grant_blob, parse_encrypted_grant_blob};
@@ -31,7 +31,7 @@ impl FeishuGrantMaterialStore for FakeStore {
     type Error = FakeStoreError;
     fn load(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
+        _request: &FeishuAuthRefreshRequest,
     ) -> Result<StoredFeishuGrantMaterial, Self::Error> {
         Ok(self.stored.clone())
     }
@@ -241,8 +241,8 @@ fn decrypt_helper_error_mapping_is_non_sensitive() {
     assert!(!rendered.contains("fingerprint"));
 }
 
-fn sample_request() -> LarkAuthRefreshRequest {
-    LarkAuthRefreshRequest {
+fn sample_request() -> FeishuAuthRefreshRequest {
+    FeishuAuthRefreshRequest {
         grant_id: "grant-1".to_string(),
         tenant_id: "tenant-1".to_string(),
         expected_fingerprint: "fp-current".to_string(),

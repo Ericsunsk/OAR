@@ -12,7 +12,7 @@ where
     A: AsyncAuthRefreshAdapter,
 {
     pub(super) adapter: A,
-    pub(super) uow: PostgresTokenRefreshUnitOfWork,
+    pub(super) recorder: PostgresTokenRefreshRecorder,
     pub(super) audit: PostgresAuditEventRepository,
 }
 
@@ -36,7 +36,7 @@ pub struct PostgresTenantRepository {
 }
 
 #[derive(Debug, Clone)]
-pub struct PostgresOarUserRepository {
+pub struct PostgresWorkspaceUserRepository {
     pub(super) pool: PgPool,
 }
 
@@ -66,17 +66,17 @@ pub struct PostgresOperationLedgerRepository {
 }
 
 #[derive(Debug, Clone)]
-pub struct PostgresExecutionUnitOfWork {
+pub struct PostgresExecutionRecorder {
     pub(super) pool: PgPool,
 }
 
 #[derive(Debug, Clone)]
-pub struct PostgresReviewDecisionUnitOfWork {
+pub struct PostgresReviewDecisionRecorder {
     pub(super) pool: PgPool,
 }
 
 #[derive(Debug, Clone)]
-pub struct PostgresTokenRefreshUnitOfWork {
+pub struct PostgresTokenRefreshRecorder {
     pub(super) pool: PgPool,
 }
 

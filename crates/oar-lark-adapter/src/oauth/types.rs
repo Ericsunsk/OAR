@@ -1,7 +1,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 
 use crate::redaction::SecretString;
 
@@ -10,7 +10,7 @@ pub trait FeishuRefreshMaterialProvider {
 
     fn refresh_material(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuRefreshMaterial, Self::Error>;
 }
 
@@ -20,7 +20,7 @@ pub trait AsyncFeishuRefreshMaterialProvider {
 
     async fn refresh_material(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuRefreshMaterial, Self::Error>;
 }
 

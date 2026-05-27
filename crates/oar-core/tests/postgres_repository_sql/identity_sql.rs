@@ -1,6 +1,6 @@
 use oar_core::storage::postgres::identity_sql::{
-    GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_OAR_USER_BY_ID,
-    GET_TENANT_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_OAR_USER, UPSERT_TENANT,
+    GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_TENANT_BY_ID,
+    GET_WORKSPACE_USER_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_TENANT, UPSERT_WORKSPACE_USER,
 };
 
 use crate::compact;
@@ -27,8 +27,8 @@ fn identity_upsert_sql_uses_id_conflict_path_with_tenant_guard() {
 fn identity_sql_is_tenant_scoped_and_conflict_guarded() {
     let upsert_tenant = compact(UPSERT_TENANT);
     let get_tenant = compact(GET_TENANT_BY_ID);
-    let upsert_user = compact(UPSERT_OAR_USER);
-    let get_user = compact(GET_OAR_USER_BY_ID);
+    let upsert_user = compact(UPSERT_WORKSPACE_USER);
+    let get_user = compact(GET_WORKSPACE_USER_BY_ID);
     let upsert_identity = compact(UPSERT_LARK_IDENTITY);
     let get_identity = compact(GET_LARK_IDENTITY_BY_ID);
     let get_identity_external = compact(GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL);
@@ -40,11 +40,11 @@ fn identity_sql_is_tenant_scoped_and_conflict_guarded() {
     assert!(get_tenant.contains("where id = $1"));
     assert!(get_tenant.contains("limit 1"));
 
-    assert!(upsert_user.contains("insert into oar_users"));
+    assert!(upsert_user.contains("insert into workspace_users"));
     assert!(upsert_user.contains("on conflict (id) do update"));
-    assert!(upsert_user.contains("where oar_users.tenant_id = excluded.tenant_id"));
+    assert!(upsert_user.contains("where workspace_users.tenant_id = excluded.tenant_id"));
     assert!(upsert_user.contains("not exists (select 1 from upserted)"));
-    assert!(get_user.contains("from oar_users"));
+    assert!(get_user.contains("from workspace_users"));
     assert!(get_user.contains("where tenant_id = $1"));
     assert!(get_user.contains("and id = $2"));
     assert!(get_user.contains("limit 1"));

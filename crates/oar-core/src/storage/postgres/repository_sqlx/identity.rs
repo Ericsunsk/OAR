@@ -365,7 +365,7 @@ impl PostgresTenantRepository {
     }
 }
 
-impl PostgresOarUserRepository {
+impl PostgresWorkspaceUserRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -374,19 +374,19 @@ impl PostgresOarUserRepository {
         &self.pool
     }
 
-    pub async fn upsert(&self, user: &OarUser) -> PgRepositoryResult<StoredOarUser> {
-        let row = sqlx::query(UPSERT_OAR_USER)
+    pub async fn upsert(&self, user: &WorkspaceUser) -> PgRepositoryResult<StoredWorkspaceUser> {
+        let row = sqlx::query(UPSERT_WORKSPACE_USER)
             .bind(&user.id.0)
             .bind(&user.tenant_id.0)
             .bind(&user.display_name)
-            .bind(oar_user_status_to_db(&user.status))
+            .bind(workspace_user_status_to_db(&user.status))
             .fetch_optional(&self.pool)
             .await?;
         if let Some(row) = row.as_ref() {
-            return stored_oar_user_from_row(row);
+            return stored_workspace_user_from_row(row);
         }
 
-        let conflicting_tenant = sqlx::query("SELECT 1 FROM oar_users WHERE id = $1 LIMIT 1")
+        let conflicting_tenant = sqlx::query("SELECT 1 FROM workspace_users WHERE id = $1 LIMIT 1")
             .bind(&user.id.0)
             .fetch_optional(&self.pool)
             .await?;
@@ -406,13 +406,13 @@ impl PostgresOarUserRepository {
         &self,
         tenant_id: &str,
         user_id: &str,
-    ) -> PgRepositoryResult<Option<StoredOarUser>> {
-        let row = sqlx::query(GET_OAR_USER_BY_ID)
+    ) -> PgRepositoryResult<Option<StoredWorkspaceUser>> {
+        let row = sqlx::query(GET_WORKSPACE_USER_BY_ID)
             .bind(tenant_id)
             .bind(user_id)
             .fetch_optional(&self.pool)
             .await?;
-        row.as_ref().map(stored_oar_user_from_row).transpose()
+        row.as_ref().map(stored_workspace_user_from_row).transpose()
     }
 }
 
@@ -523,8 +523,8 @@ impl PostgresIdentityRepository {
         PostgresTenantRepository::new(self.pool.clone())
     }
 
-    pub fn users(&self) -> PostgresOarUserRepository {
-        PostgresOarUserRepository::new(self.pool.clone())
+    pub fn users(&self) -> PostgresWorkspaceUserRepository {
+        PostgresWorkspaceUserRepository::new(self.pool.clone())
     }
 
     pub fn identities(&self) -> PostgresLarkIdentityRepository {

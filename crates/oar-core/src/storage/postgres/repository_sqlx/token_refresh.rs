@@ -1,6 +1,6 @@
 use super::*;
 
-impl PostgresTokenRefreshUnitOfWork {
+impl PostgresTokenRefreshRecorder {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -13,7 +13,7 @@ impl PostgresTokenRefreshUnitOfWork {
         &self,
         planned: TokenRefreshPlannedCommand,
         audit_context: TokenRefreshAuditContext,
-    ) -> PgRepositoryResult<PostgresTokenRefreshUnitOfWorkReport> {
+    ) -> PgRepositoryResult<PostgresTokenRefreshRecorderReport> {
         validate_token_refresh_plan(&planned)?;
         let summary = planned
             .report
@@ -27,7 +27,7 @@ impl PostgresTokenRefreshUnitOfWork {
         command: TokenRefreshRepositoryCommand,
         summary: TokenRefreshAuditSummary,
         audit_context: TokenRefreshAuditContext,
-    ) -> PgRepositoryResult<PostgresTokenRefreshUnitOfWorkReport> {
+    ) -> PgRepositoryResult<PostgresTokenRefreshRecorderReport> {
         let mut tx = self.pool.begin().await?;
         let apply_result =
             super::token_refresh::apply_refresh_command_in_tx(&mut tx, command).await?;
@@ -42,7 +42,7 @@ impl PostgresTokenRefreshUnitOfWork {
         super::audit::append_audit_event_in_tx(&mut tx, &event, None).await?;
         tx.commit().await?;
 
-        Ok(PostgresTokenRefreshUnitOfWorkReport {
+        Ok(PostgresTokenRefreshRecorderReport {
             apply_result,
             event,
         })
@@ -56,7 +56,7 @@ where
     pub fn new(pool: PgPool, adapter: A) -> Self {
         Self {
             adapter,
-            uow: PostgresTokenRefreshUnitOfWork::new(pool.clone()),
+            recorder: PostgresTokenRefreshRecorder::new(pool.clone()),
             audit: PostgresAuditEventRepository::new(pool),
         }
     }
@@ -85,15 +85,16 @@ where
             .map_err(PostgresRepositoryError::TokenRefreshDecisionBridge)?;
         let report_template = planned.report.clone();
 
-        let uow_report = self
-            .uow
+        let recorder_report = self
+            .recorder
             .apply_planned_command_with_audit(planned, audit_context)
             .await?;
-        let service_report = report_template.into_service_report(uow_report.apply_result.is_some());
+        let service_report =
+            report_template.into_service_report(recorder_report.apply_result.is_some());
 
         Ok(PostgresTokenRefreshOrchestratorReport {
             service_report,
-            event: uow_report.event,
+            event: recorder_report.event,
         })
     }
 }

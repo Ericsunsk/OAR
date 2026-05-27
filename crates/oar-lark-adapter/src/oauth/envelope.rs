@@ -1,4 +1,4 @@
-use oar_core::lark::auth::client::LarkAuthRefreshRawEnvelope;
+use oar_core::lark::auth::client::FeishuAuthRefreshRawEnvelope;
 use serde_json::{json, Value};
 
 use super::transport::FeishuOAuthTransportError;
@@ -6,9 +6,9 @@ use super::types::FeishuGrantEnvelope;
 
 pub(super) fn raw_envelope(
     value: Value,
-) -> Result<LarkAuthRefreshRawEnvelope, FeishuOAuthTransportError> {
+) -> Result<FeishuAuthRefreshRawEnvelope, FeishuOAuthTransportError> {
     serde_json::to_string(&value)
-        .map(LarkAuthRefreshRawEnvelope::new)
+        .map(FeishuAuthRefreshRawEnvelope::new)
         .map_err(|_| FeishuOAuthTransportError::EnvelopeSerializationFailed)
 }
 

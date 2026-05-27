@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use oar_core::domain::token_refresh::service::AsyncAuthRefreshAdapter;
 use oar_core::domain::token_refresh::types::RefreshOutcome;
-use oar_core::lark::auth::client::LarkAuthRefreshSafeClient;
-use oar_core::lark::auth::types::LarkAuthRefreshResponse;
+use oar_core::lark::auth::client::FeishuAuthRefreshSafeClient;
+use oar_core::lark::auth::types::FeishuAuthRefreshResponse;
 
 use super::helpers::{
     assert_no_secret, contains_subslice, runtime, sample_request, snapshot, stored_provider,
@@ -24,8 +24,8 @@ fn async_adapter_material_provider_failure_maps_to_transient_and_skips_http() {
         FakeEncryptor,
         CountingAsyncHttpClient::new(sent_requests.clone()),
     );
-    let safe_client = LarkAuthRefreshSafeClient::new(transport);
-    let mut adapter = oar_core::lark::auth::adapter::LarkAuthRefreshAdapter::new(safe_client);
+    let safe_client = FeishuAuthRefreshSafeClient::new(transport);
+    let mut adapter = oar_core::lark::auth::adapter::FeishuAuthRefreshAdapter::new(safe_client);
 
     let outcome = runtime().block_on(adapter.refresh(&snapshot()));
 
@@ -54,8 +54,8 @@ fn stored_blob_to_async_core_adapter_success_rotates_encrypted_material() {
         ),
         AsyncFakeHttpClient::from_response(HttpResponse::new(200, success_body())),
     );
-    let safe_client = LarkAuthRefreshSafeClient::new(transport);
-    let mut adapter = oar_core::lark::auth::adapter::LarkAuthRefreshAdapter::new(safe_client);
+    let safe_client = FeishuAuthRefreshSafeClient::new(transport);
+    let mut adapter = oar_core::lark::auth::adapter::FeishuAuthRefreshAdapter::new(safe_client);
 
     let outcome = runtime().block_on(adapter.refresh(&snapshot()));
 
@@ -106,12 +106,12 @@ fn async_safe_client_transient_failure_is_safe() {
         FakeEncryptor,
         CountingAsyncHttpClient::new(Rc::new(RefCell::new(0))),
     );
-    let mut safe_client = LarkAuthRefreshSafeClient::new(transport);
+    let mut safe_client = FeishuAuthRefreshSafeClient::new(transport);
 
     let response = runtime().block_on(async { safe_client.refresh_async(&sample_request()).await });
 
     match response {
-        Ok(LarkAuthRefreshResponse::Failure(failure)) => {
+        Ok(FeishuAuthRefreshResponse::Failure(failure)) => {
             let rendered = format!("{failure:?}");
             assert_no_secret(&rendered);
         }

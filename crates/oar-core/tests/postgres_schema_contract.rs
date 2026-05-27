@@ -286,7 +286,7 @@ fn review_inbox_items_are_cursor_projected_and_orderable() {
     assert!(sql.contains("sort_key bigint not null"));
     assert!(sql.contains("operation_id text"));
     assert!(
-        sql.contains("references oar_users(tenant_id, id)"),
+        sql.contains("references workspace_users(tenant_id, id)"),
         "expected inbox/user references to be tenant-bound"
     );
     assert!(
@@ -375,11 +375,13 @@ fn identity_and_action_domain_foreign_keys_are_tenant_bound() {
         "expected token_grants.identity_id to be tenant-bound"
     );
     assert!(
-        sql.contains("foreign key (tenant_id, user_id) references oar_users(tenant_id, id)"),
+        sql.contains("foreign key (tenant_id, user_id) references workspace_users(tenant_id, id)"),
         "expected device_sessions.user_id to be tenant-bound"
     );
     assert!(
-        sql.contains("foreign key (tenant_id, actor_user_id) references oar_users(tenant_id, id)"),
+        sql.contains(
+            "foreign key (tenant_id, actor_user_id) references workspace_users(tenant_id, id)"
+        ),
         "expected confirmed_actions.actor_user_id to be tenant-bound"
     );
 }

@@ -2,9 +2,9 @@ use std::fmt;
 
 use async_trait::async_trait;
 use oar_core::lark::auth::client::{
-    AsyncLarkAuthRefreshTransport, LarkAuthRefreshRawEnvelope, LarkAuthRefreshTransport,
+    AsyncFeishuAuthRefreshTransport, FeishuAuthRefreshRawEnvelope, FeishuAuthRefreshTransport,
 };
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -111,7 +111,7 @@ impl<P, E, H> fmt::Debug for FeishuOAuthTransport<P, E, H> {
     }
 }
 
-impl<P, E, H> LarkAuthRefreshTransport for FeishuOAuthTransport<P, E, H>
+impl<P, E, H> FeishuAuthRefreshTransport for FeishuOAuthTransport<P, E, H>
 where
     P: FeishuRefreshMaterialProvider,
     E: FeishuGrantEncryptor,
@@ -121,8 +121,8 @@ where
 
     fn execute(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshRawEnvelope, Self::Error> {
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshRawEnvelope, Self::Error> {
         let material = match self.material_provider.refresh_material(request) {
             Ok(material) => material,
             Err(_) => return raw_envelope(failure_envelope_value("transient_failure")),
@@ -138,7 +138,7 @@ where
 }
 
 #[async_trait(?Send)]
-impl<P, E, H> AsyncLarkAuthRefreshTransport for FeishuOAuthTransport<P, E, H>
+impl<P, E, H> AsyncFeishuAuthRefreshTransport for FeishuOAuthTransport<P, E, H>
 where
     P: AsyncFeishuRefreshMaterialProvider,
     E: FeishuGrantEncryptor,
@@ -148,8 +148,8 @@ where
 
     async fn execute(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshRawEnvelope, Self::Error> {
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshRawEnvelope, Self::Error> {
         let material = match self.material_provider.refresh_material(request).await {
             Ok(material) => material,
             Err(_) => return raw_envelope(failure_envelope_value("transient_failure")),
@@ -165,10 +165,10 @@ where
 }
 
 fn refresh_response_to_envelope<E>(
-    request: &LarkAuthRefreshRequest,
+    request: &FeishuAuthRefreshRequest,
     response: HttpResponse,
     encryptor: &mut E,
-) -> Result<LarkAuthRefreshRawEnvelope, FeishuOAuthTransportError>
+) -> Result<FeishuAuthRefreshRawEnvelope, FeishuOAuthTransportError>
 where
     E: FeishuGrantEncryptor,
 {

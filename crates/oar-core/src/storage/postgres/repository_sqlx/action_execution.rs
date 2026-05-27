@@ -1,6 +1,6 @@
 use super::*;
 
-mod execution_uow;
+mod execution_recorder;
 mod operation_ledger;
 mod review_decision;
 
@@ -52,7 +52,7 @@ where
     }
 }
 
-fn validate_uow_tenant(
+fn validate_recorder_tenant(
     expected_tenant_id: &str,
     event: &AuditEvent,
     outbox: &AuditOutboxEnvelope,
@@ -77,9 +77,9 @@ fn validate_uow_tenant(
 }
 
 fn validate_review_decision_request(
-    request: &PostgresReviewDecisionUnitOfWorkRequest<'_>,
+    request: &PostgresReviewDecisionRecorderRequest<'_>,
 ) -> PgRepositoryResult<()> {
-    validate_uow_tenant(request.decision.tenant_id, request.event, request.outbox)?;
+    validate_recorder_tenant(request.decision.tenant_id, request.event, request.outbox)?;
     validate_review_decision_tenant_binding(
         "inbox_item.tenant_id",
         request.decision.tenant_id,

@@ -1,4 +1,4 @@
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 
 use crate::crypto::decrypt_v1_envelope;
 use crate::redaction::SecretString;
@@ -11,7 +11,7 @@ use crate::material::types::{
 };
 
 pub(super) fn decrypt_and_validate<S, K>(
-    request: &LarkAuthRefreshRequest,
+    request: &FeishuAuthRefreshRequest,
     stored: StoredFeishuGrantMaterial,
     key_resolver: &mut K,
 ) -> Result<DecryptedFeishuGrantMaterial, AesGcmRefreshMaterialProviderError<S, K::Error>>
@@ -42,7 +42,7 @@ where
 }
 
 pub(super) async fn decrypt_and_validate_async<S, K>(
-    request: &LarkAuthRefreshRequest,
+    request: &FeishuAuthRefreshRequest,
     stored: StoredFeishuGrantMaterial,
     key_resolver: &mut K,
 ) -> Result<DecryptedFeishuGrantMaterial, AesGcmRefreshMaterialProviderError<S, K::Error>>

@@ -1,7 +1,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 
 use crate::redaction::SecretString;
 
@@ -33,7 +33,7 @@ pub trait FeishuGrantMaterialStore {
 
     fn load(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<StoredFeishuGrantMaterial, Self::Error>;
 }
 
@@ -43,7 +43,7 @@ pub trait AsyncFeishuGrantMaterialStore {
 
     async fn load(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<StoredFeishuGrantMaterial, Self::Error>;
 }
 
@@ -56,7 +56,7 @@ where
 
     async fn load(
         &mut self,
-        request: &LarkAuthRefreshRequest,
+        request: &FeishuAuthRefreshRequest,
     ) -> Result<StoredFeishuGrantMaterial, Self::Error> {
         FeishuGrantMaterialStore::load(self, request)
     }

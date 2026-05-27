@@ -36,32 +36,33 @@ impl ActionAdapter for DryRunRaceAdapter {
         let action_id = action.action_id.clone();
         std::thread::spawn(move || {
             runtime().block_on(async move {
-                let uow = PostgresExecutionUnitOfWork::new(pool);
-                uow.record_dry_run(
-                    &tenant_id,
-                    &idempotency_key,
-                    1_748_260_003_000,
-                    &AuditEvent::dry_run(
-                        audit_context(
-                            "evt_dry_run_race_2",
-                            &format!("trace-{tenant_id}-{idempotency_key}"),
-                            2,
-                            1_748_260_003_000,
-                            &actor_user_id,
-                            &tenant_id,
-                            &action_id,
-                        ),
-                        Some(summary("race before")),
-                        Some(summary("race projected")),
-                    ),
-                    &outbox_envelope(
+                let recorder = PostgresExecutionRecorder::new(pool);
+                recorder
+                    .record_dry_run(
                         &tenant_id,
-                        &format!("trace-{tenant_id}-{idempotency_key}"),
-                        1_748_260_004_000,
-                    ),
-                )
-                .await
-                .expect("race dry-run should mark executing");
+                        &idempotency_key,
+                        1_748_260_003_000,
+                        &AuditEvent::dry_run(
+                            audit_context(
+                                "evt_dry_run_race_2",
+                                &format!("trace-{tenant_id}-{idempotency_key}"),
+                                2,
+                                1_748_260_003_000,
+                                &actor_user_id,
+                                &tenant_id,
+                                &action_id,
+                            ),
+                            Some(summary("race before")),
+                            Some(summary("race projected")),
+                        ),
+                        &outbox_envelope(
+                            &tenant_id,
+                            &format!("trace-{tenant_id}-{idempotency_key}"),
+                            1_748_260_004_000,
+                        ),
+                    )
+                    .await
+                    .expect("race dry-run should mark executing");
             });
         })
         .join()
@@ -210,30 +211,31 @@ fn postgres_live_action_executor_resumes_after_confirmation_only_crash() {
             "user_executor_resume",
             "idem_executor_resume",
         );
-        let uow = PostgresExecutionUnitOfWork::new(pool.clone());
-        uow.record_confirmation(
-            &action,
-            1_748_260_000_000,
-            "op-idem_executor_resume",
-            &AuditEvent::confirmed_action(
-                audit_context(
-                    "trace-tenant_executor_resume-idem_executor_resume-evt-1",
-                    "trace-tenant_executor_resume-idem_executor_resume",
-                    1,
-                    1_748_260_001_000,
-                    "user_executor_resume",
-                    "tenant_executor_resume",
-                    "action_executor_resume",
+        let recorder = PostgresExecutionRecorder::new(pool.clone());
+        recorder
+            .record_confirmation(
+                &action,
+                1_748_260_000_000,
+                "op-idem_executor_resume",
+                &AuditEvent::confirmed_action(
+                    audit_context(
+                        "trace-tenant_executor_resume-idem_executor_resume-evt-1",
+                        "trace-tenant_executor_resume-idem_executor_resume",
+                        1,
+                        1_748_260_001_000,
+                        "user_executor_resume",
+                        "tenant_executor_resume",
+                        "action_executor_resume",
+                    ),
+                    summary("confirmed before crash"),
                 ),
-                summary("confirmed before crash"),
-            ),
-            &outbox_envelope(
-                "tenant_executor_resume",
-                "trace-tenant_executor_resume-idem_executor_resume",
-                1_748_260_002_000,
-            ),
-        )
-        .await?;
+                &outbox_envelope(
+                    "tenant_executor_resume",
+                    "trace-tenant_executor_resume-idem_executor_resume",
+                    1_748_260_002_000,
+                ),
+            )
+            .await?;
 
         let adapter = LiveMockAdapter::succeeding();
         let mut executor = postgres_action_executor(pool.clone(), adapter.clone());
@@ -295,8 +297,8 @@ fn postgres_live_action_executor_existing_executing_operation_is_inflight_duplic
             "user_executor_executing_resume",
             "idem_executor_executing_resume",
         );
-        let uow = PostgresExecutionUnitOfWork::new(pool.clone());
-        uow.record_confirmation(
+        let recorder = PostgresExecutionRecorder::new(pool.clone());
+        recorder.record_confirmation(
             &action,
             1_748_260_000_000,
             "op-idem_executor_executing_resume",
@@ -319,7 +321,7 @@ fn postgres_live_action_executor_existing_executing_operation_is_inflight_duplic
             ),
         )
         .await?;
-        uow.record_dry_run(
+        recorder.record_dry_run(
             "tenant_executor_executing_resume",
             "idem_executor_executing_resume",
             1_748_260_003_000,
@@ -399,7 +401,7 @@ fn postgres_live_action_executor_dry_run_race_does_not_execute_without_ownership
                 tick += 1_000;
                 tick
             },
-            PostgresExecutionUnitOfWork::new(pool.clone()),
+            PostgresExecutionRecorder::new(pool.clone()),
             PostgresAuditEventRepository::new(pool.clone()),
         );
         let audit = PostgresAuditEventRepository::new(pool.clone());

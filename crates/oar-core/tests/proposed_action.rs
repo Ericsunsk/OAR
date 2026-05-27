@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use serde_json::json;
 
 use oar_core::action::confirmed_action::ActionStatus;
-use oar_core::domain::identity::{OarUserId, TenantId};
+use oar_core::domain::identity::{TenantId, WorkspaceUserId};
 use oar_core::domain::proposed_action::{
     ProposedAction, ProposedActionDecision, ProposedActionError, ProposedActionId,
     ProposedActionKind, ProposedActionStatus, RiskSeverity,
@@ -13,9 +13,9 @@ fn draft_action(version: u64) -> ProposedAction {
     ProposedAction::draft(
         ProposedActionId("pa-1".to_string()),
         TenantId("tenant-1".to_string()),
-        OarUserId("actor-1".to_string()),
-        Some(OarUserId("target-1".to_string())),
-        Some(OarUserId("owner-1".to_string())),
+        WorkspaceUserId("actor-1".to_string()),
+        Some(WorkspaceUserId("target-1".to_string())),
+        Some(WorkspaceUserId("owner-1".to_string())),
         version,
         ProposedActionKind::UpdateKrProgress,
         RiskSeverity::High,
@@ -48,7 +48,7 @@ fn no_evidence_cannot_publish_or_create() {
     let create_result = ProposedAction::draft(
         ProposedActionId("pa-2".to_string()),
         TenantId("tenant-1".to_string()),
-        OarUserId("actor-1".to_string()),
+        WorkspaceUserId("actor-1".to_string()),
         None,
         None,
         1,
@@ -69,7 +69,7 @@ fn blank_evidence_id_is_rejected() {
     let result = ProposedAction::draft(
         ProposedActionId("pa-blank-evidence".to_string()),
         TenantId("tenant-1".to_string()),
-        OarUserId("actor-1".to_string()),
+        WorkspaceUserId("actor-1".to_string()),
         None,
         None,
         1,
@@ -87,7 +87,7 @@ fn duplicate_evidence_ids_are_normalized() {
     let action = ProposedAction::draft(
         ProposedActionId("pa-dedup-evidence".to_string()),
         TenantId("tenant-1".to_string()),
-        OarUserId("actor-1".to_string()),
+        WorkspaceUserId("actor-1".to_string()),
         None,
         None,
         1,
@@ -193,9 +193,9 @@ fn idempotency_key_is_stable_and_tenant_scoped() {
     let mut other_tenant = ProposedAction::draft(
         ProposedActionId("pa-1".to_string()),
         TenantId("tenant-2".to_string()),
-        OarUserId("actor-1".to_string()),
-        Some(OarUserId("target-1".to_string())),
-        Some(OarUserId("owner-1".to_string())),
+        WorkspaceUserId("actor-1".to_string()),
+        Some(WorkspaceUserId("target-1".to_string())),
+        Some(WorkspaceUserId("owner-1".to_string())),
         3,
         ProposedActionKind::UpdateKrProgress,
         RiskSeverity::High,

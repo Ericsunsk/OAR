@@ -23,8 +23,8 @@ pub enum PostgresRepositoryError {
     UnknownTokenGrantState(String),
     #[error("unknown tenant status from database: {0}")]
     UnknownTenantStatus(String),
-    #[error("unknown oar user status from database: {0}")]
-    UnknownOarUserStatus(String),
+    #[error("unknown workspace user status from database: {0}")]
+    UnknownWorkspaceUserStatus(String),
     #[error("unknown identity actor kind from database: {0}")]
     UnknownIdentityActorKind(String),
     #[error("unknown scope boundary from database: {0}")]

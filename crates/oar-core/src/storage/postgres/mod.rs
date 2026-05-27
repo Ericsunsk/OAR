@@ -20,18 +20,17 @@ mod token_refresh_scheduler;
 pub use repository_sqlx::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
     InsertProposedActionDecisionRequest, PostgresAuditEventRepository,
-    PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
-    PostgresExecutionUnitOfWorkReport, PostgresIdentityRepository, PostgresLarkIdentityRepository,
-    PostgresOarUserRepository, PostgresOperationLedgerRepository, PostgresRepositoryError,
-    PostgresReviewDecisionUnitOfWork, PostgresReviewDecisionUnitOfWorkReport,
-    PostgresReviewDecisionUnitOfWorkRequest, PostgresReviewInboxRepository,
+    PostgresDeviceSessionRepository, PostgresExecutionRecorder, PostgresExecutionRecorderReport,
+    PostgresIdentityRepository, PostgresLarkIdentityRepository, PostgresOperationLedgerRepository,
+    PostgresRepositoryError, PostgresReviewDecisionRecorder, PostgresReviewDecisionRecorderReport,
+    PostgresReviewDecisionRecorderRequest, PostgresReviewInboxRepository,
     PostgresSchedulerJobRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
     PostgresTokenRefreshOrchestrator, PostgresTokenRefreshOrchestratorReport,
-    PostgresTokenRefreshSweep, PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest,
-    PostgresTokenRefreshUnitOfWork, PostgresTokenRefreshUnitOfWorkReport,
-    RotateEncryptedGrantRequest, StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity,
-    StoredOarUser, StoredProposedAction, StoredProposedActionDecision, StoredReviewInboxItem,
-    StoredSchedulerJob, StoredTenant,
+    PostgresTokenRefreshRecorder, PostgresTokenRefreshRecorderReport, PostgresTokenRefreshSweep,
+    PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest,
+    PostgresWorkspaceUserRepository, RotateEncryptedGrantRequest, StoredDeviceSession,
+    StoredEvidenceItem, StoredLarkIdentity, StoredProposedAction, StoredProposedActionDecision,
+    StoredReviewInboxItem, StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
 };
 #[cfg(feature = "postgres")]
 pub use tenant_maintenance::{

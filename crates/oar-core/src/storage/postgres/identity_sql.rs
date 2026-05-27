@@ -4,7 +4,7 @@ display_name,
 status
 "#;
 
-pub const OAR_USER_COLUMNS: &str = r#"
+pub const WORKSPACE_USER_COLUMNS: &str = r#"
 id,
 tenant_id,
 display_name,
@@ -50,9 +50,9 @@ WHERE id = $1
 LIMIT 1
 "#;
 
-pub const UPSERT_OAR_USER: &str = r#"
+pub const UPSERT_WORKSPACE_USER: &str = r#"
 WITH upserted AS (
-    INSERT INTO oar_users (
+    INSERT INTO workspace_users (
         id,
         tenant_id,
         display_name,
@@ -68,7 +68,7 @@ WITH upserted AS (
     SET display_name = EXCLUDED.display_name,
         status = EXCLUDED.status,
         updated_at = now()
-    WHERE oar_users.tenant_id = EXCLUDED.tenant_id
+    WHERE workspace_users.tenant_id = EXCLUDED.tenant_id
     RETURNING
     id,
     tenant_id,
@@ -82,19 +82,19 @@ id,
 tenant_id,
 display_name,
 status
-FROM oar_users
+FROM workspace_users
 WHERE id = $1
   AND tenant_id = $2
   AND NOT EXISTS (SELECT 1 FROM upserted)
 "#;
 
-pub const GET_OAR_USER_BY_ID: &str = r#"
+pub const GET_WORKSPACE_USER_BY_ID: &str = r#"
 SELECT
 id,
 tenant_id,
 display_name,
 status
-FROM oar_users
+FROM workspace_users
 WHERE tenant_id = $1
   AND id = $2
 LIMIT 1

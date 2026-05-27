@@ -1,7 +1,9 @@
 use std::fmt;
 
-use oar_core::lark::auth::adapter::LarkAuthRefreshAdapter;
-use oar_core::lark::auth::client::{LarkAuthRefreshSafeClient, LarkAuthRefreshSafeClientConfig};
+use oar_core::lark::auth::adapter::FeishuAuthRefreshAdapter as CoreFeishuAuthRefreshAdapter;
+use oar_core::lark::auth::client::{
+    FeishuAuthRefreshSafeClient, FeishuAuthRefreshSafeClientConfig,
+};
 
 use crate::config::{FeishuOpenApiConfig, FeishuOpenApiConfigError};
 use crate::oauth::{
@@ -9,7 +11,7 @@ use crate::oauth::{
 };
 
 pub type FeishuAuthRefreshAdapter<P, E, H> =
-    LarkAuthRefreshAdapter<LarkAuthRefreshSafeClient<FeishuOAuthTransport<P, E, H>>>;
+    CoreFeishuAuthRefreshAdapter<FeishuAuthRefreshSafeClient<FeishuOAuthTransport<P, E, H>>>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FeishuAuthRefreshAdapterBuildError {
@@ -55,12 +57,12 @@ pub fn build_feishu_auth_refresh_adapter<P, E, H>(
     config
         .validate()
         .map_err(FeishuAuthRefreshAdapterBuildError::InvalidConfig)?;
-    let safe_client_config = LarkAuthRefreshSafeClientConfig {
+    let safe_client_config = FeishuAuthRefreshSafeClientConfig {
         max_response_bytes: config.max_response_bytes,
     };
     let transport = FeishuOAuthTransport::new(config, material_provider, encryptor, http_client);
-    let safe_client = LarkAuthRefreshSafeClient::with_config(transport, safe_client_config);
-    Ok(LarkAuthRefreshAdapter::new(safe_client))
+    let safe_client = FeishuAuthRefreshSafeClient::with_config(transport, safe_client_config);
+    Ok(FeishuAuthRefreshAdapter::new(safe_client))
 }
 
 pub fn build_reqwest_feishu_auth_refresh_adapter<P, E>(

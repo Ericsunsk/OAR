@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use async_trait::async_trait;
-use oar_core::lark::auth::types::LarkAuthRefreshRequest;
+use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 
 use crate::credentials::StaticFeishuAppCredentialProvider;
 use crate::crypto::GrantTimeSource;
@@ -30,7 +30,7 @@ impl FeishuRefreshMaterialProvider for FakeMaterialProvider {
 
     fn refresh_material(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
+        _request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuRefreshMaterial, Self::Error> {
         Ok(sample_material())
     }
@@ -59,7 +59,7 @@ impl FeishuRefreshMaterialProvider for FailingMaterialProvider {
 
     fn refresh_material(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
+        _request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuRefreshMaterial, Self::Error> {
         Err("material provider failed with secret-sensitive payload")
     }
@@ -73,7 +73,7 @@ impl AsyncFeishuRefreshMaterialProvider for AsyncFailingMaterialProvider {
 
     async fn refresh_material(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
+        _request: &FeishuAuthRefreshRequest,
     ) -> Result<FeishuRefreshMaterial, Self::Error> {
         Err("material provider failed with secret-sensitive payload")
     }
@@ -190,7 +190,7 @@ impl FeishuGrantMaterialStore for OneRowStore {
 
     fn load(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
+        _request: &FeishuAuthRefreshRequest,
     ) -> Result<StoredFeishuGrantMaterial, Self::Error> {
         Ok(self.0.clone())
     }

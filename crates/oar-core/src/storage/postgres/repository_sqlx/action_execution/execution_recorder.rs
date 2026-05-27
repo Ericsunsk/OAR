@@ -1,6 +1,6 @@
 use super::*;
 
-impl PostgresExecutionUnitOfWork {
+impl PostgresExecutionRecorder {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -16,8 +16,8 @@ impl PostgresExecutionUnitOfWork {
         operation_id: &str,
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
-    ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        super::validate_uow_tenant(&action.tenant_id, event, outbox)?;
+    ) -> PgRepositoryResult<PostgresExecutionRecorderReport> {
+        super::validate_recorder_tenant(&action.tenant_id, event, outbox)?;
 
         let mut tx = self.pool.begin().await?;
         let submit =
@@ -34,7 +34,7 @@ impl PostgresExecutionUnitOfWork {
         };
         tx.commit().await?;
 
-        Ok(PostgresExecutionUnitOfWorkReport {
+        Ok(PostgresExecutionRecorderReport {
             operation,
             outbox_id,
             inbox_item_id: None,
@@ -49,7 +49,7 @@ impl PostgresExecutionUnitOfWork {
         now_ms: u64,
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
-    ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
+    ) -> PgRepositoryResult<PostgresExecutionRecorderReport> {
         self.record_status_transition(StatusTransitionRequest {
             sql: MARK_EXECUTING,
             target_status: ActionStatus::Executing,
@@ -70,7 +70,7 @@ impl PostgresExecutionUnitOfWork {
         now_ms: u64,
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
-    ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
+    ) -> PgRepositoryResult<PostgresExecutionRecorderReport> {
         self.record_status_transition(StatusTransitionRequest {
             sql: MARK_SUCCEEDED,
             target_status: ActionStatus::Succeeded,
@@ -92,7 +92,7 @@ impl PostgresExecutionUnitOfWork {
         now_ms: u64,
         event: &AuditEvent,
         outbox: &AuditOutboxEnvelope,
-    ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
+    ) -> PgRepositoryResult<PostgresExecutionRecorderReport> {
         self.record_status_transition(StatusTransitionRequest {
             sql: MARK_FAILED,
             target_status: ActionStatus::Failed,
@@ -109,8 +109,8 @@ impl PostgresExecutionUnitOfWork {
     async fn record_status_transition(
         &self,
         request: StatusTransitionRequest<'_>,
-    ) -> PgRepositoryResult<PostgresExecutionUnitOfWorkReport> {
-        super::validate_uow_tenant(request.tenant_id, request.event, request.outbox)?;
+    ) -> PgRepositoryResult<PostgresExecutionRecorderReport> {
+        super::validate_recorder_tenant(request.tenant_id, request.event, request.outbox)?;
 
         let mut tx = self.pool.begin().await?;
         let (operation, duplicate) = super::transition_in_tx(
@@ -147,7 +147,7 @@ impl PostgresExecutionUnitOfWork {
         };
         tx.commit().await?;
 
-        Ok(PostgresExecutionUnitOfWorkReport {
+        Ok(PostgresExecutionRecorderReport {
             operation,
             outbox_id,
             inbox_item_id,

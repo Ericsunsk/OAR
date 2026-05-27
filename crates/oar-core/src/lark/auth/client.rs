@@ -2,16 +2,16 @@ use std::fmt;
 
 use async_trait::async_trait;
 
-use super::adapter::LarkAuthRefreshClient;
-use super::parser::parse_lark_auth_refresh_response;
-use super::types::{LarkAuthRefreshRequest, LarkAuthRefreshResponse};
+use super::adapter::FeishuAuthRefreshClient;
+use super::parser::parse_feishu_auth_refresh_response;
+use super::types::{FeishuAuthRefreshRequest, FeishuAuthRefreshResponse};
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct LarkAuthRefreshRawEnvelope {
+pub struct FeishuAuthRefreshRawEnvelope {
     payload: String,
 }
 
-impl LarkAuthRefreshRawEnvelope {
+impl FeishuAuthRefreshRawEnvelope {
     pub fn new(payload: impl Into<String>) -> Self {
         Self {
             payload: payload.into(),
@@ -27,40 +27,40 @@ impl LarkAuthRefreshRawEnvelope {
     }
 }
 
-impl fmt::Debug for LarkAuthRefreshRawEnvelope {
+impl fmt::Debug for FeishuAuthRefreshRawEnvelope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LarkAuthRefreshRawEnvelope")
+        f.debug_struct("FeishuAuthRefreshRawEnvelope")
             .field("payload", &"[REDACTED]")
             .field("byte_len", &self.byte_len())
             .finish()
     }
 }
 
-pub trait LarkAuthRefreshTransport {
+pub trait FeishuAuthRefreshTransport {
     type Error;
 
     fn execute(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshRawEnvelope, Self::Error>;
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshRawEnvelope, Self::Error>;
 }
 
 #[async_trait(?Send)]
-pub trait AsyncLarkAuthRefreshTransport {
+pub trait AsyncFeishuAuthRefreshTransport {
     type Error;
 
     async fn execute(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshRawEnvelope, Self::Error>;
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshRawEnvelope, Self::Error>;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct LarkAuthRefreshSafeClientConfig {
+pub struct FeishuAuthRefreshSafeClientConfig {
     pub max_response_bytes: usize,
 }
 
-impl Default for LarkAuthRefreshSafeClientConfig {
+impl Default for FeishuAuthRefreshSafeClientConfig {
     fn default() -> Self {
         Self {
             max_response_bytes: 64 * 1024,
@@ -69,20 +69,20 @@ impl Default for LarkAuthRefreshSafeClientConfig {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct LarkAuthRefreshSafeClient<T> {
+pub struct FeishuAuthRefreshSafeClient<T> {
     transport: T,
-    config: LarkAuthRefreshSafeClientConfig,
+    config: FeishuAuthRefreshSafeClientConfig,
 }
 
-impl<T> LarkAuthRefreshSafeClient<T> {
+impl<T> FeishuAuthRefreshSafeClient<T> {
     pub fn new(transport: T) -> Self {
         Self {
             transport,
-            config: LarkAuthRefreshSafeClientConfig::default(),
+            config: FeishuAuthRefreshSafeClientConfig::default(),
         }
     }
 
-    pub fn with_config(transport: T, config: LarkAuthRefreshSafeClientConfig) -> Self {
+    pub fn with_config(transport: T, config: FeishuAuthRefreshSafeClientConfig) -> Self {
         Self { transport, config }
     }
 
@@ -94,130 +94,130 @@ impl<T> LarkAuthRefreshSafeClient<T> {
         &mut self.transport
     }
 
-    pub fn config(&self) -> LarkAuthRefreshSafeClientConfig {
+    pub fn config(&self) -> FeishuAuthRefreshSafeClientConfig {
         self.config
     }
 }
 
-impl<T> fmt::Debug for LarkAuthRefreshSafeClient<T> {
+impl<T> fmt::Debug for FeishuAuthRefreshSafeClient<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LarkAuthRefreshSafeClient")
+        f.debug_struct("FeishuAuthRefreshSafeClient")
             .field("transport", &"[REDACTED]")
             .field("config", &self.config)
             .finish()
     }
 }
 
-impl fmt::Debug for LarkAuthRefreshSafeClientConfig {
+impl fmt::Debug for FeishuAuthRefreshSafeClientConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LarkAuthRefreshSafeClientConfig")
+        f.debug_struct("FeishuAuthRefreshSafeClientConfig")
             .field("max_response_bytes", &self.max_response_bytes)
             .finish()
     }
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum LarkAuthRefreshClientError {
+pub enum FeishuAuthRefreshClientError {
     Transport,
     OversizedResponse { max_response_bytes: usize },
     Parse,
 }
 
-impl LarkAuthRefreshClientError {
+impl FeishuAuthRefreshClientError {
     pub fn classify(&self) -> &'static str {
         match self {
-            LarkAuthRefreshClientError::Transport => "transport",
-            LarkAuthRefreshClientError::OversizedResponse { .. } => "oversized_response",
-            LarkAuthRefreshClientError::Parse => "parse",
+            FeishuAuthRefreshClientError::Transport => "transport",
+            FeishuAuthRefreshClientError::OversizedResponse { .. } => "oversized_response",
+            FeishuAuthRefreshClientError::Parse => "parse",
         }
     }
 }
 
-impl fmt::Debug for LarkAuthRefreshClientError {
+impl fmt::Debug for FeishuAuthRefreshClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LarkAuthRefreshClientError::Transport => {
-                write!(f, "LarkAuthRefreshClientError(transport)")
+            FeishuAuthRefreshClientError::Transport => {
+                write!(f, "FeishuAuthRefreshClientError(transport)")
             }
-            LarkAuthRefreshClientError::OversizedResponse { max_response_bytes } => write!(
+            FeishuAuthRefreshClientError::OversizedResponse { max_response_bytes } => write!(
                 f,
-                "LarkAuthRefreshClientError(oversized_response max={}B)",
+                "FeishuAuthRefreshClientError(oversized_response max={}B)",
                 max_response_bytes
             ),
-            LarkAuthRefreshClientError::Parse => {
-                write!(f, "LarkAuthRefreshClientError(parse)")
+            FeishuAuthRefreshClientError::Parse => {
+                write!(f, "FeishuAuthRefreshClientError(parse)")
             }
         }
     }
 }
 
-impl fmt::Display for LarkAuthRefreshClientError {
+impl fmt::Display for FeishuAuthRefreshClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LarkAuthRefreshClientError::Transport => {
+            FeishuAuthRefreshClientError::Transport => {
                 write!(f, "lark auth refresh transport failed")
             }
-            LarkAuthRefreshClientError::OversizedResponse { max_response_bytes } => write!(
+            FeishuAuthRefreshClientError::OversizedResponse { max_response_bytes } => write!(
                 f,
                 "lark auth refresh response exceeded {} bytes",
                 max_response_bytes
             ),
-            LarkAuthRefreshClientError::Parse => {
+            FeishuAuthRefreshClientError::Parse => {
                 write!(f, "lark auth refresh response parse failed")
             }
         }
     }
 }
 
-impl std::error::Error for LarkAuthRefreshClientError {}
+impl std::error::Error for FeishuAuthRefreshClientError {}
 
-impl<T> LarkAuthRefreshClient for LarkAuthRefreshSafeClient<T>
+impl<T> FeishuAuthRefreshClient for FeishuAuthRefreshSafeClient<T>
 where
-    T: LarkAuthRefreshTransport,
+    T: FeishuAuthRefreshTransport,
 {
-    type Error = LarkAuthRefreshClientError;
+    type Error = FeishuAuthRefreshClientError;
 
     fn refresh(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshResponse, Self::Error> {
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshResponse, Self::Error> {
         let envelope = self
             .transport
             .execute(request)
-            .map_err(|_| LarkAuthRefreshClientError::Transport)?;
+            .map_err(|_| FeishuAuthRefreshClientError::Transport)?;
 
         if envelope.byte_len() > self.config.max_response_bytes {
-            return Err(LarkAuthRefreshClientError::OversizedResponse {
+            return Err(FeishuAuthRefreshClientError::OversizedResponse {
                 max_response_bytes: self.config.max_response_bytes,
             });
         }
 
-        parse_lark_auth_refresh_response(envelope.payload())
-            .map_err(|_| LarkAuthRefreshClientError::Parse)
+        parse_feishu_auth_refresh_response(envelope.payload())
+            .map_err(|_| FeishuAuthRefreshClientError::Parse)
     }
 }
 
-impl<T> LarkAuthRefreshSafeClient<T>
+impl<T> FeishuAuthRefreshSafeClient<T>
 where
-    T: AsyncLarkAuthRefreshTransport,
+    T: AsyncFeishuAuthRefreshTransport,
 {
     pub async fn refresh_async(
         &mut self,
-        request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshResponse, LarkAuthRefreshClientError> {
+        request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshResponse, FeishuAuthRefreshClientError> {
         let envelope = self
             .transport
             .execute(request)
             .await
-            .map_err(|_| LarkAuthRefreshClientError::Transport)?;
+            .map_err(|_| FeishuAuthRefreshClientError::Transport)?;
 
         if envelope.byte_len() > self.config.max_response_bytes {
-            return Err(LarkAuthRefreshClientError::OversizedResponse {
+            return Err(FeishuAuthRefreshClientError::OversizedResponse {
                 max_response_bytes: self.config.max_response_bytes,
             });
         }
 
-        parse_lark_auth_refresh_response(envelope.payload())
-            .map_err(|_| LarkAuthRefreshClientError::Parse)
+        parse_feishu_auth_refresh_response(envelope.payload())
+            .map_err(|_| FeishuAuthRefreshClientError::Parse)
     }
 }

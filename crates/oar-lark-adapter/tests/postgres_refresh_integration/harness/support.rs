@@ -266,7 +266,7 @@ pub(super) async fn seed_identity_graph(pool: &PgPool) -> Result<(), sqlx::Error
 
     sqlx::query(
         r#"
-        INSERT INTO oar_users (id, tenant_id, display_name, status)
+        INSERT INTO workspace_users (id, tenant_id, display_name, status)
         VALUES ($1, $2, $3, 'active')
         "#,
     )

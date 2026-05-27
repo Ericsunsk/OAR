@@ -3,14 +3,14 @@ use std::time::{Duration, SystemTime};
 use oar_core::domain::identity::{TenantId, TokenGrantState};
 use oar_core::domain::token_refresh::service::AuthRefreshAdapter;
 use oar_core::domain::token_refresh::types::{RefreshOutcome, TokenRefreshGrantSnapshot};
-use oar_core::lark::auth::adapter::{LarkAuthRefreshAdapter, LarkAuthRefreshClient};
+use oar_core::lark::auth::adapter::{FeishuAuthRefreshAdapter, FeishuAuthRefreshClient};
 use oar_core::lark::auth::client::{
-    LarkAuthRefreshClientError, LarkAuthRefreshRawEnvelope, LarkAuthRefreshSafeClient,
-    LarkAuthRefreshSafeClientConfig, LarkAuthRefreshTransport,
+    FeishuAuthRefreshClientError, FeishuAuthRefreshRawEnvelope, FeishuAuthRefreshSafeClient,
+    FeishuAuthRefreshSafeClientConfig, FeishuAuthRefreshTransport,
 };
-use oar_core::lark::auth::parser::parse_lark_auth_refresh_response;
+use oar_core::lark::auth::parser::parse_feishu_auth_refresh_response;
 use oar_core::lark::auth::types::{
-    LarkAuthGrantState, LarkAuthRefreshRequest, LarkAuthRefreshSuccess,
+    FeishuAuthRefreshRequest, FeishuAuthRefreshSuccess, LarkAuthGrantState,
 };
 use oar_core::lark::fixtures::{
     AUTH_REFRESH_CONFIG_REQUIRED_JSON, AUTH_REFRESH_PLAINTEXT_TOKEN_LEAK_JSON,
@@ -32,7 +32,7 @@ fn sample_snapshot() -> TokenRefreshGrantSnapshot {
 
 #[test]
 fn request_from_snapshot_maps_safe_metadata_and_redacts_debug() {
-    let request = LarkAuthRefreshRequest::from_snapshot(&sample_snapshot());
+    let request = FeishuAuthRefreshRequest::from_snapshot(&sample_snapshot());
 
     assert_eq!(request.grant_id, "grant_auth_refresh_1");
     assert_eq!(request.tenant_id, "tenant_auth_refresh_1");
@@ -48,7 +48,7 @@ fn request_from_snapshot_maps_safe_metadata_and_redacts_debug() {
 
 #[test]
 fn safe_client_parses_encrypted_fixture_and_adapter_maps_success() {
-    let mut adapter = LarkAuthRefreshAdapter::new(LarkAuthRefreshSafeClient::new(
+    let mut adapter = FeishuAuthRefreshAdapter::new(FeishuAuthRefreshSafeClient::new(
         FakeTransport::from_envelope(AUTH_REFRESH_ROTATED_ENCRYPTED_JSON),
     ));
     let outcome = adapter.refresh(&sample_snapshot());
@@ -80,7 +80,7 @@ fn safe_client_parses_encrypted_fixture_and_adapter_maps_success() {
 
 #[test]
 fn refresh_success_debug_redacts_key_and_fingerprint_material() {
-    let success = LarkAuthRefreshSuccess {
+    let success = FeishuAuthRefreshSuccess {
         encrypted_primary: vec![1, 2, 3],
         encrypted_renewal: vec![4, 5, 6],
         key_id: "kms-key-sensitive".to_string(),
@@ -100,7 +100,7 @@ fn refresh_success_debug_redacts_key_and_fingerprint_material() {
 
 #[test]
 fn plaintext_token_like_transport_output_is_rejected_and_maps_safe_parse_failure() {
-    let mut adapter = LarkAuthRefreshAdapter::new(LarkAuthRefreshSafeClient::new(
+    let mut adapter = FeishuAuthRefreshAdapter::new(FeishuAuthRefreshSafeClient::new(
         FakeTransport::from_envelope(AUTH_REFRESH_PLAINTEXT_TOKEN_LEAK_JSON),
     ));
     let outcome = adapter.refresh(&sample_snapshot());
@@ -119,7 +119,7 @@ fn plaintext_token_like_transport_output_is_rejected_and_maps_safe_parse_failure
 
 #[test]
 fn reauth_required_fixture_maps_through_safe_client() {
-    let mut adapter = LarkAuthRefreshAdapter::new(LarkAuthRefreshSafeClient::new(
+    let mut adapter = FeishuAuthRefreshAdapter::new(FeishuAuthRefreshSafeClient::new(
         FakeTransport::from_envelope(AUTH_REFRESH_REAUTH_REQUIRED_JSON),
     ));
     let outcome = adapter.refresh(&sample_snapshot());
@@ -134,7 +134,7 @@ fn reauth_required_fixture_maps_through_safe_client() {
 
 #[test]
 fn config_required_fixture_maps_to_config_required_outcome() {
-    let mut adapter = LarkAuthRefreshAdapter::new(LarkAuthRefreshSafeClient::new(
+    let mut adapter = FeishuAuthRefreshAdapter::new(FeishuAuthRefreshSafeClient::new(
         FakeTransport::from_envelope(AUTH_REFRESH_CONFIG_REQUIRED_JSON),
     ));
     let outcome = adapter.refresh(&sample_snapshot());
@@ -149,7 +149,7 @@ fn config_required_fixture_maps_to_config_required_outcome() {
 
 #[test]
 fn transient_failure_fixture_maps_through_safe_client() {
-    let mut adapter = LarkAuthRefreshAdapter::new(LarkAuthRefreshSafeClient::new(
+    let mut adapter = FeishuAuthRefreshAdapter::new(FeishuAuthRefreshSafeClient::new(
         FakeTransport::from_envelope(AUTH_REFRESH_TRANSIENT_FAILURE_JSON),
     ));
     let outcome = adapter.refresh(&sample_snapshot());
@@ -164,7 +164,7 @@ fn transient_failure_fixture_maps_through_safe_client() {
 
 #[test]
 fn safe_client_parse_error_maps_to_config_required_outcome() {
-    let mut adapter = LarkAuthRefreshAdapter::new(LarkAuthRefreshSafeClient::new(
+    let mut adapter = FeishuAuthRefreshAdapter::new(FeishuAuthRefreshSafeClient::new(
         FakeTransport::from_envelope("not json"),
     ));
     let outcome = adapter.refresh(&sample_snapshot());
@@ -179,9 +179,9 @@ fn safe_client_parse_error_maps_to_config_required_outcome() {
 
 #[test]
 fn safe_client_oversized_response_maps_to_config_required_outcome() {
-    let mut adapter = LarkAuthRefreshAdapter::new(LarkAuthRefreshSafeClient::with_config(
+    let mut adapter = FeishuAuthRefreshAdapter::new(FeishuAuthRefreshSafeClient::with_config(
         FakeTransport::from_envelope("x".repeat(257)),
-        LarkAuthRefreshSafeClientConfig {
+        FeishuAuthRefreshSafeClientConfig {
             max_response_bytes: 256,
         },
     ));
@@ -204,7 +204,7 @@ fn parser_rejects_invalid_envelopes_without_leaking_payloads() {
         r#"{"outcome":"transient_failure","safe_error":"refresh_token=rt_live_should_not_pass"}"#,
         "not json",
     ] {
-        let err = parse_lark_auth_refresh_response(raw)
+        let err = parse_feishu_auth_refresh_response(raw)
             .expect_err("invalid auth refresh envelope should fail closed");
         let rendered = err.to_string();
         let debug = format!("{err:?}");
@@ -218,18 +218,18 @@ fn parser_rejects_invalid_envelopes_without_leaking_payloads() {
 #[test]
 fn oversized_output_is_rejected_safely() {
     let big_raw = "x".repeat(257);
-    let mut safe_client = LarkAuthRefreshSafeClient::with_config(
+    let mut safe_client = FeishuAuthRefreshSafeClient::with_config(
         FakeTransport::from_envelope(big_raw),
-        LarkAuthRefreshSafeClientConfig {
+        FeishuAuthRefreshSafeClientConfig {
             max_response_bytes: 256,
         },
     );
     let err = safe_client
-        .refresh(&LarkAuthRefreshRequest::from_snapshot(&sample_snapshot()))
+        .refresh(&FeishuAuthRefreshRequest::from_snapshot(&sample_snapshot()))
         .expect_err("oversized payload should fail");
     assert_eq!(
         err,
-        LarkAuthRefreshClientError::OversizedResponse {
+        FeishuAuthRefreshClientError::OversizedResponse {
             max_response_bytes: 256
         }
     );
@@ -243,14 +243,14 @@ fn oversized_output_is_rejected_safely() {
 
 #[test]
 fn transport_error_debug_and_display_do_not_leak_raw_token_or_streams() {
-    let mut safe_client = LarkAuthRefreshSafeClient::new(FakeTransport::from_error(
+    let mut safe_client = FeishuAuthRefreshSafeClient::new(FakeTransport::from_error(
         "stdout=access_token=tok_live_sensitive stderr=refresh_token=rt_live_sensitive",
     ));
-    let request = LarkAuthRefreshRequest::from_snapshot(&sample_snapshot());
+    let request = FeishuAuthRefreshRequest::from_snapshot(&sample_snapshot());
     let err = safe_client
         .refresh(&request)
         .expect_err("transport error should map to safe error");
-    assert_eq!(err, LarkAuthRefreshClientError::Transport);
+    assert_eq!(err, FeishuAuthRefreshClientError::Transport);
     assert_eq!(err.classify(), "transport");
     let debug = format!("{err:?}");
     let display = err.to_string();
@@ -266,14 +266,14 @@ fn transport_error_debug_and_display_do_not_leak_raw_token_or_streams() {
 
 #[derive(Debug, Clone)]
 struct FakeTransport {
-    envelope: Option<LarkAuthRefreshRawEnvelope>,
+    envelope: Option<FeishuAuthRefreshRawEnvelope>,
     error: Option<FakeTransportError>,
 }
 
 impl FakeTransport {
     fn from_envelope(payload: impl Into<String>) -> Self {
         Self {
-            envelope: Some(LarkAuthRefreshRawEnvelope::new(payload)),
+            envelope: Some(FeishuAuthRefreshRawEnvelope::new(payload)),
             error: None,
         }
     }
@@ -286,13 +286,13 @@ impl FakeTransport {
     }
 }
 
-impl LarkAuthRefreshTransport for FakeTransport {
+impl FeishuAuthRefreshTransport for FakeTransport {
     type Error = FakeTransportError;
 
     fn execute(
         &mut self,
-        _request: &LarkAuthRefreshRequest,
-    ) -> Result<LarkAuthRefreshRawEnvelope, Self::Error> {
+        _request: &FeishuAuthRefreshRequest,
+    ) -> Result<FeishuAuthRefreshRawEnvelope, Self::Error> {
         if let Some(error) = &self.error {
             return Err(error.clone());
         }

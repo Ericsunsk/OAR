@@ -8,7 +8,7 @@ use super::executor::{
 };
 use crate::domain::identity::TokenGrant;
 use crate::storage::postgres::{
-    AuditOutboxEnvelope, PostgresAuditEventRepository, PostgresExecutionUnitOfWork,
+    AuditOutboxEnvelope, PostgresAuditEventRepository, PostgresExecutionRecorder,
 };
 use serde_json::json;
 
@@ -18,7 +18,7 @@ where
     A: ActionAdapter,
     C: FnMut() -> u64,
 {
-    uow: PostgresExecutionUnitOfWork,
+    recorder: PostgresExecutionRecorder,
     audit: PostgresAuditEventRepository,
     adapter: A,
     clock_ms: C,
@@ -33,11 +33,11 @@ where
     pub fn new(
         adapter: A,
         clock_ms: C,
-        uow: PostgresExecutionUnitOfWork,
+        recorder: PostgresExecutionRecorder,
         audit: PostgresAuditEventRepository,
     ) -> Self {
         Self {
-            uow,
+            recorder,
             audit,
             adapter,
             clock_ms,
@@ -55,7 +55,7 @@ where
         let confirmed_outbox = self.outbox_for(action, &confirmed_event);
         let confirmed_at_ms = action_confirmed_at_ms(action).unwrap_or_else(|| self.now_ms());
         let confirmed = self
-            .uow
+            .recorder
             .record_confirmation(
                 action,
                 confirmed_at_ms,
@@ -91,7 +91,7 @@ where
         let dry_run_outbox = self.outbox_for(action, &dry_run_event);
         let dry_run_at_ms = self.now_ms();
         let dry_run_report = self
-            .uow
+            .recorder
             .record_dry_run(
                 &action.tenant_id,
                 &action.idempotency_key,
@@ -132,7 +132,7 @@ where
                 let succeeded_outbox = self.outbox_for(action, &succeeded_event);
                 let succeeded_at_ms = self.now_ms();
                 let report = self
-                    .uow
+                    .recorder
                     .record_success(
                         &action.tenant_id,
                         &action.idempotency_key,
@@ -157,7 +157,7 @@ where
                 let failed_outbox = self.outbox_for(action, &failed_event);
                 let failed_at_ms = self.now_ms();
                 let report = self
-                    .uow
+                    .recorder
                     .record_failure(
                         &action.tenant_id,
                         &action.idempotency_key,

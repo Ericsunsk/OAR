@@ -1200,7 +1200,7 @@ fn postgres_live_token_refresh_orchestrator_rotate_success() {
 }
 
 #[test]
-fn postgres_live_token_refresh_orchestrator_with_lark_auth_fixture_rotates_successfully() {
+fn postgres_live_token_refresh_orchestrator_with_feishu_auth_fixture_rotates_successfully() {
     run_live_postgres_test(
         "token_refresh_orchestrator_lark_fixture_rotate",
         |pool| async move {
@@ -1231,7 +1231,7 @@ fn postgres_live_token_refresh_orchestrator_with_lark_auth_fixture_rotates_succe
             let client = FixtureClient::new(AUTH_REFRESH_ROTATED_ENCRYPTED_JSON);
             let mut orchestrator = PostgresTokenRefreshOrchestrator::new(
                 pool.clone(),
-                LarkAuthRefreshAdapter::new(client.clone()),
+                FeishuAuthRefreshAdapter::new(client.clone()),
             );
 
             let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(1_779_465_600_000);
@@ -1300,7 +1300,7 @@ fn postgres_live_token_refresh_orchestrator_with_lark_auth_fixture_rotates_succe
 }
 
 #[test]
-fn postgres_live_token_refresh_orchestrator_with_lark_auth_reauth_marks_reauth_required() {
+fn postgres_live_token_refresh_orchestrator_with_feishu_auth_reauth_marks_reauth_required() {
     run_live_postgres_test(
         "token_refresh_orchestrator_lark_fixture_reauth",
         |pool| async move {
@@ -1331,7 +1331,7 @@ fn postgres_live_token_refresh_orchestrator_with_lark_auth_reauth_marks_reauth_r
             let client = FixtureClient::new(AUTH_REFRESH_REAUTH_REQUIRED_JSON);
             let mut orchestrator = PostgresTokenRefreshOrchestrator::new(
                 pool.clone(),
-                LarkAuthRefreshAdapter::new(client.clone()),
+                FeishuAuthRefreshAdapter::new(client.clone()),
             );
 
             let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(1_779_465_700_000);
@@ -1404,7 +1404,7 @@ fn postgres_live_token_refresh_orchestrator_with_lark_auth_reauth_marks_reauth_r
 }
 
 #[test]
-fn postgres_live_token_refresh_orchestrator_with_lark_auth_plaintext_fixture_is_safe_transient() {
+fn postgres_live_token_refresh_orchestrator_with_feishu_auth_plaintext_fixture_is_safe_transient() {
     run_live_postgres_test(
         "token_refresh_orchestrator_lark_fixture_plaintext",
         |pool| async move {
@@ -1435,7 +1435,7 @@ fn postgres_live_token_refresh_orchestrator_with_lark_auth_plaintext_fixture_is_
             let client = FixtureClient::new(AUTH_REFRESH_PLAINTEXT_TOKEN_LEAK_JSON);
             let mut orchestrator = PostgresTokenRefreshOrchestrator::new(
                 pool.clone(),
-                LarkAuthRefreshAdapter::new(client.clone()),
+                FeishuAuthRefreshAdapter::new(client.clone()),
             );
 
             let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(1_779_465_800_000);
@@ -1760,60 +1760,73 @@ fn postgres_live_token_refresh_orchestrator_short_circuit_revoked() {
 }
 
 #[test]
-fn postgres_live_token_refresh_uow_rotate_success() {
-    run_live_postgres_test("token_refresh_uow_rotate_success", |pool| async move {
-        seed_user(&pool, "tenant_tr_uow_success", "user_tr_uow_success").await?;
-        seed_identity(&pool, "tenant_tr_uow_success", "identity_tr_uow_success").await?;
+fn postgres_live_token_refresh_recorder_rotate_success() {
+    run_live_postgres_test("token_refresh_recorder_rotate_success", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_tr_recorder_success",
+            "user_tr_recorder_success",
+        )
+        .await?;
+        seed_identity(
+            &pool,
+            "tenant_tr_recorder_success",
+            "identity_tr_recorder_success",
+        )
+        .await?;
 
         let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
         grant_repo
             .upsert_encrypted_grant(&encrypted_token_grant_record(
-                "tenant_tr_uow_success",
-                "grant_tr_uow_success",
-                "identity_tr_uow_success",
+                "tenant_tr_recorder_success",
+                "grant_tr_recorder_success",
+                "identity_tr_recorder_success",
                 TokenGrantState::NeedsRefresh,
-                "fp-uow-old",
+                "fp-recorder-old",
             ))
             .await?;
 
-        let uow = PostgresTokenRefreshUnitOfWork::new(pool.clone());
-        let report = uow
+        let recorder = PostgresTokenRefreshRecorder::new(pool.clone());
+        let report = recorder
             .apply_planned_command_with_audit(
                 planned_token_refresh_command(TokenRefreshRepositoryCommand::RotateGrantCas {
-                    grant_id: TokenGrantId("grant_tr_uow_success".to_string()),
-                    tenant_id: TenantId("tenant_tr_uow_success".to_string()),
-                    expected_fingerprint: "fp-uow-old".to_string(),
+                    grant_id: TokenGrantId("grant_tr_recorder_success".to_string()),
+                    tenant_id: TenantId("tenant_tr_recorder_success".to_string()),
+                    expected_fingerprint: "fp-recorder-old".to_string(),
                     expires_at_ms: Some(1_748_480_000_000),
                     refreshed_at_ms: 1_748_470_000_000,
                     encrypted_grant_blob: EncryptedGrantBlob(vec![0x11, 0x22, 0x33]),
-                    grant_key_id: "key-uow-v2".to_string(),
-                    new_fingerprint: "fp-uow-new".to_string(),
+                    grant_key_id: "key-recorder-v2".to_string(),
+                    new_fingerprint: "fp-recorder-new".to_string(),
                 }),
                 TokenRefreshAuditContext {
-                    trace_id: "trace_token_refresh_uow_success".to_string(),
+                    trace_id: "trace_token_refresh_recorder_success".to_string(),
                     sequence: 11,
                     occurred_at_ms: 1_748_470_000_001,
-                    actor: actor("user_tr_uow_success"),
+                    actor: actor("user_tr_recorder_success"),
                     workspace_id: None,
                 },
             )
             .await?;
 
         let apply_result = report.apply_result.expect("rotate should apply");
-        assert_eq!(apply_result.grant_id.0, "grant_tr_uow_success");
-        assert_eq!(apply_result.tenant_id.0, "tenant_tr_uow_success");
+        assert_eq!(apply_result.grant_id.0, "grant_tr_recorder_success");
+        assert_eq!(apply_result.tenant_id.0, "tenant_tr_recorder_success");
         assert_eq!(apply_result.state, TokenGrantState::Valid);
         assert_eq!(report.event.target.action_type, "token_refresh.rotate");
 
         let stored = grant_repo
-            .get_by_id("tenant_tr_uow_success", "grant_tr_uow_success")
+            .get_by_id("tenant_tr_recorder_success", "grant_tr_recorder_success")
             .await?
             .expect("grant should exist");
-        assert_eq!(stored.oauth_grant_fingerprint, "fp-uow-new");
+        assert_eq!(stored.oauth_grant_fingerprint, "fp-recorder-new");
         assert_eq!(stored.state, TokenGrantState::Valid);
 
         let events = PostgresAuditEventRepository::new(pool.clone())
-            .find_by_tenant_and_trace_id("tenant_tr_uow", "trace_token_refresh_uow_success")
+            .find_by_tenant_and_trace_id(
+                "tenant_tr_recorder",
+                "trace_token_refresh_recorder_success",
+            )
             .await?;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].target.action_type, "token_refresh.rotate");
@@ -1846,79 +1859,89 @@ fn postgres_live_token_refresh_uow_rotate_success() {
 }
 
 #[test]
-fn postgres_live_token_refresh_uow_stale_fingerprint_conflict_noop() {
-    run_live_postgres_test("token_refresh_uow_stale_fingerprint", |pool| async move {
-        seed_user(&pool, "tenant_tr_uow_noop", "user_tr_uow_noop").await?;
-        seed_identity(&pool, "tenant_tr_uow_noop", "identity_tr_uow_noop").await?;
-
-        let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
-        grant_repo
-            .upsert_encrypted_grant(&encrypted_token_grant_record(
-                "tenant_tr_uow_noop",
-                "grant_tr_uow_noop",
-                "identity_tr_uow_noop",
-                TokenGrantState::NeedsRefresh,
-                "fp-current",
-            ))
-            .await?;
-
-        let uow = PostgresTokenRefreshUnitOfWork::new(pool.clone());
-        let report = uow
-            .apply_planned_command_with_audit(
-                planned_token_refresh_command(TokenRefreshRepositoryCommand::RotateGrantCas {
-                    grant_id: TokenGrantId("grant_tr_uow_noop".to_string()),
-                    tenant_id: TenantId("tenant_tr_uow_noop".to_string()),
-                    expected_fingerprint: "fp-stale".to_string(),
-                    expires_at_ms: Some(1_748_490_000_000),
-                    refreshed_at_ms: 1_748_480_000_000,
-                    encrypted_grant_blob: EncryptedGrantBlob(vec![9, 9, 9]),
-                    grant_key_id: "key-uow-v2".to_string(),
-                    new_fingerprint: "fp-noop-new".to_string(),
-                }),
-                TokenRefreshAuditContext {
-                    trace_id: "trace_token_refresh_uow_noop".to_string(),
-                    sequence: 12,
-                    occurred_at_ms: 1_748_480_000_001,
-                    actor: actor("user_tr_uow_noop"),
-                    workspace_id: None,
-                },
+fn postgres_live_token_refresh_recorder_stale_fingerprint_conflict_noop() {
+    run_live_postgres_test(
+        "token_refresh_recorder_stale_fingerprint",
+        |pool| async move {
+            seed_user(&pool, "tenant_tr_recorder_noop", "user_tr_recorder_noop").await?;
+            seed_identity(
+                &pool,
+                "tenant_tr_recorder_noop",
+                "identity_tr_recorder_noop",
             )
             .await?;
 
-        assert_eq!(report.apply_result, None);
-        assert_eq!(report.event.event_type, AuditEventType::ExecutionFailed);
-        assert_eq!(
-            report
-                .event
-                .execution
-                .as_ref()
-                .and_then(|execution| execution.error_code.as_deref()),
-            Some("token_refresh_conflict_noop")
-        );
+            let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
+            grant_repo
+                .upsert_encrypted_grant(&encrypted_token_grant_record(
+                    "tenant_tr_recorder_noop",
+                    "grant_tr_recorder_noop",
+                    "identity_tr_recorder_noop",
+                    TokenGrantState::NeedsRefresh,
+                    "fp-current",
+                ))
+                .await?;
 
-        let stored = grant_repo
-            .get_by_id("tenant_tr_uow_noop", "grant_tr_uow_noop")
-            .await?
-            .expect("grant should remain");
-        assert_eq!(stored.oauth_grant_fingerprint, "fp-current");
-        assert_eq!(stored.oauth_grant_key_id, "key-v1");
-        assert_eq!(stored.encrypted_oauth_grant, vec![0x01, 0x02, 0x03]);
+            let recorder = PostgresTokenRefreshRecorder::new(pool.clone());
+            let report = recorder
+                .apply_planned_command_with_audit(
+                    planned_token_refresh_command(TokenRefreshRepositoryCommand::RotateGrantCas {
+                        grant_id: TokenGrantId("grant_tr_recorder_noop".to_string()),
+                        tenant_id: TenantId("tenant_tr_recorder_noop".to_string()),
+                        expected_fingerprint: "fp-stale".to_string(),
+                        expires_at_ms: Some(1_748_490_000_000),
+                        refreshed_at_ms: 1_748_480_000_000,
+                        encrypted_grant_blob: EncryptedGrantBlob(vec![9, 9, 9]),
+                        grant_key_id: "key-recorder-v2".to_string(),
+                        new_fingerprint: "fp-noop-new".to_string(),
+                    }),
+                    TokenRefreshAuditContext {
+                        trace_id: "trace_token_refresh_recorder_noop".to_string(),
+                        sequence: 12,
+                        occurred_at_ms: 1_748_480_000_001,
+                        actor: actor("user_tr_recorder_noop"),
+                        workspace_id: None,
+                    },
+                )
+                .await?;
 
-        let events = PostgresAuditEventRepository::new(pool.clone())
-            .find_by_tenant_and_trace_id("tenant_tr_uow_noop", "trace_token_refresh_uow_noop")
-            .await?;
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, AuditEventType::ExecutionFailed);
-        assert_eq!(
-            events[0]
-                .execution
-                .as_ref()
-                .and_then(|execution| execution.error_code.as_deref()),
-            Some("token_refresh_conflict_noop")
-        );
+            assert_eq!(report.apply_result, None);
+            assert_eq!(report.event.event_type, AuditEventType::ExecutionFailed);
+            assert_eq!(
+                report
+                    .event
+                    .execution
+                    .as_ref()
+                    .and_then(|execution| execution.error_code.as_deref()),
+                Some("token_refresh_conflict_noop")
+            );
 
-        let payload: serde_json::Value = sqlx::query_scalar(
-            r#"
+            let stored = grant_repo
+                .get_by_id("tenant_tr_recorder_noop", "grant_tr_recorder_noop")
+                .await?
+                .expect("grant should remain");
+            assert_eq!(stored.oauth_grant_fingerprint, "fp-current");
+            assert_eq!(stored.oauth_grant_key_id, "key-v1");
+            assert_eq!(stored.encrypted_oauth_grant, vec![0x01, 0x02, 0x03]);
+
+            let events = PostgresAuditEventRepository::new(pool.clone())
+                .find_by_tenant_and_trace_id(
+                    "tenant_tr_recorder_noop",
+                    "trace_token_refresh_recorder_noop",
+                )
+                .await?;
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_type, AuditEventType::ExecutionFailed);
+            assert_eq!(
+                events[0]
+                    .execution
+                    .as_ref()
+                    .and_then(|execution| execution.error_code.as_deref()),
+                Some("token_refresh_conflict_noop")
+            );
+
+            let payload: serde_json::Value = sqlx::query_scalar(
+                r#"
             SELECT
             jsonb_build_object(
               'before_summary', before_summary,
@@ -1928,140 +1951,160 @@ fn postgres_live_token_refresh_uow_stale_fingerprint_conflict_noop() {
             FROM audit_events
             WHERE event_id = $1
             "#,
-        )
-        .bind(&report.event.event_id)
-        .fetch_one(&pool)
-        .await?;
-        let payload_text = payload.to_string().to_lowercase();
-        assert!(!payload_text.contains("access_token"));
-        assert!(!payload_text.contains("refresh_token"));
-        assert!(!payload_text.contains("authorization"));
-        assert!(!payload_text.contains("fingerprint"));
-        assert!(!payload_text.contains("encrypted"));
-        assert!(!payload_text.contains("9, 9, 9"));
+            )
+            .bind(&report.event.event_id)
+            .fetch_one(&pool)
+            .await?;
+            let payload_text = payload.to_string().to_lowercase();
+            assert!(!payload_text.contains("access_token"));
+            assert!(!payload_text.contains("refresh_token"));
+            assert!(!payload_text.contains("authorization"));
+            assert!(!payload_text.contains("fingerprint"));
+            assert!(!payload_text.contains("encrypted"));
+            assert!(!payload_text.contains("9, 9, 9"));
 
-        Ok(())
-    });
+            Ok(())
+        },
+    );
 }
 
 #[test]
-fn postgres_live_token_refresh_uow_mark_needs_refresh_redacts_audit_error() {
-    run_live_postgres_test("token_refresh_uow_mark_needs_redacts", |pool| async move {
+fn postgres_live_token_refresh_recorder_mark_needs_refresh_redacts_audit_error() {
+    run_live_postgres_test(
+        "token_refresh_recorder_mark_needs_redacts",
+        |pool| async move {
+            seed_user(
+                &pool,
+                "tenant_tr_recorder_needs_redact",
+                "user_tr_recorder_needs_redact",
+            )
+            .await?;
+            seed_identity(
+                &pool,
+                "tenant_tr_recorder_needs_redact",
+                "identity_tr_recorder_needs_redact",
+            )
+            .await?;
+
+            let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
+            grant_repo
+                .upsert_encrypted_grant(&encrypted_token_grant_record(
+                    "tenant_tr_recorder_needs_redact",
+                    "grant_tr_recorder_needs_redact",
+                    "identity_tr_recorder_needs_redact",
+                    TokenGrantState::Valid,
+                    "fp-recorder-needs-redact",
+                ))
+                .await?;
+
+            let report = PostgresTokenRefreshRecorder::new(pool.clone())
+                .apply_planned_command_with_audit(
+                    planned_token_refresh_command(
+                        TokenRefreshRepositoryCommand::MarkNeedsRefresh {
+                            grant_id: TokenGrantId("grant_tr_recorder_needs_redact".to_string()),
+                            tenant_id: TenantId("tenant_tr_recorder_needs_redact".to_string()),
+                            expected_fingerprint: "fp-recorder-needs-redact".to_string(),
+                            refreshed_at_ms: 1_748_485_000_000,
+                            safe_error: "refresh_token=rt_fake Authorization: Bearer at_fake"
+                                .to_string(),
+                        },
+                    ),
+                    TokenRefreshAuditContext {
+                        trace_id: "trace_token_refresh_recorder_needs_redact".to_string(),
+                        sequence: 13,
+                        occurred_at_ms: 1_748_485_000_001,
+                        actor: actor("user_tr_recorder_needs_redact"),
+                        workspace_id: None,
+                    },
+                )
+                .await?;
+
+            let updated = grant_repo
+                .get_by_id(
+                    "tenant_tr_recorder_needs_redact",
+                    "grant_tr_recorder_needs_redact",
+                )
+                .await?
+                .expect("grant should exist after needs-refresh mark");
+            assert_eq!(updated.state, TokenGrantState::NeedsRefresh);
+            assert_eq!(
+                updated.last_refresh_error.as_deref(),
+                Some("<redacted refresh error>")
+            );
+
+            let payload: serde_json::Value = sqlx::query_scalar(
+                r#"
+            SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
+            FROM audit_events
+            WHERE event_id = $1
+            "#,
+            )
+            .bind(&report.event.event_id)
+            .fetch_one(&pool)
+            .await?;
+            let payload_text = payload.to_string().to_lowercase();
+            assert!(payload_text.contains("<redacted refresh error>"));
+            assert!(!payload_text.contains("refresh_token"));
+            assert!(!payload_text.contains("authorization"));
+            assert!(!payload_text.contains("bearer"));
+            assert!(!payload_text.contains("rt_fake"));
+            assert!(!payload_text.contains("at_fake"));
+
+            Ok(())
+        },
+    );
+}
+
+#[test]
+fn postgres_live_token_refresh_recorder_rejects_mismatched_plan_without_mutation() {
+    run_live_postgres_test("token_refresh_recorder_plan_mismatch", |pool| async move {
         seed_user(
             &pool,
-            "tenant_tr_uow_needs_redact",
-            "user_tr_uow_needs_redact",
+            "tenant_tr_recorder_mismatch",
+            "user_tr_recorder_mismatch",
         )
         .await?;
         seed_identity(
             &pool,
-            "tenant_tr_uow_needs_redact",
-            "identity_tr_uow_needs_redact",
+            "tenant_tr_recorder_mismatch",
+            "identity_tr_recorder_mismatch",
         )
         .await?;
 
         let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
         grant_repo
             .upsert_encrypted_grant(&encrypted_token_grant_record(
-                "tenant_tr_uow_needs_redact",
-                "grant_tr_uow_needs_redact",
-                "identity_tr_uow_needs_redact",
+                "tenant_tr_recorder_mismatch",
+                "grant_tr_recorder_mismatch",
+                "identity_tr_recorder_mismatch",
                 TokenGrantState::Valid,
-                "fp-uow-needs-redact",
-            ))
-            .await?;
-
-        let report = PostgresTokenRefreshUnitOfWork::new(pool.clone())
-            .apply_planned_command_with_audit(
-                planned_token_refresh_command(TokenRefreshRepositoryCommand::MarkNeedsRefresh {
-                    grant_id: TokenGrantId("grant_tr_uow_needs_redact".to_string()),
-                    tenant_id: TenantId("tenant_tr_uow_needs_redact".to_string()),
-                    expected_fingerprint: "fp-uow-needs-redact".to_string(),
-                    refreshed_at_ms: 1_748_485_000_000,
-                    safe_error: "refresh_token=rt_fake Authorization: Bearer at_fake".to_string(),
-                }),
-                TokenRefreshAuditContext {
-                    trace_id: "trace_token_refresh_uow_needs_redact".to_string(),
-                    sequence: 13,
-                    occurred_at_ms: 1_748_485_000_001,
-                    actor: actor("user_tr_uow_needs_redact"),
-                    workspace_id: None,
-                },
-            )
-            .await?;
-
-        let updated = grant_repo
-            .get_by_id("tenant_tr_uow_needs_redact", "grant_tr_uow_needs_redact")
-            .await?
-            .expect("grant should exist after needs-refresh mark");
-        assert_eq!(updated.state, TokenGrantState::NeedsRefresh);
-        assert_eq!(
-            updated.last_refresh_error.as_deref(),
-            Some("<redacted refresh error>")
-        );
-
-        let payload: serde_json::Value = sqlx::query_scalar(
-            r#"
-            SELECT
-            jsonb_build_object(
-              'before_summary', before_summary,
-              'after_summary', after_summary,
-              'execution_result', execution_result
-            )
-            FROM audit_events
-            WHERE event_id = $1
-            "#,
-        )
-        .bind(&report.event.event_id)
-        .fetch_one(&pool)
-        .await?;
-        let payload_text = payload.to_string().to_lowercase();
-        assert!(payload_text.contains("<redacted refresh error>"));
-        assert!(!payload_text.contains("refresh_token"));
-        assert!(!payload_text.contains("authorization"));
-        assert!(!payload_text.contains("bearer"));
-        assert!(!payload_text.contains("rt_fake"));
-        assert!(!payload_text.contains("at_fake"));
-
-        Ok(())
-    });
-}
-
-#[test]
-fn postgres_live_token_refresh_uow_rejects_mismatched_plan_without_mutation() {
-    run_live_postgres_test("token_refresh_uow_plan_mismatch", |pool| async move {
-        seed_user(&pool, "tenant_tr_uow_mismatch", "user_tr_uow_mismatch").await?;
-        seed_identity(&pool, "tenant_tr_uow_mismatch", "identity_tr_uow_mismatch").await?;
-
-        let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
-        grant_repo
-            .upsert_encrypted_grant(&encrypted_token_grant_record(
-                "tenant_tr_uow_mismatch",
-                "grant_tr_uow_mismatch",
-                "identity_tr_uow_mismatch",
-                TokenGrantState::Valid,
-                "fp-uow-mismatch",
+                "fp-recorder-mismatch",
             ))
             .await?;
 
         let mut planned =
             planned_token_refresh_command(TokenRefreshRepositoryCommand::MarkNeedsRefresh {
-                grant_id: TokenGrantId("grant_tr_uow_mismatch".to_string()),
-                tenant_id: TenantId("tenant_tr_uow_mismatch".to_string()),
-                expected_fingerprint: "fp-uow-mismatch".to_string(),
+                grant_id: TokenGrantId("grant_tr_recorder_mismatch".to_string()),
+                tenant_id: TenantId("tenant_tr_recorder_mismatch".to_string()),
+                expected_fingerprint: "fp-recorder-mismatch".to_string(),
                 refreshed_at_ms: 1_748_486_000_000,
                 safe_error: "temporarily unavailable".to_string(),
             });
-        planned.report.tenant_id = TenantId("tenant_tr_uow_other".to_string());
+        planned.report.tenant_id = TenantId("tenant_tr_recorder_other".to_string());
 
-        let result = PostgresTokenRefreshUnitOfWork::new(pool.clone())
+        let result = PostgresTokenRefreshRecorder::new(pool.clone())
             .apply_planned_command_with_audit(
                 planned,
                 TokenRefreshAuditContext {
-                    trace_id: "trace_token_refresh_uow_mismatch".to_string(),
+                    trace_id: "trace_token_refresh_recorder_mismatch".to_string(),
                     sequence: 14,
                     occurred_at_ms: 1_748_486_000_001,
-                    actor: actor("user_tr_uow_mismatch"),
+                    actor: actor("user_tr_recorder_mismatch"),
                     workspace_id: None,
                 },
             )
@@ -2076,7 +2119,7 @@ fn postgres_live_token_refresh_uow_rejects_mismatched_plan_without_mutation() {
         ));
 
         let stored = grant_repo
-            .get_by_id("tenant_tr_uow_mismatch", "grant_tr_uow_mismatch")
+            .get_by_id("tenant_tr_recorder_mismatch", "grant_tr_recorder_mismatch")
             .await?
             .expect("grant should remain after rejected plan");
         assert_eq!(stored.state, TokenGrantState::Valid);
@@ -2084,8 +2127,8 @@ fn postgres_live_token_refresh_uow_rejects_mismatched_plan_without_mutation() {
 
         let events = PostgresAuditEventRepository::new(pool.clone())
             .find_by_tenant_and_trace_id(
-                "tenant_tr_uow_mismatch",
-                "trace_token_refresh_uow_mismatch",
+                "tenant_tr_recorder_mismatch",
+                "trace_token_refresh_recorder_mismatch",
             )
             .await?;
         assert!(events.is_empty());
@@ -2095,35 +2138,45 @@ fn postgres_live_token_refresh_uow_rejects_mismatched_plan_without_mutation() {
 }
 
 #[test]
-fn postgres_live_token_refresh_uow_rolls_back_when_audit_append_fails() {
-    run_live_postgres_test("token_refresh_uow_rollback", |pool| async move {
-        seed_user(&pool, "tenant_tr_uow_rollback", "user_tr_uow_rollback").await?;
-        seed_identity(&pool, "tenant_tr_uow_rollback", "identity_tr_uow_rollback").await?;
+fn postgres_live_token_refresh_recorder_rolls_back_when_audit_append_fails() {
+    run_live_postgres_test("token_refresh_recorder_rollback", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_tr_recorder_rollback",
+            "user_tr_recorder_rollback",
+        )
+        .await?;
+        seed_identity(
+            &pool,
+            "tenant_tr_recorder_rollback",
+            "identity_tr_recorder_rollback",
+        )
+        .await?;
 
         let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
         grant_repo
             .upsert_encrypted_grant(&encrypted_token_grant_record(
-                "tenant_tr_uow_rollback",
-                "grant_tr_uow_rollback",
-                "identity_tr_uow_rollback",
+                "tenant_tr_recorder_rollback",
+                "grant_tr_recorder_rollback",
+                "identity_tr_recorder_rollback",
                 TokenGrantState::NeedsRefresh,
-                "fp-uow-rollback-old",
+                "fp-recorder-rollback-old",
             ))
             .await?;
 
         let audit = PostgresAuditEventRepository::new(pool.clone());
         let duplicate_event = AuditEvent::execution_succeeded(
             AuditEventContext {
-                event_id: "trace_token_refresh_uow_rollback-evt-100".to_string(),
-                trace_id: "trace_token_refresh_uow_rollback".to_string(),
+                event_id: "trace_token_refresh_recorder_rollback-evt-100".to_string(),
+                trace_id: "trace_token_refresh_recorder_rollback".to_string(),
                 sequence: 100,
                 occurred_at_ms: 1_748_499_999_000,
                 subject: AuditSubject {
-                    actor: actor("user_tr_uow_rollback"),
-                    scope: scope("tenant_tr_uow_rollback"),
+                    actor: actor("user_tr_recorder_rollback"),
+                    scope: scope("tenant_tr_recorder_rollback"),
                     target: AuditTarget {
                         resource_type: "token_grant".to_string(),
-                        resource_id: "grant_tr_uow_rollback".to_string(),
+                        resource_id: "grant_tr_recorder_rollback".to_string(),
                         action_type: "token_refresh.rotate".to_string(),
                     },
                 },
@@ -2134,21 +2187,21 @@ fn postgres_live_token_refresh_uow_rolls_back_when_audit_append_fails() {
         );
         audit.append(&duplicate_event, None).await?;
 
-        let uow = PostgresTokenRefreshUnitOfWork::new(pool.clone());
-        let result = uow
+        let recorder = PostgresTokenRefreshRecorder::new(pool.clone());
+        let result = recorder
             .apply_planned_command_with_audit(
                 planned_token_refresh_command(TokenRefreshRepositoryCommand::RotateGrantCas {
-                    grant_id: TokenGrantId("grant_tr_uow_rollback".to_string()),
-                    tenant_id: TenantId("tenant_tr_uow_rollback".to_string()),
-                    expected_fingerprint: "fp-uow-rollback-old".to_string(),
+                    grant_id: TokenGrantId("grant_tr_recorder_rollback".to_string()),
+                    tenant_id: TenantId("tenant_tr_recorder_rollback".to_string()),
+                    expected_fingerprint: "fp-recorder-rollback-old".to_string(),
                     expires_at_ms: Some(1_748_500_000_000),
                     refreshed_at_ms: 1_748_490_000_000,
                     encrypted_grant_blob: EncryptedGrantBlob(vec![0x44, 0x55, 0x66]),
-                    grant_key_id: "key-uow-v3".to_string(),
-                    new_fingerprint: "fp-uow-rollback-new".to_string(),
+                    grant_key_id: "key-recorder-v3".to_string(),
+                    new_fingerprint: "fp-recorder-rollback-new".to_string(),
                 }),
                 TokenRefreshAuditContext {
-                    trace_id: "trace_token_refresh_uow_rollback".to_string(),
+                    trace_id: "trace_token_refresh_recorder_rollback".to_string(),
                     sequence: 100,
                     occurred_at_ms: 1_748_490_000_001,
                     actor: AuditActor {
@@ -2166,10 +2219,10 @@ fn postgres_live_token_refresh_uow_rolls_back_when_audit_append_fails() {
         );
 
         let stored = grant_repo
-            .get_by_id("tenant_tr_uow_rollback", "grant_tr_uow_rollback")
+            .get_by_id("tenant_tr_recorder_rollback", "grant_tr_recorder_rollback")
             .await?
             .expect("grant should still exist after rollback");
-        assert_eq!(stored.oauth_grant_fingerprint, "fp-uow-rollback-old");
+        assert_eq!(stored.oauth_grant_fingerprint, "fp-recorder-rollback-old");
         assert_eq!(stored.oauth_grant_key_id, "key-v1");
         assert_eq!(stored.encrypted_oauth_grant, vec![0x01, 0x02, 0x03]);
         assert_eq!(stored.state, TokenGrantState::NeedsRefresh);

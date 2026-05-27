@@ -1,6 +1,6 @@
 use oar_core::domain::identity::{TenantId, TokenGrantId, TokenGrantState};
 use oar_core::domain::token_refresh::types::TokenRefreshGrantSnapshot;
-use oar_core::lark::auth::types::{LarkAuthGrantState, LarkAuthRefreshRequest};
+use oar_core::lark::auth::types::{FeishuAuthRefreshRequest, LarkAuthGrantState};
 
 use crate::material::compose_encrypted_grant_blob;
 use crate::oauth::{
@@ -41,8 +41,8 @@ pub(crate) fn transport_with_http_error(
     )
 }
 
-pub(crate) fn sample_request() -> LarkAuthRefreshRequest {
-    LarkAuthRefreshRequest {
+pub(crate) fn sample_request() -> FeishuAuthRefreshRequest {
+    FeishuAuthRefreshRequest {
         grant_id: "grant-1".to_string(),
         tenant_id: "tenant-1".to_string(),
         expected_fingerprint: "fp-prev".to_string(),

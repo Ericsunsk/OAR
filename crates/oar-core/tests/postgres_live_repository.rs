@@ -6,8 +6,8 @@ mod action_execution;
 mod audit;
 #[path = "postgres_live_repository/device_session.rs"]
 mod device_session;
-#[path = "postgres_live_repository/execution_uow.rs"]
-mod execution_uow;
+#[path = "postgres_live_repository/execution_recorder.rs"]
+mod execution_recorder;
 #[path = "postgres_live_repository/harness.rs"]
 mod harness;
 #[path = "postgres_live_repository/identity.rs"]

@@ -86,11 +86,11 @@ pub struct StoredTenant {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StoredOarUser {
+pub struct StoredWorkspaceUser {
     pub id: String,
     pub tenant_id: String,
     pub display_name: String,
-    pub status: OarUserStatus,
+    pub status: WorkspaceUserStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,7 +212,7 @@ pub struct AuditOutboxEnvelope {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PostgresExecutionUnitOfWorkReport {
+pub struct PostgresExecutionRecorderReport {
     pub operation: OperationRecord,
     pub outbox_id: Option<i64>,
     pub inbox_item_id: Option<String>,
@@ -220,7 +220,7 @@ pub struct PostgresExecutionUnitOfWorkReport {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PostgresReviewDecisionUnitOfWorkReport {
+pub struct PostgresReviewDecisionRecorderReport {
     pub operation: Option<OperationRecord>,
     pub inbox_item_id: Option<String>,
     pub outbox_id: Option<i64>,
@@ -228,7 +228,7 @@ pub struct PostgresReviewDecisionUnitOfWorkReport {
 }
 
 #[derive(Debug, Clone)]
-pub struct PostgresReviewDecisionUnitOfWorkRequest<'a> {
+pub struct PostgresReviewDecisionRecorderRequest<'a> {
     pub decision: InsertProposedActionDecisionRequest<'a>,
     pub confirmed_action: Option<&'a ConfirmedAction>,
     pub confirmed_at_ms: Option<u64>,
@@ -250,7 +250,7 @@ pub(super) struct StatusTransitionRequest<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PostgresTokenRefreshUnitOfWorkReport {
+pub struct PostgresTokenRefreshRecorderReport {
     pub apply_result: Option<TokenRefreshApplyResult>,
     pub event: AuditEvent,
 }

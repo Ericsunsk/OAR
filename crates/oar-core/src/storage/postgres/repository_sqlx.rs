@@ -4,8 +4,8 @@ use crate::action::operation_ledger::{LedgerError, OperationRecord, SubmitResult
 use crate::action::token_refresh_audit::{token_refresh_audit_event, TokenRefreshAuditContext};
 use crate::domain::evidence::{EvidenceItem, EvidenceSourceKind, EvidenceVisibilityScope};
 use crate::domain::identity::{
-    ActorKind, LarkIdentity, OarUser, OarUserStatus, ScopeBoundary, Tenant, TenantStatus,
-    TokenGrantState,
+    ActorKind, LarkIdentity, ScopeBoundary, Tenant, TenantStatus, TokenGrantState, WorkspaceUser,
+    WorkspaceUserStatus,
 };
 use crate::domain::proposed_action::{
     ProposedAction, ProposedActionDecision, ProposedActionKind, ProposedActionStatus, RiskSeverity,
@@ -34,8 +34,8 @@ use crate::storage::postgres::device_session_sql::{
     REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
 };
 use crate::storage::postgres::identity_sql::{
-    GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_OAR_USER_BY_ID,
-    GET_TENANT_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_OAR_USER, UPSERT_TENANT,
+    GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_TENANT_BY_ID,
+    GET_WORKSPACE_USER_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_TENANT, UPSERT_WORKSPACE_USER,
 };
 use crate::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
@@ -77,24 +77,23 @@ use codec::*;
 pub use error::{PgRepositoryResult, PostgresRepositoryError};
 use error::{MAX_REFRESH_ERROR_CHARS, REDACTED_REFRESH_ERROR, REDACTED_TENANT_ACTUAL};
 pub use repositories::{
-    PostgresAuditEventRepository, PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
-    PostgresIdentityRepository, PostgresLarkIdentityRepository, PostgresOarUserRepository,
-    PostgresOperationLedgerRepository, PostgresReviewDecisionUnitOfWork,
-    PostgresReviewInboxRepository, PostgresSchedulerJobRepository, PostgresTenantRepository,
-    PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator, PostgresTokenRefreshSweep,
-    PostgresTokenRefreshUnitOfWork,
+    PostgresAuditEventRepository, PostgresDeviceSessionRepository, PostgresExecutionRecorder,
+    PostgresIdentityRepository, PostgresLarkIdentityRepository, PostgresOperationLedgerRepository,
+    PostgresReviewDecisionRecorder, PostgresReviewInboxRepository, PostgresSchedulerJobRepository,
+    PostgresTenantRepository, PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
+    PostgresTokenRefreshRecorder, PostgresTokenRefreshSweep, PostgresWorkspaceUserRepository,
 };
 use rows::*;
 use types::StatusTransitionRequest;
 pub use types::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
-    InsertProposedActionDecisionRequest, PostgresExecutionUnitOfWorkReport,
-    PostgresReviewDecisionUnitOfWorkReport, PostgresReviewDecisionUnitOfWorkRequest,
-    PostgresTokenRefreshOrchestratorReport, PostgresTokenRefreshSweepReport,
-    PostgresTokenRefreshSweepRequest, PostgresTokenRefreshUnitOfWorkReport,
-    RotateEncryptedGrantRequest, StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity,
-    StoredOarUser, StoredProposedAction, StoredProposedActionDecision, StoredReviewInboxItem,
-    StoredSchedulerJob, StoredTenant,
+    InsertProposedActionDecisionRequest, PostgresExecutionRecorderReport,
+    PostgresReviewDecisionRecorderReport, PostgresReviewDecisionRecorderRequest,
+    PostgresTokenRefreshOrchestratorReport, PostgresTokenRefreshRecorderReport,
+    PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest, RotateEncryptedGrantRequest,
+    StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity, StoredProposedAction,
+    StoredProposedActionDecision, StoredReviewInboxItem, StoredSchedulerJob, StoredTenant,
+    StoredWorkspaceUser,
 };
 use util::*;
 
