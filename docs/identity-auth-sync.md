@@ -17,7 +17,7 @@
 5. 候选筛选 + 单次 sweep（已部分通过）：已在候选选择与编排链路之间补充“显式触发的一次性 `run_once` sweep”，并加入 `DATABASE_URL`-gated Postgres live tests 覆盖逐 grant 调用既有 orchestrator/Recorder/audit、顺序审计和 `limit = 0` 短路；同时已补齐 durable Postgres scheduler lease primitive 作为 sweep 执行门禁，recurring 状态模型当前仅 `pending` / `running`。该能力不是 daemon，也不是无人值守后台循环。
 6. tenant maintenance one-shot contract（已部分通过）：`oar-core` 维持 pure core/storage/contracts 边界，不实现 daemon/poll loop/HTTP/gRPC runtime；当前仅验证“显式触发一次的 tenant maintenance tick”可串联 lease-gated refresh scheduled sweep 与 audit outbox drain，并返回两段独立 stage report；scheduled sweep 硬错误不得跳过 outbox drain，stage failure 只暴露安全分类字符串，作为后续 runtime 常驻调度的前置契约。
 7. tenant maintenance config fail-closed（已通过）：tenant maintenance 构造前已具备 `validate` / `try_new` 校验，`tenant_id` / `lease_id` / `audit_stream` / `scheduled_audit_trace_id` 为空或 `lease/retry/delay/limit/batch/max_attempts` 为 `0`/非正时会被拒绝；`0`/空值不再被接受为 noop 配置。
-8. 依赖雷达边界（已对齐）：[`docs/reference/dependency-radar.md`](../reference/dependency-radar.md) 仅作为候选依赖技术雷达，不作为 Phase 0.6 生产采纳证明；`axum`、向量检索、文档解析、通用重试库当前不得进入 `oar-core` 或本阶段生产 refresh/maintenance 主路径。
+8. 依赖雷达边界（已对齐）：[`docs/reference/dependency-radar.md`](reference/dependency-radar.md) 仅作为候选依赖技术雷达，不作为 Phase 0.6 生产采纳证明；`axum`、向量检索、文档解析、通用重试库当前不得进入 `oar-core` 或本阶段生产 refresh/maintenance 主路径。
 
 当前判断：
 
@@ -72,7 +72,7 @@
 - `idempotency_key` 必须唯一。
 - 所有工具执行结果必须写入 `AuditEvent`。
 
-详细字段设计归入 [`technical-architecture.md`](../architecture/technical-architecture.md)。
+详细字段设计归入 [`system-architecture.md`](system-architecture.md)。
 
 ## 4. 验证用例
 
@@ -83,7 +83,7 @@
 | I2 | 用户身份读取 scope | 已通过 | `auth check --scope "auth:user.id:read"` 返回 ok |
 | I3 | token refresh 前置条件 | 部分通过 | refresh 到期时间存在，token 从 needs_refresh 变为 valid |
 | I4 | 后端 `TokenGrant` 存储 | 进行中 | token 加密存储，refresh rotation 原子更新且受 SQL guard 约束 |
-| I4a | identity repositories（`Tenant`/`WorkspaceUser`/`LarkIdentity`） | 进行中 | 租户隔离、绑定唯一性、冲突语义和审计字段在 Postgres 下可验证 |
+| I4a | identity repositories（`Tenant`/`WorkspaceUser`/`LarkIdentity`） | 部分通过 | Postgres live tests 已覆盖租户隔离、lookup、同 ID 跨租户冲突、同租户 external identity 绑定唯一性与 typed conflict；identity 变更审计字段 / trace 关联仍待补齐 |
 | I4b | `TokenRefreshDecision` persistence bridge | 部分通过 | service 层已串起 refresh outcome、decision、repository command sink 和 allowlist 安全错误摘要；`PostgresTokenRefreshOrchestrator` 已验证 fake `AuthRefreshAdapter` -> domain decision -> transactional Recorder -> append-only audit 的编排边界（live DB tests 覆盖 rotation success、stale conflict noop、transient failure redaction 和 revoked short-circuit）；Rust OpenAPI adapter 已完成 fake transport 装配验证，真实 Feishu 网络调用与后台 scheduler 尚未接入 |
 | I4c | Auth refresh adapter contract / safe transport boundary | 部分通过 | parser 仅接受加密授权包 envelope，检测到 access token / refresh token / authorization code 等 plaintext token-like 片段即拒绝；`FeishuAuthRefreshSafeClient` 已把 runtime transport raw envelope 限制在 auth 边界内，加入响应大小上限、parser fail-closed 和安全错误分类；parser 输出已映射到领域 `RefreshOutcome`，并继续走 decision bridge 与审计脱敏路径；Rust 原生 OpenAPI transport、授权材料解密提供器已在 adapter crate 完成 fake transport 装配验证，后台 scheduler 尚未接入（`lark-cli` 仅用于本地验证与 fixture） |
 | I4d | Rust OpenAPI HTTP 装配边界（adapter crate） | 部分通过 | `crates/oar-lark-adapter/tests/postgres_refresh_integration.rs` 已用 fake HTTP/transport 覆盖 endpoint、method、headers、body schema、`max_response_bytes` 传递、5xx/oversized transport error -> transient safe error、`20074`/`20037` 分类映射、material missing/fingerprint mismatch/malformed blob/wrong key -> safe transient/no HTTP/no rotate，以及 debug/audit secret redaction；当前仍未连接真实 Feishu 网络，不能宣称 live OpenAPI 验证完成 |
@@ -100,7 +100,7 @@
 
 下一验证切片（进行中）：
 
-1. `Tenant` / `WorkspaceUser` / `LarkIdentity` Postgres repositories 语义验证：`tenant_id` 隔离、identity 绑定唯一约束、冲突可恢复语义、最小审计字段落库。
+1. `Tenant` / `WorkspaceUser` / `LarkIdentity` Postgres repositories 下一步收敛到变更审计：基础 `tenant_id` 隔离、identity 绑定唯一约束与 typed conflict 已有 live DB 覆盖，仍需补齐 identity 变更 actor / before-after 摘要 / trace 关联。
 2. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
 3. 接入真实 `AuthAdapter` 与后台调度前，持续维护 refresh scheduler 前置能力：Postgres 租户级 due-candidate 安全筛选（`due` / `needs_refresh` / `expired`），并在查询层排除 `revoked` / `reauth_required` / `refresh_config_required` grant，确保候选快照不返回 `encrypted_oauth_grant` 或任何明文 token；CAS fingerprint 仅作为编排元数据使用，不写入日志或审计。
 4. 在已验证的单次 sweep / `run_once` 之上补齐 scheduler 触发前契约：基于已落地 lease gate、per-attempt audit sequence window 与 recurring `pending` / `running` 状态模型，继续完善失败中断/后续重试语义、租户粒度触发入口，以及真实 adapter 接入前的安全边界验证；继续明确它不是常驻 daemon，也不将整轮 sweep 包装为单个大事务。
@@ -150,10 +150,11 @@
 - `token_refresh` / `auth` 已迁移到真实子模块路径并移除 root facade 兼容层，refresh 编排不再经根层转发入口。
 - 已加入 `FeishuAuthRefreshSafeClient` safe transport boundary：core 可以消费上层 runtime transport 返回的 raw envelope，但仅在 auth 边界内做响应大小检查、safe parser fail-closed 和安全错误分类；Debug/Display 不暴露 raw stdout/stderr、plaintext token-like 内容、fingerprint 或 encrypted bytes；core 仍不实现 shell/CLI/OpenAPI transport。官方 `20074` 等配置类错误应进入 `refresh_config_required`，并暂停 due-candidate 重试。
 - 已将 Postgres refresh 编排边界升级为 async adapter：`PostgresTokenRefreshOrchestrator` / sweep / tenant maintenance 可等待异步 Feishu adapter，而不要求生产 refresh 在 async runtime 中执行 blocking HTTP/DB。`oar-lark-adapter` 已补 Rust 原生 async reqwest transport、AEAD stored grant material provider、feature-gated Postgres grant material store、独立 app credential provider，以及“stored encrypted blob -> decrypt renewal -> fake Feishu HTTP success -> safe parser -> core async adapter -> RefreshOutcome::Success”的单元闭环；material provider 失败会 fail-closed 为 safe transient，且不会发起 Feishu HTTP。
+- `Tenant` / `WorkspaceUser` / `LarkIdentity` Postgres repository 基础语义已通过 live DB 验证：覆盖租户隔离、lookup、同 ID 跨租户冲突、同租户 external identity 绑定唯一性与 typed conflict；identity 变更审计字段 / trace 关联仍未补齐。
 
 仍需生产级验证：
 
-- `Tenant` / `WorkspaceUser` / `LarkIdentity` Postgres repositories 集成验证：租户隔离、唯一约束冲突路径、identity 绑定幂等恢复与审计可追溯。
+- `Tenant` / `WorkspaceUser` / `LarkIdentity` 变更审计可追溯：基础 repository 语义已有 live DB 覆盖，仍需补齐 actor、before-after 摘要和 trace 关联。
 - `TokenGrant` Postgres 持久化集成验证：repository 仅处理加密授权包，不接受/返回明文 token。
 - `TokenRefreshService` 与 repository command sink 的领域编排已覆盖，refresh audit 事件映射、Postgres roundtrip 和 fake adapter 下的 transactional orchestrator 已验证；仍需接入真实 Feishu 网络调用与后台调度，并在真实 adapter 路径下持续验证同一事务边界。
 - Auth refresh adapter contract / safe transport 边界已建立：当前已验证“runtime transport raw envelope -> size guard -> safe parser -> `RefreshOutcome` -> decision bridge”链路，并已用 fake HTTP 验证 Rust OpenAPI adapter 装配闭环；adapter crate 侧新增 `DATABASE_URL` gated 集成测试，覆盖 Postgres stored encrypted grant material 进入 Rust OpenAPI auth adapter，再回到 core Postgres CAS/audit 的成功、`20074` config-required、`20037` reauth-required、5xx transient，以及 missing row / stale fingerprint / malformed blob / wrong key material failure 链路，并验证 `refresh_config_required` 会暂停 due-candidate 重试，material failure 不发起 HTTP、不 rotate 且审计脱敏。真实 Feishu 网络调用、scheduler runtime 与生产监控仍未连通。

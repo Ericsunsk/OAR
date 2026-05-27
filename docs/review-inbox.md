@@ -263,6 +263,73 @@ MVP 值得继续推进的信号：
 | 阶段 2 | 飞书工作流闭环 | 飞书卡片确认不低于桌面端 |
 | 阶段 3 | 只读 A2A Server | 外部智能体只能读脱敏摘要 |
 
+## 附录 A：产品体验与工作流（合并自原 `product-experience.md`）
+
+### A.1 核心体验
+
+第一版只验证一个体验：
+
+> 每周打开 OAR，10 分钟处理完所有 OKR 风险和待确认动作。
+
+默认入口是复盘收件箱，而不是聊天框或指标大屏。
+
+### A.2 桌面端形态
+
+桌面端是 OKR 复盘驾驶舱，推荐三栏布局：
+
+| 区域 | 作用 |
+| --- | --- |
+| 左侧侧边栏 | 团队、周期、风险视图、待确认动作、审计、智能体网络 |
+| 中间主区 | OKR 复盘看板、风险排序、目标详情、KR 进度、证据链 |
+| 右侧智能体面板 | 智能体解释、建议动作、确认/拒绝、执行日志 |
+
+默认首屏：
+- 复盘收件箱
+- 本周 OKR 风险榜
+- 待确认智能体动作
+- 每周简报
+
+单个 OKR 详情需展示：
+- Objective / KR 当前状态
+- 风险解释（为什么有风险）
+- 证据（更新时间、任务进度、会议纪要、文档变更、owner check-in）
+- 建议动作（更新进度、写评论、提醒 owner、创建跟进任务）
+- 操作入口（`确认`、`编辑后确认`、`拒绝`、`询问智能体`）
+
+### A.3 iOS 与飞书入口
+
+iOS 作为轻量伴随端：
+- 查看今日风险
+- 接收提醒
+- approve/reject 待确认动作
+- 快速查看每周简报
+
+飞书入口优先级高：
+- Bot 触达
+- 消息卡片确认
+- Shortcut 快速复盘
+- 重要动作可回到 OAR 或在飞书卡片确认
+
+### A.4 核心工作流
+
+1. 后端按计划同步 OKR、任务、会议、文档和进展。
+2. 识别长期未更新 KR、低进度 KR、缺少更新 owner。
+3. 生成风险队列、证据链和建议动作。
+4. 用户打开复盘收件箱。
+5. 用户查看证据并确认、编辑后确认或拒绝。
+6. 已确认动作经 `LarkAdapter` 写回飞书。
+7. 审计时间线记录“谁基于什么证据确认了什么动作”。
+
+### A.5 体验原则
+
+- 首页必须是复盘收件箱，不是指标大屏。
+- 每条建议都要有证据链。
+- 所有写回动作必须有确认入口。
+- 拒绝建议时可以记录原因。
+- 编辑后确认是一等能力。
+- 飞书卡片与 macOS/iOS 的动作状态保持一致。
+- 聊天能力只辅助解释和追问，不承载主流程。
+
 ## 13. 开放问题
 
 | 问题 | 当前状态 |
@@ -276,12 +343,11 @@ MVP 值得继续推进的信号：
 
 ## 14. 参考文档
 
-- [`one-page-brief.md`](one-page-brief.md)
-- [`product-plan.md`](product-plan.md)
-- [`product-experience.md`](product-experience.md)
-- [`technical-architecture.md`](../architecture/technical-architecture.md)
-- [`security-and-permissions.md`](../architecture/security-and-permissions.md)
-- [`memory-architecture.md`](../architecture/memory-architecture.md)
-- [`phase-0.5-lark-cli-validation-report.md`](../validation/phase-0.5-lark-cli-validation-report.md)
-- [`phase-0.6-identity-sync-validation-report.md`](../validation/phase-0.6-identity-sync-validation-report.md)
-- [`validation-plan.md`](../validation/validation-plan.md)
+- [`project-overview.md`](project-overview.md)
+- 本文档附录 A（产品体验与工作流）
+- [`system-architecture.md`](system-architecture.md)
+- [`execution-audit.md`](execution-audit.md)
+- [`memory-evidence.md`](memory-evidence.md)
+- [`feishu-integration.md`](feishu-integration.md)
+- [`identity-auth-sync.md`](identity-auth-sync.md)
+- [`validation-plan.md`](validation-plan.md)

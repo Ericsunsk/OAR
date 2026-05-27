@@ -1,6 +1,6 @@
 # OAR 推荐依赖库与 Crates 建议清单（技术雷达）
 
-> 本文是候选依赖技术雷达，不是 Phase 0.6 架构决策或生产采纳承诺。若与 `docs/product/`、`docs/architecture/`、`docs/validation/` 下的 source-of-truth 文档冲突，以 source-of-truth 为准。尤其是：是否“已接入生产”只能以验证报告和代码测试结论为准。
+> 本文是候选依赖技术雷达，不是 Phase 0.6 架构决策或生产采纳承诺。若与 `docs/project-overview.md`、`docs/system-architecture.md`、`docs/validation-plan.md` 等 source-of-truth 文档冲突，以 source-of-truth 为准。尤其是：是否“已接入生产”只能以验证报告和代码测试结论为准。
 
 为了防止在后续开发（Phase 0.7 证据链、A2A 协议等）中重复造轮子，并确保系统的高安全性、原生性能与隐私隔离，本指南对未来开发切片中引入的候选依赖进行边界说明：`oar-core` 维持 pure core/storage/contracts，network/runtime/gateway 依赖放在外层（例如 `oar-lark-adapter` 或后续 runtime crate）。
 
