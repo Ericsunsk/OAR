@@ -1,7 +1,10 @@
 use super::codec::{
     action_status_from_db, audit_actor_kind_from_db, audit_event_type_from_db,
-    device_entry_point_from_db, device_session_state_from_db, identity_actor_kind_from_db,
-    oar_user_status_from_db, scope_boundary_from_db, tenant_status_from_db,
+    device_entry_point_from_db, device_session_state_from_db, evidence_source_kind_from_db,
+    evidence_visibility_scope_from_db, identity_actor_kind_from_db, oar_user_status_from_db,
+    proposed_action_decision_from_db, proposed_action_kind_from_db, proposed_action_status_from_db,
+    review_inbox_item_status_from_db, risk_severity_from_db, scheduler_job_kind_from_db,
+    scheduler_job_status_from_db, scope_boundary_from_db, tenant_status_from_db,
     token_grant_state_from_db,
 };
 use super::util::{
@@ -9,8 +12,9 @@ use super::util::{
 };
 use super::{
     AuditActor, AuditEvent, AuditOutboxMessage, AuditScope, AuditTarget, EncryptedTokenGrantRecord,
-    OperationRecord, PgRepositoryResult, StoredDeviceSession, StoredLarkIdentity, StoredOarUser,
-    StoredTenant,
+    OperationRecord, PgRepositoryResult, StoredDeviceSession, StoredEvidenceItem,
+    StoredLarkIdentity, StoredOarUser, StoredProposedAction, StoredProposedActionDecision,
+    StoredReviewInboxItem, StoredSchedulerJob, StoredTenant,
 };
 use crate::domain::identity::{TenantId, TokenGrantId};
 use crate::domain::token_refresh::types::TokenRefreshGrantSnapshot;
@@ -21,6 +25,7 @@ pub(super) fn operation_record_from_row(row: &PgRow) -> PgRepositoryResult<Opera
     let status: String = row.try_get("status")?;
     Ok(OperationRecord {
         operation_id: row.try_get("operation_id")?,
+        tenant_id: row.try_get("tenant_id")?,
         action_id: row.try_get("action_id")?,
         idempotency_key: row.try_get("idempotency_key")?,
         status: action_status_from_db(&status)?,
@@ -201,5 +206,146 @@ pub(super) fn stored_device_session_from_row(
             "expired_at_ms",
         )?
         .map(ms_to_system_time),
+    })
+}
+
+pub(super) fn stored_evidence_item_from_row(row: &PgRow) -> PgRepositoryResult<StoredEvidenceItem> {
+    let source_kind: String = row.try_get("source_kind")?;
+    let visibility_scope: String = row.try_get("visibility_scope")?;
+
+    Ok(StoredEvidenceItem {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        summary: row.try_get("summary")?,
+        source_kind: evidence_source_kind_from_db(&source_kind)?,
+        source_id: row.try_get("source_id")?,
+        locator: row.try_get("locator")?,
+        content_hash: row.try_get("content_hash")?,
+        visibility_scope: evidence_visibility_scope_from_db(&visibility_scope)?,
+        observed_at: ms_to_system_time(non_negative_i64_to_u64(
+            row.try_get("observed_at_ms")?,
+            "observed_at_ms",
+        )?),
+        recorded_at: ms_to_system_time(non_negative_i64_to_u64(
+            row.try_get("recorded_at_ms")?,
+            "recorded_at_ms",
+        )?),
+    })
+}
+
+#[allow(dead_code)]
+pub(super) fn stored_proposed_action_from_row(
+    row: &PgRow,
+) -> PgRepositoryResult<StoredProposedAction> {
+    let status: String = row.try_get("status")?;
+    let kind: String = row.try_get("kind")?;
+    let risk_severity: String = row.try_get("risk_severity")?;
+    let published_at_ms: Option<i64> = row.try_get("published_at_ms")?;
+
+    Ok(StoredProposedAction {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        actor_user_id: row.try_get("actor_user_id")?,
+        target_user_id: row.try_get("target_user_id")?,
+        owner_user_id: row.try_get("owner_user_id")?,
+        version: non_negative_i64_to_u64(row.try_get("version")?, "version")?,
+        status: proposed_action_status_from_db(&status)?,
+        kind: proposed_action_kind_from_db(&kind, row.try_get("custom_kind")?)?,
+        risk_severity: risk_severity_from_db(&risk_severity)?,
+        suggested_payload: row.try_get("suggested_payload")?,
+        published_at: optional_non_negative_i64_to_u64(published_at_ms, "published_at_ms")?
+            .map(ms_to_system_time),
+    })
+}
+
+#[allow(dead_code)]
+pub(super) fn stored_proposed_action_decision_from_row(
+    row: &PgRow,
+) -> PgRepositoryResult<StoredProposedActionDecision> {
+    let decision: String = row.try_get("decision")?;
+    let edited_payload: Option<serde_json::Value> = row.try_get("edited_payload")?;
+    Ok(StoredProposedActionDecision {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        proposed_action_id: row.try_get("proposed_action_id")?,
+        proposed_action_version: non_negative_i64_to_u64(
+            row.try_get("proposed_action_version")?,
+            "proposed_action_version",
+        )?,
+        actor_user_id: row.try_get("actor_user_id")?,
+        decision: proposed_action_decision_from_db(&decision, edited_payload)?,
+        confirmed_action_id: row.try_get("confirmed_action_id")?,
+        decided_at: ms_to_system_time(non_negative_i64_to_u64(
+            row.try_get("decided_at_ms")?,
+            "decided_at_ms",
+        )?),
+    })
+}
+
+pub(super) fn stored_review_inbox_item_from_row(
+    row: &PgRow,
+) -> PgRepositoryResult<StoredReviewInboxItem> {
+    let status: String = row.try_get("status")?;
+    let ledger_status: Option<String> = row.try_get("ledger_status")?;
+    Ok(StoredReviewInboxItem {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        user_id: row.try_get("user_id")?,
+        proposed_action_id: row.try_get("proposed_action_id")?,
+        proposed_action_version: non_negative_i64_to_u64(
+            row.try_get("proposed_action_version")?,
+            "proposed_action_version",
+        )?,
+        risk_score: non_negative_i64_to_u64(
+            row.try_get::<i32, _>("risk_score")? as i64,
+            "risk_score",
+        )? as u32,
+        priority: non_negative_i64_to_u64(row.try_get::<i32, _>("priority")? as i64, "priority")?
+            as u32,
+        status: review_inbox_item_status_from_db(&status)?,
+        sort_key: row.try_get("sort_key")?,
+        sync_cursor_value: non_negative_i64_to_u64(
+            row.try_get("sync_cursor_value")?,
+            "sync_cursor_value",
+        )?,
+        updated_at: ms_to_system_time(non_negative_i64_to_u64(
+            row.try_get("updated_at_ms")?,
+            "updated_at_ms",
+        )?),
+        ledger_status: ledger_status
+            .as_deref()
+            .map(action_status_from_db)
+            .transpose()?,
+        operation_id: row.try_get("operation_id")?,
+    })
+}
+
+pub(super) fn stored_scheduler_job_from_row(row: &PgRow) -> PgRepositoryResult<StoredSchedulerJob> {
+    let job_kind: String = row.try_get("job_kind")?;
+    let status: String = row.try_get("status")?;
+    Ok(StoredSchedulerJob {
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        job_kind: scheduler_job_kind_from_db(&job_kind)?,
+        status: scheduler_job_status_from_db(&status)?,
+        next_run_at_ms: non_negative_i64_to_u64(row.try_get("next_run_at_ms")?, "next_run_at_ms")?,
+        lease_id: row.try_get("lease_id")?,
+        lease_until_ms: optional_non_negative_i64_to_u64(
+            row.try_get("lease_until_ms")?,
+            "lease_until_ms",
+        )?,
+        attempt_count: non_negative_i64_to_u64(
+            row.try_get::<i32, _>("attempt_count")? as i64,
+            "attempt_count",
+        )? as u32,
+        last_started_at_ms: optional_non_negative_i64_to_u64(
+            row.try_get("last_started_at_ms")?,
+            "last_started_at_ms",
+        )?,
+        last_finished_at_ms: optional_non_negative_i64_to_u64(
+            row.try_get("last_finished_at_ms")?,
+            "last_finished_at_ms",
+        )?,
+        last_safe_error_code: row.try_get("last_safe_error_code")?,
     })
 }

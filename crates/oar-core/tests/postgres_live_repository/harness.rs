@@ -24,19 +24,35 @@ pub(crate) use oar_core::action::token_refresh_audit::{
     token_refresh_audit_event, TokenRefreshAuditContext,
 };
 pub(crate) use oar_core::domain::device_sync::{DeviceEntryPoint, DeviceSession, SessionState};
+pub(crate) use oar_core::domain::evidence::{
+    EvidenceId, EvidenceItem, EvidenceRef, EvidenceSourceKind, EvidenceVisibilityScope,
+};
 pub(crate) use oar_core::domain::identity::{
     ActorKind, DeviceSessionId, LarkIdentity, LarkIdentityId, OAuthTokens, OarUser, OarUserId,
     OarUserStatus, ScopeBoundary, SecretString, Tenant, TenantId, TenantStatus, TokenGrant,
     TokenGrantId, TokenGrantState,
 };
-pub(crate) use oar_core::domain::token_refresh::service::AuthRefreshAdapter;
+pub(crate) use oar_core::domain::proposed_action::{
+    ProposedAction, ProposedActionDecision, ProposedActionId, ProposedActionKind, RiskSeverity,
+};
+pub(crate) use oar_core::domain::review_inbox::{
+    ReviewInboxItem, ReviewInboxItemId, ReviewInboxItemStatus,
+};
+pub(crate) use oar_core::domain::scheduler::{
+    SchedulerJobKind, SchedulerJobOutcome, SchedulerJobStatus, SchedulerLeaseAcquire,
+};
+pub(crate) use oar_core::domain::token_refresh::service::{
+    AsyncAuthRefreshAdapter, AuthRefreshAdapter,
+};
 pub(crate) use oar_core::domain::token_refresh::types::{
     EncryptedGrantBlob, EncryptedGrantMaterial, RefreshOutcome, TokenRefreshAuditSummary,
     TokenRefreshCommandKind, TokenRefreshCommandReport, TokenRefreshDecisionKind,
     TokenRefreshGrantSnapshot, TokenRefreshPlannedCommand, TokenRefreshReportStatus,
     TokenRefreshRepositoryCommand,
 };
-pub(crate) use oar_core::lark::auth::adapter::{LarkAuthRefreshAdapter, LarkAuthRefreshClient};
+pub(crate) use oar_core::lark::auth::adapter::{
+    AsyncLarkAuthRefreshClient, LarkAuthRefreshAdapter, LarkAuthRefreshClient,
+};
 pub(crate) use oar_core::lark::auth::parser::parse_lark_auth_refresh_response;
 pub(crate) use oar_core::lark::auth::types::{LarkAuthRefreshRequest, LarkAuthRefreshResponse};
 pub(crate) use oar_core::lark::fixtures::{
@@ -46,20 +62,28 @@ pub(crate) use oar_core::lark::fixtures::{
 pub(crate) use oar_core::storage::postgres::audit_outbox_worker::{
     AuditOutboxDelivery, AuditOutboxDispatcher, AuditOutboxDrainConfig, PostgresAuditOutboxWorker,
 };
+pub(crate) use oar_core::storage::postgres::tenant_maintenance::{
+    PostgresTenantMaintenanceConfig, PostgresTenantMaintenanceWorker,
+};
 pub(crate) use oar_core::storage::postgres::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
-    PostgresAuditEventRepository, PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
-    PostgresLarkIdentityRepository, PostgresOarUserRepository, PostgresOperationLedgerRepository,
-    PostgresRepositoryError, PostgresTenantRepository, PostgresTokenGrantRepository,
-    PostgresTokenRefreshOrchestrator, PostgresTokenRefreshSweep, PostgresTokenRefreshSweepRequest,
-    PostgresTokenRefreshUnitOfWork, RotateEncryptedGrantRequest,
+    InsertProposedActionDecisionRequest, PostgresAuditEventRepository,
+    PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork, PostgresLarkIdentityRepository,
+    PostgresOarUserRepository, PostgresOperationLedgerRepository, PostgresRepositoryError,
+    PostgresReviewDecisionUnitOfWork, PostgresReviewDecisionUnitOfWorkRequest,
+    PostgresReviewInboxRepository, PostgresSchedulerJobRepository, PostgresTenantRepository,
+    PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
+    PostgresTokenRefreshScheduledSweep, PostgresTokenRefreshSweep,
+    PostgresTokenRefreshSweepRequest, PostgresTokenRefreshUnitOfWork, RotateEncryptedGrantRequest,
+    TokenRefreshScheduledSweepConfig,
 };
 pub(crate) use serde_json::json;
 pub(crate) use sqlx::postgres::PgPoolOptions;
 pub(crate) use sqlx::{AssertSqlSafe, PgPool, Row};
 
-const MIGRATION_SQL: &str =
+const MIGRATION_0001_SQL: &str =
     include_str!("../../migrations/0001_phase_0_6_identity_action_audit.sql");
+const MIGRATION_0002_SQL: &str = include_str!("../../migrations/0002_review_inbox_domain.sql");
 
 static SCHEMA_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -178,6 +202,13 @@ impl AuthRefreshAdapter for LiveRefreshAdapter {
     }
 }
 
+#[async_trait::async_trait(?Send)]
+impl AsyncAuthRefreshAdapter for LiveRefreshAdapter {
+    async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
+        AuthRefreshAdapter::refresh(self, snapshot)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct SequenceRefreshAdapter {
     outcomes: Arc<Mutex<VecDeque<RefreshOutcome>>>,
@@ -214,6 +245,13 @@ impl AuthRefreshAdapter for SequenceRefreshAdapter {
     }
 }
 
+#[async_trait::async_trait(?Send)]
+impl AsyncAuthRefreshAdapter for SequenceRefreshAdapter {
+    async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
+        AuthRefreshAdapter::refresh(self, snapshot)
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct FixtureClient {
     fixture: &'static str,
@@ -243,6 +281,18 @@ impl LarkAuthRefreshClient for FixtureClient {
         let mut calls = self.calls.lock().expect("fixture client mutex");
         *calls += 1;
         parse_lark_auth_refresh_response(self.fixture).map_err(|_| "fixture_parse_failed")
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl AsyncLarkAuthRefreshClient for FixtureClient {
+    type Error = &'static str;
+
+    async fn refresh(
+        &mut self,
+        request: &LarkAuthRefreshRequest,
+    ) -> Result<LarkAuthRefreshResponse, Self::Error> {
+        LarkAuthRefreshClient::refresh(self, request)
     }
 }
 
@@ -433,11 +483,15 @@ pub(crate) async fn create_schema_and_pool(
     sqlx::raw_sql(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
         .execute(&admin_pool)
         .await?;
-    sqlx::raw_sql(AssertSqlSafe(format!(
-        "SET search_path TO {schema};\n{MIGRATION_SQL}"
-    )))
-    .execute(&admin_pool)
-    .await?;
+    sqlx::raw_sql(AssertSqlSafe(format!("SET search_path TO {schema}")))
+        .execute(&admin_pool)
+        .await?;
+    sqlx::raw_sql(AssertSqlSafe(MIGRATION_0001_SQL.to_string()))
+        .execute(&admin_pool)
+        .await?;
+    sqlx::raw_sql(AssertSqlSafe(MIGRATION_0002_SQL.to_string()))
+        .execute(&admin_pool)
+        .await?;
     admin_pool.close().await;
 
     let schema_for_connection = schema.to_string();
@@ -616,12 +670,18 @@ pub(crate) fn planned_token_refresh_command(
             grant_id,
             tenant_id,
             ..
+        }
+        | TokenRefreshRepositoryCommand::MarkConfigRequired {
+            grant_id,
+            tenant_id,
+            ..
         } => (grant_id.clone(), tenant_id.clone()),
     };
     let command_kind = command.kind();
     let safe_error = match &command {
         TokenRefreshRepositoryCommand::MarkNeedsRefresh { safe_error, .. }
-        | TokenRefreshRepositoryCommand::MarkReauthRequired { safe_error, .. } => {
+        | TokenRefreshRepositoryCommand::MarkReauthRequired { safe_error, .. }
+        | TokenRefreshRepositoryCommand::MarkConfigRequired { safe_error, .. } => {
             Some(safe_error.clone())
         }
         TokenRefreshRepositoryCommand::RotateGrantCas { .. } => None,
@@ -639,6 +699,9 @@ pub(crate) fn planned_token_refresh_command(
                 }
                 TokenRefreshCommandKind::MarkReauthRequired => {
                     TokenRefreshDecisionKind::MarkReauthRequired
+                }
+                TokenRefreshCommandKind::MarkConfigRequired => {
+                    TokenRefreshDecisionKind::MarkConfigRequired
                 }
             },
             command_kind,

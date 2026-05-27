@@ -6,6 +6,10 @@ mod device_session_sql;
 mod identity_sql;
 #[path = "postgres_repository_sql/ledger_sql.rs"]
 mod ledger_sql;
+#[path = "postgres_repository_sql/review_inbox_sql.rs"]
+mod review_inbox_sql;
+#[path = "postgres_repository_sql/scheduler_sql.rs"]
+mod scheduler_sql;
 #[path = "postgres_repository_sql/token_grant_sql.rs"]
 mod token_grant_sql;
 

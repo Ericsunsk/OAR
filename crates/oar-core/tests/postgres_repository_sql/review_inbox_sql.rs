@@ -82,7 +82,8 @@ fn review_inbox_ledger_projection_is_operation_scoped_and_guarded() {
     assert!(sql.starts_with("update review_inbox_items"));
     assert!(sql.contains("set status = $3"));
     assert!(sql.contains("ledger_status = $4"));
-    assert!(sql.contains("source_cursor_value = greatest(source_cursor_value, $5)"));
+    assert!(!sql.contains("source_cursor_value ="));
+    assert!(sql.contains("updated_at = to_timestamp($5::double precision / 1000.0)"));
     assert!(sql.contains("nextval('review_inbox_sync_cursor_seq')"));
     assert!(sql.contains("sync_cursor_value + 1"));
     assert!(sql.contains("where tenant_id = $1"));

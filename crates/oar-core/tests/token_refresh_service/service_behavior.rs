@@ -134,6 +134,47 @@ fn service_reauth_failure_marks_reauth_required() {
 }
 
 #[test]
+fn service_config_required_marks_config_required() {
+    let grant = sample_grant(TokenGrantState::Valid, Some("refresh-old"));
+    let snapshot = sample_snapshot(&grant);
+    let adapter = FakeAuthRefreshAdapter::new(RefreshOutcome::ConfigRequired {
+        safe_error: "refresh_config_required".to_string(),
+    });
+    let sink = FakeCommandSink::new(Ok(Some(sample_apply_result(
+        TokenGrantState::NeedsRefresh,
+        "fp_old",
+    ))));
+    let mut service = TokenRefreshService::new(adapter.clone(), sink.clone());
+
+    let report = service
+        .refresh_grant_at(snapshot, SystemTime::UNIX_EPOCH + Duration::from_secs(17))
+        .expect("service refresh should succeed");
+
+    assert_eq!(adapter.calls(), 1);
+    assert_eq!(sink.calls(), 1);
+    assert_eq!(report.status, TokenRefreshReportStatus::Succeeded);
+    assert_eq!(
+        report.decision,
+        Some(TokenRefreshDecisionKind::MarkConfigRequired)
+    );
+    assert_eq!(
+        report.command,
+        Some(TokenRefreshCommandKind::MarkConfigRequired)
+    );
+    assert_eq!(
+        report.safe_error.as_deref(),
+        Some("refresh_config_required")
+    );
+
+    match sink.last_command().expect("expected command") {
+        TokenRefreshRepositoryCommand::MarkConfigRequired { safe_error, .. } => {
+            assert_eq!(safe_error, "refresh_config_required");
+        }
+        other => panic!("expected MarkConfigRequired, got {other:?}"),
+    }
+}
+
+#[test]
 fn service_short_circuits_revoked_reauth_and_missing_refresh_material() {
     let cases = [
         (

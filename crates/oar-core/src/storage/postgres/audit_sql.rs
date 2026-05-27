@@ -57,7 +57,8 @@ SELECT
     execution_result,
     operation_id
 FROM audit_events
-WHERE trace_id = $1
+WHERE tenant_id = $1
+  AND trace_id = $2
 ORDER BY sequence ASC
 "#;
 

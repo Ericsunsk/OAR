@@ -1,5 +1,90 @@
 use super::harness::*;
 
+fn execution_projection_proposed_action(
+    tenant_id: &str,
+    user_id: &str,
+    id: &str,
+) -> ProposedAction {
+    let mut action = ProposedAction::draft(
+        ProposedActionId(id.to_string()),
+        TenantId(tenant_id.to_string()),
+        OarUserId(user_id.to_string()),
+        None,
+        None,
+        1,
+        ProposedActionKind::UpdateKrProgress,
+        RiskSeverity::High,
+        vec![format!("evidence_{id}")],
+        json!({"kind": "update_kr_progress", "delta": "weekly"}),
+    )
+    .expect("proposed action should be valid");
+    action.publish().expect("publish should work");
+    action
+}
+
+struct ProjectionInboxSpec<'a> {
+    id: &'a str,
+    tenant_id: &'a str,
+    user_id: &'a str,
+    proposed_action_id: &'a str,
+    status: ReviewInboxItemStatus,
+    ledger_status: Option<&'a str>,
+    operation_id: Option<&'a str>,
+    sync_cursor: u64,
+}
+
+fn execution_projection_inbox_item(spec: ProjectionInboxSpec<'_>) -> ReviewInboxItem {
+    let mut item = ReviewInboxItem::new(
+        ReviewInboxItemId(spec.id.to_string()),
+        TenantId(spec.tenant_id.to_string()),
+        OarUserId(spec.user_id.to_string()),
+        spec.proposed_action_id,
+        1,
+        80,
+        3,
+        900,
+        spec.sync_cursor,
+        SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(spec.sync_cursor),
+    );
+    item.status = spec.status;
+    item.ledger_status = spec.ledger_status.map(str::to_string);
+    item.operation_id = spec.operation_id.map(str::to_string);
+    item
+}
+
+async fn seed_confirmed_inbox_projection(
+    pool: &PgPool,
+    tenant_id: &str,
+    user_id: &str,
+    proposed_action_id: &str,
+    inbox_id: &str,
+    operation_id: &str,
+    sync_cursor: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let repository = PostgresReviewInboxRepository::new(pool.clone());
+    let proposed_action =
+        execution_projection_proposed_action(tenant_id, user_id, proposed_action_id);
+    repository
+        .insert_proposed_action(
+            &proposed_action,
+            Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(sync_cursor)),
+        )
+        .await?;
+    repository
+        .upsert_review_inbox_item(&execution_projection_inbox_item(ProjectionInboxSpec {
+            id: inbox_id,
+            tenant_id,
+            user_id,
+            proposed_action_id,
+            status: ReviewInboxItemStatus::Confirmed,
+            ledger_status: Some("confirmed"),
+            operation_id: Some(operation_id),
+            sync_cursor,
+        }))
+        .await?;
+    Ok(())
+}
+
 #[test]
 fn postgres_live_execution_uow_commits_ledger_audit_and_outbox_atomically() {
     run_live_postgres_test("execution_uow_commit", |pool| async move {
@@ -38,7 +123,9 @@ fn postgres_live_execution_uow_commits_ledger_audit_and_outbox_atomically() {
             .expect("operation should commit");
         assert_eq!(operation.operation_id, "op_uow");
 
-        let events = audit.find_by_trace_id("trace_uow").await?;
+        let events = audit
+            .find_by_tenant_and_trace_id("tenant_uow", "trace_uow")
+            .await?;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, "evt_uow_1");
 
@@ -124,7 +211,9 @@ fn postgres_live_execution_uow_duplicate_confirmation_skips_side_effects() {
         assert_eq!(duplicate.outbox_id, None);
         assert_eq!(duplicate.operation.operation_id, "op_uow_dup");
 
-        let events = audit.find_by_trace_id("trace_uow_dup").await?;
+        let events = audit
+            .find_by_tenant_and_trace_id("tenant_uow_dup", "trace_uow_dup")
+            .await?;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, "evt_uow_dup_1");
 
@@ -358,7 +447,9 @@ fn postgres_live_execution_uow_records_dry_run_and_success_terminal_idempotently
             .expect("operation should exist");
         assert_eq!(operation.status, ActionStatus::Succeeded);
 
-        let events = audit.find_by_trace_id("trace_uow_success").await?;
+        let events = audit
+            .find_by_tenant_and_trace_id("tenant_uow_success", "trace_uow_success")
+            .await?;
         assert_eq!(events.len(), 3);
         assert_eq!(events[0].event_id, "evt_uow_success_1");
         assert_eq!(events[1].event_id, "evt_uow_success_2");
@@ -378,6 +469,657 @@ fn postgres_live_execution_uow_records_dry_run_and_success_terminal_idempotently
 
         Ok(())
     });
+}
+
+#[test]
+fn postgres_live_execution_uow_projects_ledger_status_to_review_inbox() {
+    run_live_postgres_test("execution_uow_review_inbox_projection", |pool| async move {
+        seed_user(&pool, "tenant_uow_projection", "user_uow_projection").await?;
+
+        let uow = PostgresExecutionUnitOfWork::new(pool.clone());
+        let repository = PostgresReviewInboxRepository::new(pool.clone());
+        let action = confirmed_action(
+            "action_uow_projection",
+            "tenant_uow_projection",
+            "user_uow_projection",
+            "idem_uow_projection",
+        );
+
+        uow.record_confirmation(
+            &action,
+            1_748_250_000_000,
+            "op_uow_projection",
+            &AuditEvent::confirmed_action(
+                audit_context(
+                    "evt_uow_projection_1",
+                    "trace_uow_projection",
+                    1,
+                    1_748_250_001_000,
+                    "user_uow_projection",
+                    "tenant_uow_projection",
+                    "action_uow_projection",
+                ),
+                summary("confirmed"),
+            ),
+            &outbox_envelope(
+                "tenant_uow_projection",
+                "trace_uow_projection",
+                1_748_250_010_000,
+            ),
+        )
+        .await?;
+        seed_confirmed_inbox_projection(
+            &pool,
+            "tenant_uow_projection",
+            "user_uow_projection",
+            "proposed_uow_projection",
+            "inbox_uow_projection",
+            "op_uow_projection",
+            100,
+        )
+        .await?;
+
+        let dry_run = uow
+            .record_dry_run(
+                "tenant_uow_projection",
+                "idem_uow_projection",
+                1_748_250_002_000,
+                &AuditEvent::dry_run(
+                    audit_context(
+                        "evt_uow_projection_2",
+                        "trace_uow_projection",
+                        2,
+                        1_748_250_002_000,
+                        "user_uow_projection",
+                        "tenant_uow_projection",
+                        "action_uow_projection",
+                    ),
+                    Some(summary("before")),
+                    Some(summary("projected")),
+                ),
+                &outbox_envelope(
+                    "tenant_uow_projection",
+                    "trace_uow_projection",
+                    1_748_250_011_000,
+                ),
+            )
+            .await?;
+        assert_eq!(
+            dry_run.inbox_item_id.as_deref(),
+            Some("inbox_uow_projection")
+        );
+
+        let after_dry_run = repository
+            .list_review_inbox_items("tenant_uow_projection", "user_uow_projection", 0, 10)
+            .await?;
+        assert_eq!(after_dry_run[0].status, ReviewInboxItemStatus::Executing);
+        assert_eq!(
+            after_dry_run[0].ledger_status,
+            Some(ActionStatus::Executing)
+        );
+        assert_eq!(after_dry_run[0].sync_cursor_value, 101);
+
+        let success = uow
+            .record_success(
+                "tenant_uow_projection",
+                "idem_uow_projection",
+                1_748_250_003_000,
+                &AuditEvent::execution_succeeded(
+                    audit_context(
+                        "evt_uow_projection_3",
+                        "trace_uow_projection",
+                        3,
+                        1_748_250_003_000,
+                        "user_uow_projection",
+                        "tenant_uow_projection",
+                        "action_uow_projection",
+                    ),
+                    Some(summary("before")),
+                    Some(summary("applied")),
+                    "lark_op_projection",
+                ),
+                &outbox_envelope(
+                    "tenant_uow_projection",
+                    "trace_uow_projection",
+                    1_748_250_012_000,
+                ),
+            )
+            .await?;
+        assert_eq!(
+            success.inbox_item_id.as_deref(),
+            Some("inbox_uow_projection")
+        );
+
+        let after_success = repository
+            .list_review_inbox_items("tenant_uow_projection", "user_uow_projection", 0, 10)
+            .await?;
+        assert_eq!(after_success[0].status, ReviewInboxItemStatus::Succeeded);
+        assert_eq!(
+            after_success[0].ledger_status,
+            Some(ActionStatus::Succeeded)
+        );
+        assert_eq!(after_success[0].sync_cursor_value, 102);
+
+        let duplicate_success = uow
+            .record_success(
+                "tenant_uow_projection",
+                "idem_uow_projection",
+                1_748_250_004_000,
+                &AuditEvent::execution_succeeded(
+                    audit_context(
+                        "evt_uow_projection_4",
+                        "trace_uow_projection",
+                        4,
+                        1_748_250_004_000,
+                        "user_uow_projection",
+                        "tenant_uow_projection",
+                        "action_uow_projection",
+                    ),
+                    Some(summary("before")),
+                    Some(summary("applied again")),
+                    "lark_op_projection_retry",
+                ),
+                &outbox_envelope(
+                    "tenant_uow_projection",
+                    "trace_uow_projection",
+                    1_748_250_013_000,
+                ),
+            )
+            .await?;
+        assert!(duplicate_success.duplicate);
+        assert_eq!(duplicate_success.inbox_item_id, None);
+
+        let after_duplicate = repository
+            .list_review_inbox_items("tenant_uow_projection", "user_uow_projection", 0, 10)
+            .await?;
+        assert_eq!(after_duplicate[0].status, ReviewInboxItemStatus::Succeeded);
+        assert_eq!(after_duplicate[0].sync_cursor_value, 102);
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_execution_uow_projection_keeps_source_cursor_and_allows_new_source_sync() {
+    run_live_postgres_test(
+        "execution_uow_review_inbox_source_cursor",
+        |pool| async move {
+            seed_user(&pool, "tenant_uow_source_cursor", "user_uow_source_cursor").await?;
+
+            let uow = PostgresExecutionUnitOfWork::new(pool.clone());
+            let repository = PostgresReviewInboxRepository::new(pool.clone());
+            let action = confirmed_action(
+                "action_uow_source_cursor",
+                "tenant_uow_source_cursor",
+                "user_uow_source_cursor",
+                "idem_uow_source_cursor",
+            );
+
+            uow.record_confirmation(
+                &action,
+                1_748_250_000_000,
+                "op_uow_source_cursor",
+                &AuditEvent::confirmed_action(
+                    audit_context(
+                        "evt_uow_source_cursor_1",
+                        "trace_uow_source_cursor",
+                        1,
+                        1_748_250_001_000,
+                        "user_uow_source_cursor",
+                        "tenant_uow_source_cursor",
+                        "action_uow_source_cursor",
+                    ),
+                    summary("confirmed"),
+                ),
+                &outbox_envelope(
+                    "tenant_uow_source_cursor",
+                    "trace_uow_source_cursor",
+                    1_748_250_010_000,
+                ),
+            )
+            .await?;
+            seed_confirmed_inbox_projection(
+                &pool,
+                "tenant_uow_source_cursor",
+                "user_uow_source_cursor",
+                "proposed_uow_source_cursor",
+                "inbox_uow_source_cursor",
+                "op_uow_source_cursor",
+                100,
+            )
+            .await?;
+
+            let projection_now_ms = 1_748_250_002_000;
+            let dry_run = uow
+                .record_dry_run(
+                    "tenant_uow_source_cursor",
+                    "idem_uow_source_cursor",
+                    projection_now_ms,
+                    &AuditEvent::dry_run(
+                        audit_context(
+                            "evt_uow_source_cursor_2",
+                            "trace_uow_source_cursor",
+                            2,
+                            projection_now_ms,
+                            "user_uow_source_cursor",
+                            "tenant_uow_source_cursor",
+                            "action_uow_source_cursor",
+                        ),
+                        Some(summary("before")),
+                        Some(summary("projected")),
+                    ),
+                    &outbox_envelope(
+                        "tenant_uow_source_cursor",
+                        "trace_uow_source_cursor",
+                        1_748_250_011_000,
+                    ),
+                )
+                .await?;
+            assert_eq!(
+                dry_run.inbox_item_id.as_deref(),
+                Some("inbox_uow_source_cursor")
+            );
+
+            let projected_row = sqlx::query(
+                r#"
+                SELECT source_cursor_value, sync_cursor_value
+                FROM review_inbox_items
+                WHERE tenant_id = $1 AND id = $2
+                "#,
+            )
+            .bind("tenant_uow_source_cursor")
+            .bind("inbox_uow_source_cursor")
+            .fetch_one(&pool)
+            .await?;
+            let source_cursor_value: i64 = projected_row.try_get("source_cursor_value")?;
+            let projected_sync_cursor_value: i64 = projected_row.try_get("sync_cursor_value")?;
+            assert_eq!(source_cursor_value, 100);
+            assert_eq!(projected_sync_cursor_value, 101);
+
+            let upserted = repository
+                .upsert_review_inbox_item(&execution_projection_inbox_item(ProjectionInboxSpec {
+                    id: "inbox_uow_source_cursor",
+                    tenant_id: "tenant_uow_source_cursor",
+                    user_id: "user_uow_source_cursor",
+                    proposed_action_id: "proposed_uow_source_cursor",
+                    status: ReviewInboxItemStatus::Confirmed,
+                    ledger_status: Some("confirmed"),
+                    operation_id: Some("op_uow_source_cursor"),
+                    sync_cursor: 101,
+                }))
+                .await?;
+            assert_eq!(upserted.as_deref(), Some("inbox_uow_source_cursor"));
+
+            let after_source_sync = sqlx::query(
+                r#"
+                SELECT source_cursor_value, sync_cursor_value
+                FROM review_inbox_items
+                WHERE tenant_id = $1 AND id = $2
+                "#,
+            )
+            .bind("tenant_uow_source_cursor")
+            .bind("inbox_uow_source_cursor")
+            .fetch_one(&pool)
+            .await?;
+            let next_source_cursor_value: i64 = after_source_sync.try_get("source_cursor_value")?;
+            let next_sync_cursor_value: i64 = after_source_sync.try_get("sync_cursor_value")?;
+            assert_eq!(next_source_cursor_value, 101);
+            assert_eq!(next_sync_cursor_value, 102);
+
+            Ok(())
+        },
+    );
+}
+
+#[test]
+fn postgres_live_execution_uow_advances_inbox_projection_with_same_millisecond_events() {
+    run_live_postgres_test("execution_uow_review_inbox_same_ms", |pool| async move {
+        seed_user(&pool, "tenant_uow_same_ms", "user_uow_same_ms").await?;
+
+        let uow = PostgresExecutionUnitOfWork::new(pool.clone());
+        let repository = PostgresReviewInboxRepository::new(pool.clone());
+        let action = confirmed_action(
+            "action_uow_same_ms",
+            "tenant_uow_same_ms",
+            "user_uow_same_ms",
+            "idem_uow_same_ms",
+        );
+
+        uow.record_confirmation(
+            &action,
+            1_748_250_000_000,
+            "op_uow_same_ms",
+            &AuditEvent::confirmed_action(
+                audit_context(
+                    "evt_uow_same_ms_1",
+                    "trace_uow_same_ms",
+                    1,
+                    1_748_250_001_000,
+                    "user_uow_same_ms",
+                    "tenant_uow_same_ms",
+                    "action_uow_same_ms",
+                ),
+                summary("confirmed"),
+            ),
+            &outbox_envelope("tenant_uow_same_ms", "trace_uow_same_ms", 1_748_250_010_000),
+        )
+        .await?;
+        seed_confirmed_inbox_projection(
+            &pool,
+            "tenant_uow_same_ms",
+            "user_uow_same_ms",
+            "proposed_uow_same_ms",
+            "inbox_uow_same_ms",
+            "op_uow_same_ms",
+            1_748_250_002_000,
+        )
+        .await?;
+
+        let same_ms = 1_748_250_003_000;
+        let dry_run = uow
+            .record_dry_run(
+                "tenant_uow_same_ms",
+                "idem_uow_same_ms",
+                same_ms,
+                &AuditEvent::dry_run(
+                    audit_context(
+                        "evt_uow_same_ms_2",
+                        "trace_uow_same_ms",
+                        2,
+                        same_ms,
+                        "user_uow_same_ms",
+                        "tenant_uow_same_ms",
+                        "action_uow_same_ms",
+                    ),
+                    Some(summary("before")),
+                    Some(summary("projected")),
+                ),
+                &outbox_envelope("tenant_uow_same_ms", "trace_uow_same_ms", same_ms),
+            )
+            .await?;
+        assert_eq!(dry_run.inbox_item_id.as_deref(), Some("inbox_uow_same_ms"));
+        let after_dry_run = repository
+            .list_review_inbox_items("tenant_uow_same_ms", "user_uow_same_ms", 0, 10)
+            .await?;
+        assert_eq!(after_dry_run[0].status, ReviewInboxItemStatus::Executing);
+        let executing_cursor = after_dry_run[0].sync_cursor_value;
+
+        let success = uow
+            .record_success(
+                "tenant_uow_same_ms",
+                "idem_uow_same_ms",
+                same_ms,
+                &AuditEvent::execution_succeeded(
+                    audit_context(
+                        "evt_uow_same_ms_3",
+                        "trace_uow_same_ms",
+                        3,
+                        same_ms,
+                        "user_uow_same_ms",
+                        "tenant_uow_same_ms",
+                        "action_uow_same_ms",
+                    ),
+                    Some(summary("before")),
+                    Some(summary("applied")),
+                    "lark_op_same_ms",
+                ),
+                &outbox_envelope("tenant_uow_same_ms", "trace_uow_same_ms", same_ms),
+            )
+            .await?;
+        assert_eq!(success.inbox_item_id.as_deref(), Some("inbox_uow_same_ms"));
+
+        let after_success = repository
+            .list_review_inbox_items("tenant_uow_same_ms", "user_uow_same_ms", 0, 10)
+            .await?;
+        assert_eq!(after_success[0].status, ReviewInboxItemStatus::Succeeded);
+        assert_eq!(
+            after_success[0].ledger_status,
+            Some(ActionStatus::Succeeded)
+        );
+        assert!(
+            after_success[0].sync_cursor_value > executing_cursor,
+            "DB-owned sync cursor must advance even when ledger events share a millisecond"
+        );
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_execution_uow_projects_failure_to_review_inbox() {
+    run_live_postgres_test("execution_uow_review_inbox_failure", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_uow_projection_failure",
+            "user_uow_projection_failure",
+        )
+        .await?;
+
+        let uow = PostgresExecutionUnitOfWork::new(pool.clone());
+        let repository = PostgresReviewInboxRepository::new(pool.clone());
+        let action = confirmed_action(
+            "action_uow_projection_failure",
+            "tenant_uow_projection_failure",
+            "user_uow_projection_failure",
+            "idem_uow_projection_failure",
+        );
+
+        uow.record_confirmation(
+            &action,
+            1_748_250_000_000,
+            "op_uow_projection_failure",
+            &AuditEvent::confirmed_action(
+                audit_context(
+                    "evt_uow_projection_failure_1",
+                    "trace_uow_projection_failure",
+                    1,
+                    1_748_250_001_000,
+                    "user_uow_projection_failure",
+                    "tenant_uow_projection_failure",
+                    "action_uow_projection_failure",
+                ),
+                summary("confirmed"),
+            ),
+            &outbox_envelope(
+                "tenant_uow_projection_failure",
+                "trace_uow_projection_failure",
+                1_748_250_010_000,
+            ),
+        )
+        .await?;
+        seed_confirmed_inbox_projection(
+            &pool,
+            "tenant_uow_projection_failure",
+            "user_uow_projection_failure",
+            "proposed_uow_projection_failure",
+            "inbox_uow_projection_failure",
+            "op_uow_projection_failure",
+            100,
+        )
+        .await?;
+        uow.record_dry_run(
+            "tenant_uow_projection_failure",
+            "idem_uow_projection_failure",
+            1_748_250_002_000,
+            &AuditEvent::dry_run(
+                audit_context(
+                    "evt_uow_projection_failure_2",
+                    "trace_uow_projection_failure",
+                    2,
+                    1_748_250_002_000,
+                    "user_uow_projection_failure",
+                    "tenant_uow_projection_failure",
+                    "action_uow_projection_failure",
+                ),
+                Some(summary("before")),
+                Some(summary("projected")),
+            ),
+            &outbox_envelope(
+                "tenant_uow_projection_failure",
+                "trace_uow_projection_failure",
+                1_748_250_011_000,
+            ),
+        )
+        .await?;
+
+        let failed = uow
+            .record_failure(
+                "tenant_uow_projection_failure",
+                "idem_uow_projection_failure",
+                "adapter timeout",
+                1_748_250_003_000,
+                &AuditEvent::execution_failed(
+                    audit_context(
+                        "evt_uow_projection_failure_3",
+                        "trace_uow_projection_failure",
+                        3,
+                        1_748_250_003_000,
+                        "user_uow_projection_failure",
+                        "tenant_uow_projection_failure",
+                        "action_uow_projection_failure",
+                    ),
+                    Some(summary("before")),
+                    None,
+                    "adapter_timeout",
+                    "adapter timeout",
+                ),
+                &outbox_envelope(
+                    "tenant_uow_projection_failure",
+                    "trace_uow_projection_failure",
+                    1_748_250_012_000,
+                ),
+            )
+            .await?;
+        assert_eq!(
+            failed.inbox_item_id.as_deref(),
+            Some("inbox_uow_projection_failure")
+        );
+
+        let rows = repository
+            .list_review_inbox_items(
+                "tenant_uow_projection_failure",
+                "user_uow_projection_failure",
+                0,
+                10,
+            )
+            .await?;
+        assert_eq!(rows[0].status, ReviewInboxItemStatus::Failed);
+        assert_eq!(rows[0].ledger_status, Some(ActionStatus::Failed));
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_execution_uow_does_not_overwrite_terminal_inbox_projection() {
+    run_live_postgres_test(
+        "execution_uow_review_inbox_terminal_guard",
+        |pool| async move {
+            seed_user(
+                &pool,
+                "tenant_uow_projection_terminal",
+                "user_uow_projection_terminal",
+            )
+            .await?;
+
+            let uow = PostgresExecutionUnitOfWork::new(pool.clone());
+            let repository = PostgresReviewInboxRepository::new(pool.clone());
+            let action = confirmed_action(
+                "action_uow_projection_terminal",
+                "tenant_uow_projection_terminal",
+                "user_uow_projection_terminal",
+                "idem_uow_projection_terminal",
+            );
+
+            uow.record_confirmation(
+                &action,
+                1_748_250_000_000,
+                "op_uow_projection_terminal",
+                &AuditEvent::confirmed_action(
+                    audit_context(
+                        "evt_uow_projection_terminal_1",
+                        "trace_uow_projection_terminal",
+                        1,
+                        1_748_250_001_000,
+                        "user_uow_projection_terminal",
+                        "tenant_uow_projection_terminal",
+                        "action_uow_projection_terminal",
+                    ),
+                    summary("confirmed"),
+                ),
+                &outbox_envelope(
+                    "tenant_uow_projection_terminal",
+                    "trace_uow_projection_terminal",
+                    1_748_250_010_000,
+                ),
+            )
+            .await?;
+            seed_confirmed_inbox_projection(
+                &pool,
+                "tenant_uow_projection_terminal",
+                "user_uow_projection_terminal",
+                "proposed_uow_projection_terminal",
+                "inbox_uow_projection_terminal",
+                "op_uow_projection_terminal",
+                100,
+            )
+            .await?;
+            repository
+                .upsert_review_inbox_item(&execution_projection_inbox_item(ProjectionInboxSpec {
+                    id: "inbox_uow_projection_terminal",
+                    tenant_id: "tenant_uow_projection_terminal",
+                    user_id: "user_uow_projection_terminal",
+                    proposed_action_id: "proposed_uow_projection_terminal",
+                    status: ReviewInboxItemStatus::Rejected,
+                    ledger_status: Some("confirmed"),
+                    operation_id: Some("op_uow_projection_terminal"),
+                    sync_cursor: 200,
+                }))
+                .await?;
+
+            let dry_run = uow
+                .record_dry_run(
+                    "tenant_uow_projection_terminal",
+                    "idem_uow_projection_terminal",
+                    1_748_250_002_000,
+                    &AuditEvent::dry_run(
+                        audit_context(
+                            "evt_uow_projection_terminal_2",
+                            "trace_uow_projection_terminal",
+                            2,
+                            1_748_250_002_000,
+                            "user_uow_projection_terminal",
+                            "tenant_uow_projection_terminal",
+                            "action_uow_projection_terminal",
+                        ),
+                        Some(summary("before")),
+                        Some(summary("projected")),
+                    ),
+                    &outbox_envelope(
+                        "tenant_uow_projection_terminal",
+                        "trace_uow_projection_terminal",
+                        1_748_250_011_000,
+                    ),
+                )
+                .await?;
+            assert_eq!(dry_run.operation.status, ActionStatus::Executing);
+            assert_eq!(dry_run.inbox_item_id, None);
+
+            let rows = repository
+                .list_review_inbox_items(
+                    "tenant_uow_projection_terminal",
+                    "user_uow_projection_terminal",
+                    0,
+                    10,
+                )
+                .await?;
+            assert_eq!(rows[0].status, ReviewInboxItemStatus::Rejected);
+            assert_eq!(rows[0].ledger_status, Some(ActionStatus::Confirmed));
+            assert_eq!(rows[0].sync_cursor_value, 200);
+
+            Ok(())
+        },
+    );
 }
 
 #[test]
@@ -496,7 +1238,9 @@ fn postgres_live_execution_uow_records_failure_terminal_idempotently() {
             Some("adapter timeout")
         );
 
-        let events = audit.find_by_trace_id("trace_uow_failure").await?;
+        let events = audit
+            .find_by_tenant_and_trace_id("tenant_uow_failure", "trace_uow_failure")
+            .await?;
         assert_eq!(events.len(), 3);
         assert_eq!(events[2].event_id, "evt_uow_failure_3");
 
@@ -595,7 +1339,10 @@ fn postgres_live_execution_uow_reports_explicit_invalid_transition() {
         ));
 
         let events = audit
-            .find_by_trace_id("trace_uow_invalid_transition")
+            .find_by_tenant_and_trace_id(
+                "tenant_uow_invalid_transition",
+                "trace_uow_invalid_transition",
+            )
             .await?;
         assert_eq!(events.len(), 1);
 

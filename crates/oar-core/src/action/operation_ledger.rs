@@ -5,6 +5,7 @@ use super::confirmed_action::{ActionStatus, ConfirmedAction};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperationRecord {
     pub operation_id: String,
+    pub tenant_id: String,
     pub action_id: String,
     pub idempotency_key: String,
     pub status: ActionStatus,
@@ -23,6 +24,7 @@ pub enum LedgerError {
         status: ActionStatus,
     },
     UnknownIdempotencyKey(String),
+    RepositoryFailure(String),
     InvalidTransition {
         from: ActionStatus,
         to: ActionStatus,
@@ -63,6 +65,7 @@ impl OperationLedger {
         let operation_id = format!("op-{}", self.sequence);
         let record = OperationRecord {
             operation_id: operation_id.clone(),
+            tenant_id: action.tenant_id.clone(),
             action_id: action.action_id.clone(),
             idempotency_key: action.idempotency_key.clone(),
             status: ActionStatus::Confirmed,

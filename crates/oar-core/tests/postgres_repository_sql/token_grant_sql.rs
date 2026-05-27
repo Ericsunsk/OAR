@@ -107,6 +107,10 @@ fn token_refresh_candidate_sql_contract_is_tenant_scoped_guarded_and_determinist
     assert!(sql.contains("state in ('valid', 'needs_refresh', 'expired')"));
     assert!(sql.contains("and revoked_at is null"));
     assert!(sql.contains("and reauth_required_at is null"));
+    assert!(sql.contains("coalesce(last_refresh_error, '') not in"));
+    assert!(sql.contains("'refresh_config_required'"));
+    assert!(sql.contains("'auth_refresh_parse_failed'"));
+    assert!(sql.contains("'auth_refresh_oversized_response'"));
     assert!(sql.contains("octet_length(encrypted_oauth_grant) > 0"));
     assert!(sql.contains("state in ('needs_refresh', 'expired') or expires_at <= to_timestamp($2::double precision / 1000.0)"));
     assert!(sql.contains("order by"));

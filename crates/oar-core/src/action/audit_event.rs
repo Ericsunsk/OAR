@@ -18,6 +18,7 @@ pub struct AuditEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuditEventType {
+    ProposedActionDecisionRecorded,
     ConfirmedActionRecorded,
     DryRunExecuted,
     ExecutionDenied,
@@ -95,6 +96,22 @@ pub struct ExecutionResult {
 }
 
 impl AuditEvent {
+    pub fn proposed_action_decision(context: AuditEventContext, after: AuditStateSummary) -> Self {
+        Self {
+            event_id: context.event_id,
+            trace_id: context.trace_id,
+            sequence: context.sequence,
+            occurred_at_ms: context.occurred_at_ms,
+            event_type: AuditEventType::ProposedActionDecisionRecorded,
+            actor: context.subject.actor,
+            scope: context.subject.scope,
+            target: context.subject.target,
+            before: None,
+            after: Some(after),
+            execution: None,
+        }
+    }
+
     pub fn confirmed_action(context: AuditEventContext, after: AuditStateSummary) -> Self {
         Self {
             event_id: context.event_id,

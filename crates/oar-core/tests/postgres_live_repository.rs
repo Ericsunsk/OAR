@@ -14,5 +14,13 @@ mod harness;
 mod identity;
 #[path = "postgres_live_repository/operation_ledger.rs"]
 mod operation_ledger;
+#[path = "postgres_live_repository/review_inbox.rs"]
+mod review_inbox;
+#[path = "postgres_live_repository/scheduler.rs"]
+mod scheduler;
+#[path = "postgres_live_repository/tenant_maintenance.rs"]
+mod tenant_maintenance;
 #[path = "postgres_live_repository/token_refresh.rs"]
 mod token_refresh;
+#[path = "postgres_live_repository/token_refresh_scheduler.rs"]
+mod token_refresh_scheduler;

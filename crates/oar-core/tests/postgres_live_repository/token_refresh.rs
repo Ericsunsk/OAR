@@ -473,6 +473,7 @@ fn postgres_live_token_refresh_sweep_run_once_rotates_candidates_with_sequenced_
 
         assert_eq!(report.candidate_count, 2);
         assert_eq!(report.attempted_count, 2);
+        assert!(!report.has_more);
         assert_eq!(report.reports.len(), 2);
         assert_eq!(
             adapter.called_grant_ids(),
@@ -523,7 +524,7 @@ fn postgres_live_token_refresh_sweep_run_once_rotates_candidates_with_sequenced_
         assert_eq!(other_stored.oauth_grant_fingerprint, "fp-sweep-other-old");
 
         let events = PostgresAuditEventRepository::new(pool.clone())
-            .find_by_trace_id("trace_token_refresh_sweep_success")
+            .find_by_tenant_and_trace_id("tenant_tr_sweep", "trace_token_refresh_sweep_success")
             .await?;
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].sequence, 51);
@@ -533,12 +534,19 @@ fn postgres_live_token_refresh_sweep_run_once_rotates_candidates_with_sequenced_
 
         let payloads: Vec<serde_json::Value> = sqlx::query_scalar(
             r#"
-            SELECT payload
+            SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
             FROM audit_events
-            WHERE trace_id = $1
+            WHERE tenant_id = $1
+              AND trace_id = $2
             ORDER BY sequence ASC
             "#,
         )
+        .bind("tenant_tr_sweep")
         .bind("trace_token_refresh_sweep_success")
         .fetch_all(&pool)
         .await?;
@@ -603,6 +611,7 @@ fn postgres_live_token_refresh_sweep_limit_zero_short_circuits_without_adapter_o
 
         assert_eq!(report.candidate_count, 0);
         assert_eq!(report.attempted_count, 0);
+        assert!(!report.has_more);
         assert!(report.reports.is_empty());
         assert!(adapter.called_grant_ids().is_empty());
 
@@ -615,9 +624,110 @@ fn postgres_live_token_refresh_sweep_limit_zero_short_circuits_without_adapter_o
         assert_eq!(stored.oauth_grant_key_id, "key-v1");
 
         let events = PostgresAuditEventRepository::new(pool.clone())
-            .find_by_trace_id("trace_token_refresh_sweep_zero")
+            .find_by_tenant_and_trace_id("tenant_tr_sweep_zero", "trace_token_refresh_sweep_zero")
             .await?;
         assert!(events.is_empty());
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_token_refresh_sweep_reports_backlog_when_due_exceeds_limit() {
+    run_live_postgres_test("token_refresh_sweep_backlog_has_more", |pool| async move {
+        let due_before_ms = 1_748_565_000_000u64;
+        let due_before = UNIX_EPOCH + std::time::Duration::from_millis(due_before_ms);
+        let now = UNIX_EPOCH + std::time::Duration::from_millis(1_748_565_500_000);
+
+        seed_user(&pool, "tenant_tr_sweep_backlog", "user_tr_sweep_backlog").await?;
+        seed_identity(
+            &pool,
+            "tenant_tr_sweep_backlog",
+            "identity_tr_sweep_backlog",
+        )
+        .await?;
+
+        let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
+        let mut due_a = encrypted_token_grant_record(
+            "tenant_tr_sweep_backlog",
+            "grant_sweep_backlog_a",
+            "identity_tr_sweep_backlog",
+            TokenGrantState::NeedsRefresh,
+            "fp-sweep-backlog-a-old",
+        );
+        due_a.expires_at_ms = Some(due_before_ms - 1_000);
+        grant_repo.upsert_encrypted_grant(&due_a).await?;
+
+        let mut due_b = encrypted_token_grant_record(
+            "tenant_tr_sweep_backlog",
+            "grant_sweep_backlog_b",
+            "identity_tr_sweep_backlog",
+            TokenGrantState::NeedsRefresh,
+            "fp-sweep-backlog-b-old",
+        );
+        due_b.expires_at_ms = Some(due_before_ms - 2_000);
+        grant_repo.upsert_encrypted_grant(&due_b).await?;
+
+        let adapter = SequenceRefreshAdapter::new([RefreshOutcome::Success {
+            rotated_material: EncryptedGrantMaterial {
+                encrypted_primary: vec![0xC2],
+                encrypted_renewal: vec![0xD2],
+            },
+            key_id: "key-sweep-backlog-v2".to_string(),
+            new_fingerprint: "fp-sweep-backlog-new".to_string(),
+            refreshed_at: now,
+            expires_at: None,
+        }]);
+        let mut sweep = PostgresTokenRefreshSweep::new(pool.clone(), adapter.clone());
+
+        let report = sweep
+            .run_once_for_tenant(PostgresTokenRefreshSweepRequest {
+                tenant_id: "tenant_tr_sweep_backlog".to_string(),
+                due_before,
+                limit: 1,
+                now,
+                audit_trace_id: "trace_token_refresh_sweep_backlog".to_string(),
+                audit_sequence_start: 161,
+                occurred_at_ms: 1_748_565_500_111,
+                actor: actor("user_tr_sweep_backlog"),
+                workspace_id: None,
+            })
+            .await?;
+
+        assert_eq!(report.candidate_count, 1);
+        assert_eq!(report.attempted_count, 1);
+        assert!(report.has_more);
+        assert_eq!(report.reports.len(), 1);
+        assert_eq!(
+            adapter.called_grant_ids(),
+            vec!["grant_sweep_backlog_b".to_string()]
+        );
+
+        let first_stored = grant_repo
+            .get_by_id("tenant_tr_sweep_backlog", "grant_sweep_backlog_b")
+            .await?
+            .expect("first backlog grant should exist");
+        assert_eq!(first_stored.state, TokenGrantState::Valid);
+        assert_eq!(first_stored.oauth_grant_fingerprint, "fp-sweep-backlog-new");
+
+        let second_stored = grant_repo
+            .get_by_id("tenant_tr_sweep_backlog", "grant_sweep_backlog_a")
+            .await?
+            .expect("second backlog grant should remain");
+        assert_eq!(second_stored.state, TokenGrantState::NeedsRefresh);
+        assert_eq!(
+            second_stored.oauth_grant_fingerprint,
+            "fp-sweep-backlog-a-old"
+        );
+
+        let events = PostgresAuditEventRepository::new(pool.clone())
+            .find_by_tenant_and_trace_id(
+                "tenant_tr_sweep_backlog",
+                "trace_token_refresh_sweep_backlog",
+            )
+            .await?;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].sequence, 161);
 
         Ok(())
     });
@@ -770,6 +880,66 @@ fn postgres_live_token_grant_apply_refresh_command_dispatches_mark_reauth_requir
             assert_eq!(updated.last_refresh_error.as_deref(), Some("invalid_grant"));
             assert_eq!(updated.reauth_required_at_ms, Some(1_748_270_900_000));
             assert_eq!(updated.oauth_grant_fingerprint, "fp-apply-reauth");
+
+            Ok(())
+        },
+    );
+}
+
+#[test]
+fn postgres_live_token_grant_apply_refresh_command_dispatches_mark_config_required() {
+    run_live_postgres_test(
+        "token_grant_apply_refresh_config_required",
+        |pool| async move {
+            seed_user(
+                &pool,
+                "tenant_tg_apply_refresh_config",
+                "user_tg_apply_refresh_config",
+            )
+            .await?;
+            seed_identity(
+                &pool,
+                "tenant_tg_apply_refresh_config",
+                "identity_tg_apply_refresh_config",
+            )
+            .await?;
+
+            let repository = PostgresTokenGrantRepository::new(pool.clone());
+            let initial = encrypted_token_grant_record(
+                "tenant_tg_apply_refresh_config",
+                "grant_tg_apply_refresh_config",
+                "identity_tg_apply_refresh_config",
+                TokenGrantState::Valid,
+                "fp-apply-config",
+            );
+            repository.upsert_encrypted_grant(&initial).await?;
+
+            let updated = repository
+                .apply_refresh_command(TokenRefreshRepositoryCommand::MarkConfigRequired {
+                    grant_id: TokenGrantId("grant_tg_apply_refresh_config".to_string()),
+                    tenant_id: TenantId("tenant_tg_apply_refresh_config".to_string()),
+                    expected_fingerprint: "fp-apply-config".to_string(),
+                    refreshed_at_ms: 1_748_271_000_000,
+                    safe_error: "refresh_config_required".to_string(),
+                })
+                .await?
+                .expect("apply refresh mark config required should return updated row");
+
+            assert_eq!(updated.state, TokenGrantState::NeedsRefresh);
+            assert_eq!(
+                updated.last_refresh_error.as_deref(),
+                Some("refresh_config_required")
+            );
+            assert_eq!(updated.refreshed_at_ms, Some(1_748_271_000_000));
+
+            let candidates = repository
+                .list_refresh_candidate_snapshots(
+                    "tenant_tg_apply_refresh_config",
+                    UNIX_EPOCH + std::time::Duration::from_millis(1_748_272_000_000),
+                    8,
+                )
+                .await?;
+            assert!(candidates.is_empty());
 
             Ok(())
         },
@@ -1108,7 +1278,12 @@ fn postgres_live_token_refresh_orchestrator_with_lark_auth_fixture_rotates_succe
 
             let payload: serde_json::Value = sqlx::query_scalar(
                 r#"
-            SELECT payload
+            SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
             FROM audit_events
             WHERE event_id = $1
             "#,
@@ -1208,7 +1383,12 @@ fn postgres_live_token_refresh_orchestrator_with_lark_auth_reauth_marks_reauth_r
 
             let payload: serde_json::Value = sqlx::query_scalar(
                 r#"
-            SELECT payload
+            SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
             FROM audit_events
             WHERE event_id = $1
             "#,
@@ -1306,8 +1486,13 @@ fn postgres_live_token_refresh_orchestrator_with_lark_auth_plaintext_fixture_is_
 
             let payload: serde_json::Value = sqlx::query_scalar(
                 r#"
-                SELECT payload
-                FROM audit_events
+                SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
+            FROM audit_events
                 WHERE event_id = $1
                 "#,
             )
@@ -1475,7 +1660,12 @@ fn postgres_live_token_refresh_orchestrator_transient_failure_redacts() {
 
         let payload: serde_json::Value = sqlx::query_scalar(
             r#"
-            SELECT payload
+            SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
             FROM audit_events
             WHERE event_id = $1
             "#,
@@ -1609,13 +1799,10 @@ fn postgres_live_token_refresh_uow_rotate_success() {
             )
             .await?;
 
-        assert_eq!(
-            report
-                .apply_result
-                .expect("rotate should apply")
-                .fingerprint,
-            "fp-uow-new"
-        );
+        let apply_result = report.apply_result.expect("rotate should apply");
+        assert_eq!(apply_result.grant_id.0, "grant_tr_uow_success");
+        assert_eq!(apply_result.tenant_id.0, "tenant_tr_uow_success");
+        assert_eq!(apply_result.state, TokenGrantState::Valid);
         assert_eq!(report.event.target.action_type, "token_refresh.rotate");
 
         let stored = grant_repo
@@ -1626,14 +1813,19 @@ fn postgres_live_token_refresh_uow_rotate_success() {
         assert_eq!(stored.state, TokenGrantState::Valid);
 
         let events = PostgresAuditEventRepository::new(pool.clone())
-            .find_by_trace_id("trace_token_refresh_uow_success")
+            .find_by_tenant_and_trace_id("tenant_tr_uow", "trace_token_refresh_uow_success")
             .await?;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].target.action_type, "token_refresh.rotate");
 
         let payload: serde_json::Value = sqlx::query_scalar(
             r#"
-            SELECT payload
+            SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
             FROM audit_events
             WHERE event_id = $1
             "#,
@@ -1713,7 +1905,7 @@ fn postgres_live_token_refresh_uow_stale_fingerprint_conflict_noop() {
         assert_eq!(stored.encrypted_oauth_grant, vec![0x01, 0x02, 0x03]);
 
         let events = PostgresAuditEventRepository::new(pool.clone())
-            .find_by_trace_id("trace_token_refresh_uow_noop")
+            .find_by_tenant_and_trace_id("tenant_tr_uow_noop", "trace_token_refresh_uow_noop")
             .await?;
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, AuditEventType::ExecutionFailed);
@@ -1727,7 +1919,12 @@ fn postgres_live_token_refresh_uow_stale_fingerprint_conflict_noop() {
 
         let payload: serde_json::Value = sqlx::query_scalar(
             r#"
-            SELECT payload
+            SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
             FROM audit_events
             WHERE event_id = $1
             "#,
@@ -1805,7 +2002,12 @@ fn postgres_live_token_refresh_uow_mark_needs_refresh_redacts_audit_error() {
 
         let payload: serde_json::Value = sqlx::query_scalar(
             r#"
-            SELECT payload
+            SELECT
+            jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
             FROM audit_events
             WHERE event_id = $1
             "#,
@@ -1881,7 +2083,10 @@ fn postgres_live_token_refresh_uow_rejects_mismatched_plan_without_mutation() {
         assert_eq!(stored.last_refresh_error.as_deref(), Some("old-error"));
 
         let events = PostgresAuditEventRepository::new(pool.clone())
-            .find_by_trace_id("trace_token_refresh_uow_mismatch")
+            .find_by_tenant_and_trace_id(
+                "tenant_tr_uow_mismatch",
+                "trace_token_refresh_uow_mismatch",
+            )
             .await?;
         assert!(events.is_empty());
 

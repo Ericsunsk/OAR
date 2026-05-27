@@ -16,6 +16,15 @@ use oar_core::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
     SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
 };
+use oar_core::storage::postgres::review_inbox_sql::{
+    INSERT_EVIDENCE_ITEM, INSERT_PROPOSED_ACTION, INSERT_PROPOSED_ACTION_DECISION,
+    INSERT_PROPOSED_ACTION_EVIDENCE_REF, LIST_REVIEW_INBOX_ITEMS,
+    UPDATE_REVIEW_INBOX_LEDGER_PROJECTION, UPSERT_REVIEW_INBOX_ITEM,
+};
+use oar_core::storage::postgres::scheduler_sql::{
+    CLAIM_SCHEDULER_JOB, COMPLETE_SCHEDULER_JOB_FOR_LEASE, FAIL_SCHEDULER_JOB_FOR_LEASE,
+    GET_SCHEDULER_JOB, UPSERT_SCHEDULER_JOB,
+};
 use oar_core::storage::postgres::token_grant_sql::{
     GET_TOKEN_GRANT_BY_ID, MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED,
     REVOKE_TOKEN_GRANT, ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
@@ -37,6 +46,10 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let rotate_grant_sql = compact(ROTATE_TOKEN_GRANT);
     let device_session_sql = compact(UPSERT_DEVICE_SESSION);
     let tenant_sql = compact(UPSERT_TENANT);
+    let evidence_sql = compact(INSERT_EVIDENCE_ITEM);
+    let review_inbox_sql = compact(UPSERT_REVIEW_INBOX_ITEM);
+    let review_inbox_projection_sql = compact(UPDATE_REVIEW_INBOX_LEDGER_PROJECTION);
+    let scheduler_claim_sql = compact(CLAIM_SCHEDULER_JOB);
 
     assert!(operation_sql.contains("insert into confirmed_actions"));
     assert!(operation_sql.contains("insert into operation_ledger"));
@@ -53,6 +66,10 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     assert!(device_session_sql.contains("session_identity_hash"));
     assert!(tenant_sql.contains("insert into tenants"));
     assert!(tenant_sql.contains("on conflict (id) do update"));
+    assert!(evidence_sql.contains("insert into evidence_items"));
+    assert!(review_inbox_sql.contains("insert into review_inbox_items"));
+    assert!(review_inbox_projection_sql.contains("update review_inbox_items"));
+    assert!(scheduler_claim_sql.contains("for update skip locked"));
 
     // Touch all constants to lock import visibility for default builds.
     let _ = MARK_SUCCEEDED;
@@ -82,6 +99,15 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let _ = UPSERT_LARK_IDENTITY;
     let _ = GET_LARK_IDENTITY_BY_ID;
     let _ = GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL;
+    let _ = INSERT_PROPOSED_ACTION;
+    let _ = INSERT_PROPOSED_ACTION_EVIDENCE_REF;
+    let _ = INSERT_PROPOSED_ACTION_DECISION;
+    let _ = LIST_REVIEW_INBOX_ITEMS;
+    let _ = UPDATE_REVIEW_INBOX_LEDGER_PROJECTION;
+    let _ = UPSERT_SCHEDULER_JOB;
+    let _ = GET_SCHEDULER_JOB;
+    let _ = COMPLETE_SCHEDULER_JOB_FOR_LEASE;
+    let _ = FAIL_SCHEDULER_JOB_FOR_LEASE;
 }
 
 #[cfg(feature = "postgres")]
@@ -94,25 +120,39 @@ mod postgres_feature_api_contract {
         token_refresh_audit_event, TokenRefreshAuditContext,
     };
     use oar_core::domain::identity::{ActorKind, ScopeBoundary, TokenGrantState};
-    use oar_core::domain::token_refresh::service::AuthRefreshAdapter;
+    use oar_core::domain::scheduler::{
+        SchedulerJobKind, SchedulerJobLease, SchedulerJobStatus, SchedulerLeaseAcquire,
+    };
+    use oar_core::domain::token_refresh::service::{AsyncAuthRefreshAdapter, AuthRefreshAdapter};
     use oar_core::domain::token_refresh::types::{RefreshOutcome, TokenRefreshGrantSnapshot};
     use oar_core::lark::adapter::MockLarkAdapter;
     use oar_core::storage::postgres::audit_outbox_worker::{
         AuditOutboxDelivery, AuditOutboxDispatcher, AuditOutboxDrainConfig, AuditOutboxDrainReport,
         PostgresAuditOutboxWorker,
     };
+    use oar_core::storage::postgres::tenant_maintenance::{
+        PostgresTenantMaintenanceConfig, PostgresTenantMaintenanceConfigValidationError,
+        PostgresTenantMaintenanceReport, PostgresTenantMaintenanceWorker,
+    };
     use oar_core::storage::postgres::{
         AuditOutboxEnvelope, EncryptedTokenGrantRecord, PostgresAuditEventRepository,
         PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
         PostgresExecutionUnitOfWorkReport, PostgresIdentityRepository,
         PostgresLarkIdentityRepository, PostgresOarUserRepository,
-        PostgresOperationLedgerRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
-        PostgresTokenRefreshOrchestrator, PostgresTokenRefreshSweep,
-        PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest,
-        PostgresTokenRefreshUnitOfWork, RotateEncryptedGrantRequest, StoredDeviceSession,
-        StoredLarkIdentity, StoredOarUser, StoredTenant,
+        PostgresOperationLedgerRepository, PostgresReviewDecisionUnitOfWork,
+        PostgresReviewDecisionUnitOfWorkReport, PostgresReviewDecisionUnitOfWorkRequest,
+        PostgresSchedulerJobRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
+        PostgresTokenRefreshOrchestrator, PostgresTokenRefreshScheduledSweep,
+        PostgresTokenRefreshSweep, PostgresTokenRefreshSweepReport,
+        PostgresTokenRefreshSweepRequest, PostgresTokenRefreshUnitOfWork,
+        RotateEncryptedGrantRequest, StoredDeviceSession, StoredLarkIdentity, StoredOarUser,
+        StoredSchedulerJob, StoredTenant, TokenRefreshScheduledSweepConfig,
+        TokenRefreshScheduledSweepReport,
     };
     use sqlx::PgPool;
+
+    type NoopTenantMaintenanceWorker =
+        PostgresTenantMaintenanceWorker<NoopRefreshAdapter, NoopDispatcher, fn() -> u64>;
 
     #[test]
     fn postgres_repositories_are_importable_and_constructible_from_pg_pool() {
@@ -122,6 +162,8 @@ mod postgres_feature_api_contract {
             PostgresAuditEventRepository::new;
         let _from_pool_ctor_uow: fn(PgPool) -> PostgresExecutionUnitOfWork =
             PostgresExecutionUnitOfWork::new;
+        let _from_pool_ctor_review_decision_uow: fn(PgPool) -> PostgresReviewDecisionUnitOfWork =
+            PostgresReviewDecisionUnitOfWork::new;
         let _from_pool_ctor_token_refresh_uow: fn(PgPool) -> PostgresTokenRefreshUnitOfWork =
             PostgresTokenRefreshUnitOfWork::new;
         let _from_pool_ctor_token_grant: fn(PgPool) -> PostgresTokenGrantRepository =
@@ -136,6 +178,8 @@ mod postgres_feature_api_contract {
             PostgresLarkIdentityRepository::new;
         let _from_pool_ctor_identity_repo: fn(PgPool) -> PostgresIdentityRepository =
             PostgresIdentityRepository::new;
+        let _from_pool_ctor_scheduler: fn(PgPool) -> PostgresSchedulerJobRepository =
+            PostgresSchedulerJobRepository::new;
 
         // Keep SQL constants reachable under the feature build too.
         let _ = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
@@ -149,7 +193,7 @@ mod postgres_feature_api_contract {
         let _mark_failed = PostgresOperationLedgerRepository::mark_failed;
         let _get = PostgresOperationLedgerRepository::get_by_idempotency_key;
         let _append = PostgresAuditEventRepository::append;
-        let _find = PostgresAuditEventRepository::find_by_trace_id;
+        let _find = PostgresAuditEventRepository::find_by_tenant_and_trace_id;
         let _enqueue = PostgresAuditEventRepository::enqueue_outbox;
         let _claim = PostgresAuditEventRepository::claim_outbox;
         let _sent = PostgresAuditEventRepository::mark_outbox_sent;
@@ -166,6 +210,7 @@ mod postgres_feature_api_contract {
         let _record_dry_run = PostgresExecutionUnitOfWork::record_dry_run;
         let _record_success = PostgresExecutionUnitOfWork::record_success;
         let _record_failure = PostgresExecutionUnitOfWork::record_failure;
+        let _record_review_decision = PostgresReviewDecisionUnitOfWork::record_decision;
         let _execute =
             PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action;
         let _execute_with_policy =
@@ -182,6 +227,27 @@ mod postgres_feature_api_contract {
         let _token_refresh_sweep_ctor = PostgresTokenRefreshSweep::<NoopRefreshAdapter>::new;
         let _token_refresh_sweep_run_once =
             PostgresTokenRefreshSweep::<NoopRefreshAdapter>::run_once_for_tenant;
+        let _token_refresh_scheduled_sweep_ctor =
+            PostgresTokenRefreshScheduledSweep::<NoopRefreshAdapter, fn() -> u64>::new;
+        let _token_refresh_scheduled_sweep_run_once =
+            PostgresTokenRefreshScheduledSweep::<NoopRefreshAdapter, fn() -> u64>::run_once;
+        let _tenant_maintenance_ctor =
+            PostgresTenantMaintenanceWorker::<NoopRefreshAdapter, NoopDispatcher, fn() -> u64>::new;
+        let _tenant_maintenance_try_ctor = PostgresTenantMaintenanceWorker::<
+            NoopRefreshAdapter,
+            NoopDispatcher,
+            fn() -> u64,
+        >::try_new;
+        let _tenant_maintenance_run_once = PostgresTenantMaintenanceWorker::<
+            NoopRefreshAdapter,
+            NoopDispatcher,
+            fn() -> u64,
+        >::run_once;
+        let _scheduler_upsert = PostgresSchedulerJobRepository::upsert_job;
+        let _scheduler_get = PostgresSchedulerJobRepository::get_job;
+        let _scheduler_try_acquire = PostgresSchedulerJobRepository::try_acquire;
+        let _scheduler_complete = PostgresSchedulerJobRepository::complete_for_lease;
+        let _scheduler_fail = PostgresSchedulerJobRepository::fail_for_lease;
         let _rotate_grant = PostgresTokenGrantRepository::rotate_encrypted_grant;
         let _mark_refresh_failed = PostgresTokenGrantRepository::mark_refresh_failed;
         let _mark_reauth_required = PostgresTokenGrantRepository::mark_reauth_required;
@@ -207,10 +273,15 @@ mod postgres_feature_api_contract {
         let _phantom_event: Option<AuditEvent> = None;
         let _phantom_envelope: Option<AuditOutboxEnvelope> = None;
         let _phantom_report: Option<PostgresExecutionUnitOfWorkReport> = None;
+        let _phantom_review_decision_report: Option<PostgresReviewDecisionUnitOfWorkReport> = None;
+        let _phantom_review_decision_request: Option<
+            PostgresReviewDecisionUnitOfWorkRequest<'static>,
+        > = None;
         let _phantom_delivery: Option<AuditOutboxDelivery> = None;
         let _phantom_drain_report: Option<AuditOutboxDrainReport> = None;
         let _phantom_config: Option<AuditOutboxDrainConfig> = None;
         let _phantom_worker: Option<PostgresAuditOutboxWorker<NoopDispatcher, fn() -> u64>> = None;
+        let _phantom_maintenance_worker: Option<NoopTenantMaintenanceWorker> = None;
         let _phantom_session: Option<StoredDeviceSession> = None;
         let _phantom_tenant: Option<StoredTenant> = None;
         let _phantom_oar_user: Option<StoredOarUser> = None;
@@ -219,6 +290,18 @@ mod postgres_feature_api_contract {
         let _phantom_token_refresh_sweep_request: Option<PostgresTokenRefreshSweepRequest> = None;
         let _phantom_token_refresh_sweep_report: Option<PostgresTokenRefreshSweepReport> = None;
         let _phantom_rotate_request: Option<RotateEncryptedGrantRequest<'static>> = None;
+        let _phantom_scheduler_job: Option<StoredSchedulerJob> = None;
+        let _phantom_scheduler_kind: Option<SchedulerJobKind> = None;
+        let _phantom_scheduler_status: Option<SchedulerJobStatus> = None;
+        let _phantom_scheduler_lease: Option<SchedulerJobLease> = None;
+        let _phantom_scheduler_acquire: Option<SchedulerLeaseAcquire> = None;
+        let _phantom_scheduled_sweep_config: Option<TokenRefreshScheduledSweepConfig> = None;
+        let _phantom_scheduled_sweep_report: Option<TokenRefreshScheduledSweepReport> = None;
+        let _phantom_tenant_maintenance_config: Option<PostgresTenantMaintenanceConfig> = None;
+        let _phantom_tenant_maintenance_config_validation_error: Option<
+            PostgresTenantMaintenanceConfigValidationError,
+        > = None;
+        let _phantom_tenant_maintenance_report: Option<PostgresTenantMaintenanceReport> = None;
         let _phantom_grant = Some(EncryptedTokenGrantRecord {
             id: "grant".to_string(),
             tenant_id: "tenant".to_string(),
@@ -260,5 +343,197 @@ mod postgres_feature_api_contract {
                 safe_error: "temporarily unavailable".to_string(),
             }
         }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl AsyncAuthRefreshAdapter for NoopRefreshAdapter {
+        async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
+            AuthRefreshAdapter::refresh(self, snapshot)
+        }
+    }
+
+    #[test]
+    fn tenant_maintenance_config_validate_rejects_fail_closed_inputs() {
+        let config = PostgresTenantMaintenanceConfig {
+            tenant_id: "".to_string(),
+            lease_id: "lease".to_string(),
+            audit_stream: "audit".to_string(),
+            scheduled_lease_ms: 1,
+            scheduled_retry_delay_ms: 1,
+            scheduled_next_run_delay_ms: 1,
+            scheduled_backlog_next_run_delay_ms: 1,
+            scheduled_due_before_ms: 0,
+            scheduled_limit: 1,
+            scheduled_audit_trace_id: "trace".to_string(),
+            scheduled_audit_sequence_start: 1,
+            scheduled_actor: oar_core::action::audit_event::AuditActor {
+                kind: oar_core::action::audit_event::AuditActorKind::System,
+                actor_id: "maintenance".to_string(),
+                display_name: None,
+            },
+            scheduled_workspace_id: None,
+            outbox_batch_limit: 1,
+            outbox_lease_ms: 1,
+            outbox_retry_delay_ms: 1,
+            outbox_max_attempts: 1,
+        };
+        assert_eq!(
+            config.validate(),
+            Err(PostgresTenantMaintenanceConfigValidationError::EmptyField(
+                "tenant_id"
+            ))
+        );
+
+        let config = PostgresTenantMaintenanceConfig {
+            tenant_id: "tenant".to_string(),
+            lease_id: "".to_string(),
+            audit_stream: "audit".to_string(),
+            scheduled_lease_ms: 1,
+            scheduled_retry_delay_ms: 1,
+            scheduled_next_run_delay_ms: 1,
+            scheduled_backlog_next_run_delay_ms: 1,
+            scheduled_due_before_ms: 0,
+            scheduled_limit: 1,
+            scheduled_audit_trace_id: "trace".to_string(),
+            scheduled_audit_sequence_start: 1,
+            scheduled_actor: oar_core::action::audit_event::AuditActor {
+                kind: oar_core::action::audit_event::AuditActorKind::System,
+                actor_id: "maintenance".to_string(),
+                display_name: None,
+            },
+            scheduled_workspace_id: None,
+            outbox_batch_limit: 1,
+            outbox_lease_ms: 1,
+            outbox_retry_delay_ms: 1,
+            outbox_max_attempts: 1,
+        };
+        assert_eq!(
+            config.validate(),
+            Err(PostgresTenantMaintenanceConfigValidationError::EmptyField(
+                "lease_id"
+            ))
+        );
+
+        let config = PostgresTenantMaintenanceConfig {
+            tenant_id: "tenant".to_string(),
+            lease_id: "lease".to_string(),
+            audit_stream: "".to_string(),
+            scheduled_lease_ms: 1,
+            scheduled_retry_delay_ms: 1,
+            scheduled_next_run_delay_ms: 1,
+            scheduled_backlog_next_run_delay_ms: 1,
+            scheduled_due_before_ms: 0,
+            scheduled_limit: 1,
+            scheduled_audit_trace_id: "trace".to_string(),
+            scheduled_audit_sequence_start: 1,
+            scheduled_actor: oar_core::action::audit_event::AuditActor {
+                kind: oar_core::action::audit_event::AuditActorKind::System,
+                actor_id: "maintenance".to_string(),
+                display_name: None,
+            },
+            scheduled_workspace_id: None,
+            outbox_batch_limit: 1,
+            outbox_lease_ms: 1,
+            outbox_retry_delay_ms: 1,
+            outbox_max_attempts: 1,
+        };
+        assert_eq!(
+            config.validate(),
+            Err(PostgresTenantMaintenanceConfigValidationError::EmptyField(
+                "audit_stream"
+            ))
+        );
+
+        let config = PostgresTenantMaintenanceConfig {
+            tenant_id: "tenant".to_string(),
+            lease_id: "lease".to_string(),
+            audit_stream: "audit".to_string(),
+            scheduled_lease_ms: 1,
+            scheduled_retry_delay_ms: 1,
+            scheduled_next_run_delay_ms: 1,
+            scheduled_backlog_next_run_delay_ms: 1,
+            scheduled_due_before_ms: 0,
+            scheduled_limit: 1,
+            scheduled_audit_trace_id: "".to_string(),
+            scheduled_audit_sequence_start: 1,
+            scheduled_actor: oar_core::action::audit_event::AuditActor {
+                kind: oar_core::action::audit_event::AuditActorKind::System,
+                actor_id: "maintenance".to_string(),
+                display_name: None,
+            },
+            scheduled_workspace_id: None,
+            outbox_batch_limit: 1,
+            outbox_lease_ms: 1,
+            outbox_retry_delay_ms: 1,
+            outbox_max_attempts: 1,
+        };
+        assert_eq!(
+            config.validate(),
+            Err(PostgresTenantMaintenanceConfigValidationError::EmptyField(
+                "scheduled_audit_trace_id"
+            ))
+        );
+
+        let config = PostgresTenantMaintenanceConfig {
+            tenant_id: "tenant".to_string(),
+            lease_id: "lease".to_string(),
+            audit_stream: "audit".to_string(),
+            scheduled_lease_ms: 1,
+            scheduled_retry_delay_ms: 1,
+            scheduled_next_run_delay_ms: 1,
+            scheduled_backlog_next_run_delay_ms: 1,
+            scheduled_due_before_ms: 0,
+            scheduled_limit: 0,
+            scheduled_audit_trace_id: "trace".to_string(),
+            scheduled_audit_sequence_start: 1,
+            scheduled_actor: oar_core::action::audit_event::AuditActor {
+                kind: oar_core::action::audit_event::AuditActorKind::System,
+                actor_id: "maintenance".to_string(),
+                display_name: None,
+            },
+            scheduled_workspace_id: None,
+            outbox_batch_limit: 1,
+            outbox_lease_ms: 1,
+            outbox_retry_delay_ms: 1,
+            outbox_max_attempts: 1,
+        };
+        assert_eq!(
+            config.validate(),
+            Err(
+                PostgresTenantMaintenanceConfigValidationError::NonPositiveField("scheduled_limit")
+            )
+        );
+
+        let config = PostgresTenantMaintenanceConfig {
+            tenant_id: "tenant".to_string(),
+            lease_id: "lease".to_string(),
+            audit_stream: "audit".to_string(),
+            scheduled_lease_ms: 1,
+            scheduled_retry_delay_ms: 1,
+            scheduled_next_run_delay_ms: 1,
+            scheduled_backlog_next_run_delay_ms: 1,
+            scheduled_due_before_ms: 0,
+            scheduled_limit: 1,
+            scheduled_audit_trace_id: "trace".to_string(),
+            scheduled_audit_sequence_start: 1,
+            scheduled_actor: oar_core::action::audit_event::AuditActor {
+                kind: oar_core::action::audit_event::AuditActorKind::System,
+                actor_id: "maintenance".to_string(),
+                display_name: None,
+            },
+            scheduled_workspace_id: None,
+            outbox_batch_limit: 0,
+            outbox_lease_ms: 1,
+            outbox_retry_delay_ms: 1,
+            outbox_max_attempts: 1,
+        };
+        assert_eq!(
+            config.validate(),
+            Err(
+                PostgresTenantMaintenanceConfigValidationError::NonPositiveField(
+                    "outbox_batch_limit"
+                )
+            )
+        );
     }
 }

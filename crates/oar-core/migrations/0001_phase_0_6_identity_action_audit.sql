@@ -27,13 +27,14 @@ CREATE TABLE lark_identities (
     display_name TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, id),
     UNIQUE (tenant_id, actor_kind, actor_external_id)
 );
 
 CREATE TABLE token_grants (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL REFERENCES tenants(id),
-    identity_id TEXT NOT NULL REFERENCES lark_identities(id),
+    identity_id TEXT NOT NULL,
     actor_kind TEXT NOT NULL CHECK (actor_kind IN ('user', 'bot', 'app', 'service')),
     scope_boundary TEXT NOT NULL CHECK (scope_boundary IN ('tenant', 'user', 'admin', 'bot', 'service')),
     scopes TEXT[] NOT NULL DEFAULT '{}',
@@ -49,7 +50,8 @@ CREATE TABLE token_grants (
     oauth_grant_fingerprint TEXT NOT NULL,
     revocation_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (tenant_id, identity_id) REFERENCES lark_identities(tenant_id, id)
 );
 
 CREATE INDEX idx_token_grants_identity_state ON token_grants (identity_id, state);
@@ -58,7 +60,7 @@ CREATE INDEX idx_token_grants_tenant_state ON token_grants (tenant_id, state);
 CREATE TABLE device_sessions (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL REFERENCES tenants(id),
-    user_id TEXT NOT NULL REFERENCES oar_users(id),
+    user_id TEXT NOT NULL,
     entry_point TEXT NOT NULL CHECK (entry_point IN ('macos', 'ios', 'web', 'lark')),
     state TEXT NOT NULL CHECK (state IN ('active', 'revoked', 'expired')),
     sync_stream TEXT NOT NULL,
@@ -70,6 +72,7 @@ CREATE TABLE device_sessions (
     expired_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (tenant_id, user_id) REFERENCES oar_users(tenant_id, id),
     UNIQUE (tenant_id, session_identity_hash)
 );
 
@@ -79,12 +82,14 @@ CREATE INDEX idx_device_sessions_sync_cursor ON device_sessions (tenant_id, sync
 CREATE TABLE confirmed_actions (
     action_id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL REFERENCES tenants(id),
-    actor_user_id TEXT NOT NULL REFERENCES oar_users(id),
+    actor_user_id TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('proposed', 'confirmed', 'executing', 'succeeded', 'failed', 'cancelled')),
     confirmed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (tenant_id, actor_user_id) REFERENCES oar_users(tenant_id, id),
+    UNIQUE (tenant_id, action_id),
     UNIQUE (tenant_id, idempotency_key)
 );
 
@@ -93,7 +98,7 @@ CREATE INDEX idx_confirmed_actions_actor_status ON confirmed_actions (tenant_id,
 CREATE TABLE operation_ledger (
     operation_id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL REFERENCES tenants(id),
-    action_id TEXT NOT NULL REFERENCES confirmed_actions(action_id),
+    action_id TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('proposed', 'confirmed', 'executing', 'succeeded', 'failed', 'cancelled')),
     last_error TEXT,
@@ -101,6 +106,8 @@ CREATE TABLE operation_ledger (
     finished_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (tenant_id, action_id) REFERENCES confirmed_actions(tenant_id, action_id),
+    UNIQUE (tenant_id, operation_id),
     UNIQUE (tenant_id, idempotency_key)
 );
 
@@ -121,6 +128,7 @@ CREATE TABLE audit_events (
     target_action_type TEXT NOT NULL,
     event_type TEXT NOT NULL CHECK (
         event_type IN (
+            'proposed_action_decision_recorded',
             'confirmed_action_recorded',
             'dry_run_executed',
             'execution_denied',
@@ -131,12 +139,13 @@ CREATE TABLE audit_events (
     before_summary JSONB,
     after_summary JSONB,
     execution_result JSONB,
-    operation_id TEXT REFERENCES operation_ledger(operation_id),
+    operation_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (trace_id, sequence)
+    FOREIGN KEY (tenant_id, operation_id) REFERENCES operation_ledger(tenant_id, operation_id),
+    UNIQUE (tenant_id, trace_id, sequence)
 );
 
-CREATE INDEX idx_audit_events_trace_sequence ON audit_events (trace_id, sequence);
+CREATE INDEX idx_audit_events_trace_sequence ON audit_events (tenant_id, trace_id, sequence);
 CREATE INDEX idx_audit_events_tenant_time ON audit_events (tenant_id, occurred_at_ms);
 CREATE INDEX idx_audit_events_target ON audit_events (tenant_id, target_resource_type, target_resource_id);
 
@@ -169,3 +178,5 @@ CREATE TABLE audit_outbox (
 );
 
 CREATE INDEX idx_audit_outbox_pending ON audit_outbox (status, next_attempt_at, created_at);
+CREATE INDEX idx_audit_outbox_tenant_stream_pending
+ON audit_outbox (tenant_id, stream, status, next_attempt_at, created_at, id);

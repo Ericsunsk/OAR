@@ -111,6 +111,44 @@ fn decide_reauth_failure_marks_reauth_required() {
 }
 
 #[test]
+fn decide_config_required_marks_config_required_without_transient_retry() {
+    let attempt = TokenRefreshAttempt {
+        grant_id: TokenGrantId("grant_01".to_string()),
+        tenant_id: TenantId("tenant_01".to_string()),
+        expected_fingerprint: "fp_old".to_string(),
+        outcome: RefreshOutcome::ConfigRequired {
+            safe_error: "refresh_config_required".to_string(),
+        },
+    };
+
+    let decision = decide_token_refresh(attempt);
+    assert_eq!(
+        decision,
+        TokenRefreshDecision::MarkConfigRequired {
+            grant_id: TokenGrantId("grant_01".to_string()),
+            tenant_id: TenantId("tenant_01".to_string()),
+            expected_fingerprint: "fp_old".to_string(),
+            safe_error: "refresh_config_required".to_string(),
+        }
+    );
+
+    let command = decision
+        .into_repository_command_at(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(9))
+        .expect("config required command should be safe to build");
+    match command {
+        TokenRefreshRepositoryCommand::MarkConfigRequired {
+            refreshed_at_ms,
+            safe_error,
+            ..
+        } => {
+            assert_eq!(refreshed_at_ms, 9_000);
+            assert_eq!(safe_error, "refresh_config_required");
+        }
+        other => panic!("expected MarkConfigRequired, got {other:?}"),
+    }
+}
+
+#[test]
 fn revoked_and_reauth_required_grants_are_not_refreshable() {
     let revoked = sample_grant(TokenGrantState::Revoked, Some("refresh-old"));
     let reauth_required = sample_grant(TokenGrantState::ReauthRequired, Some("refresh-old"));

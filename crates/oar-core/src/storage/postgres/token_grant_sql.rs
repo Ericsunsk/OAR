@@ -259,6 +259,11 @@ WHERE tenant_id = $1
   AND state IN ('valid', 'needs_refresh', 'expired')
   AND revoked_at IS NULL
   AND reauth_required_at IS NULL
+  AND COALESCE(last_refresh_error, '') NOT IN (
+    'refresh_config_required',
+    'auth_refresh_parse_failed',
+    'auth_refresh_oversized_response'
+  )
   AND octet_length(encrypted_oauth_grant) > 0
   AND (
     state IN ('needs_refresh', 'expired')

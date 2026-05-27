@@ -164,13 +164,11 @@ pub const UPDATE_REVIEW_INBOX_LEDGER_PROJECTION: &str = r#"
 UPDATE review_inbox_items
 SET status = $3,
     ledger_status = $4,
-    source_cursor_value = GREATEST(source_cursor_value, $5),
     sync_cursor_value = GREATEST(
-        $5,
         nextval('review_inbox_sync_cursor_seq'),
         sync_cursor_value + 1
     ),
-    updated_at = to_timestamp($6::double precision / 1000.0)
+    updated_at = to_timestamp($5::double precision / 1000.0)
 WHERE tenant_id = $1
   AND operation_id = $2
   AND status NOT IN ('rejected', 'succeeded', 'failed', 'withdrawn')

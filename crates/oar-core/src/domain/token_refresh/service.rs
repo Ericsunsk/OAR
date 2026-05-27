@@ -1,6 +1,8 @@
 use std::fmt;
 use std::time::SystemTime;
 
+use async_trait::async_trait;
+
 use super::bridge::{plan_token_refresh_command, TokenRefreshBridgeError};
 use super::types::{
     RefreshOutcome, TokenRefreshApplyResult, TokenRefreshGrantSnapshot, TokenRefreshReportStatus,
@@ -9,6 +11,11 @@ use super::types::{
 
 pub trait AuthRefreshAdapter {
     fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome;
+}
+
+#[async_trait(?Send)]
+pub trait AsyncAuthRefreshAdapter {
+    async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome;
 }
 
 pub trait TokenRefreshCommandSink {

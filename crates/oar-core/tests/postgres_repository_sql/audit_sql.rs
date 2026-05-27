@@ -20,7 +20,8 @@ fn audit_append_only_sql_is_insert_only_and_trace_ordered() {
     assert!(append.contains("sequence"));
 
     assert!(query.contains("from audit_events"));
-    assert!(query.contains("where trace_id = $1"));
+    assert!(query.contains("where tenant_id = $1"));
+    assert!(query.contains("and trace_id = $2"));
     assert!(query.contains("order by sequence asc"));
 }
 
@@ -42,6 +43,8 @@ fn audit_outbox_claim_uses_due_pending_rows_with_skip_locked_lease() {
 
     assert!(sql.contains("from audit_outbox"));
     assert!(sql.contains("status = 'pending'"));
+    assert!(sql.contains("tenant_id = $1"));
+    assert!(sql.contains("stream = $2"));
     assert!(sql.contains("next_attempt_at is null or next_attempt_at <="));
     assert!(sql.contains("for update skip locked"));
     assert!(sql.contains("attempt_count = attempt_count + 1"));

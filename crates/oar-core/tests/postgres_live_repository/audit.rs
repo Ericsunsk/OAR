@@ -1,5 +1,19 @@
 use super::harness::*;
 
+#[derive(Default)]
+struct AlwaysErrOutboxDispatcher;
+
+impl AuditOutboxDispatcher for AlwaysErrOutboxDispatcher {
+    type Error = &'static str;
+
+    async fn deliver(
+        &mut self,
+        _message: &AuditOutboxMessage,
+    ) -> Result<AuditOutboxDelivery, Self::Error> {
+        Err("dispatch_failed")
+    }
+}
+
 #[test]
 fn postgres_live_audit_repository_orders_events_and_enforces_append_only() {
     run_live_postgres_test("audit_repository", |pool| async move {
@@ -35,7 +49,9 @@ fn postgres_live_audit_repository_orders_events_and_enforces_append_only() {
         repository.append(&second, None).await?;
         repository.append(&first, None).await?;
 
-        let events = repository.find_by_trace_id("trace_audit").await?;
+        let events = repository
+            .find_by_tenant_and_trace_id("tenant_audit", "trace_audit")
+            .await?;
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].event_id, "evt_1");
         assert_eq!(events[1].event_id, "evt_2");
@@ -73,6 +89,59 @@ fn postgres_live_audit_repository_orders_events_and_enforces_append_only() {
 }
 
 #[test]
+fn postgres_live_audit_trace_lookup_is_tenant_scoped() {
+    run_live_postgres_test("audit_repository_tenant_scoped_trace", |pool| async move {
+        seed_user(&pool, "tenant_audit_trace_a", "user_audit_trace_a").await?;
+        seed_user(&pool, "tenant_audit_trace_b", "user_audit_trace_b").await?;
+
+        let repository = PostgresAuditEventRepository::new(pool.clone());
+        let event_a = AuditEvent::confirmed_action(
+            audit_context(
+                "evt_audit_trace_a",
+                "trace_shared_audit",
+                1,
+                1_748_250_001_000,
+                "user_audit_trace_a",
+                "tenant_audit_trace_a",
+                "progress_shared_audit",
+            ),
+            summary("tenant a confirmed"),
+        );
+        let event_b = AuditEvent::confirmed_action(
+            audit_context(
+                "evt_audit_trace_b",
+                "trace_shared_audit",
+                1,
+                1_748_250_001_100,
+                "user_audit_trace_b",
+                "tenant_audit_trace_b",
+                "progress_shared_audit",
+            ),
+            summary("tenant b confirmed"),
+        );
+
+        repository.append(&event_a, None).await?;
+        repository.append(&event_b, None).await?;
+
+        let tenant_a = repository
+            .find_by_tenant_and_trace_id("tenant_audit_trace_a", "trace_shared_audit")
+            .await?;
+        let tenant_b = repository
+            .find_by_tenant_and_trace_id("tenant_audit_trace_b", "trace_shared_audit")
+            .await?;
+        let missing = repository
+            .find_by_tenant_and_trace_id("tenant_audit_trace_missing", "trace_shared_audit")
+            .await?;
+
+        assert_eq!(tenant_a, vec![event_a]);
+        assert_eq!(tenant_b, vec![event_b]);
+        assert!(missing.is_empty());
+
+        Ok(())
+    });
+}
+
+#[test]
 fn postgres_live_token_refresh_audit_roundtrip() {
     run_live_postgres_test("token_refresh_audit_roundtrip", |pool| async move {
         seed_user(&pool, "tenant_refresh_audit", "user_refresh_audit").await?;
@@ -99,7 +168,7 @@ fn postgres_live_token_refresh_audit_roundtrip() {
         repository.append(&event, None).await?;
 
         let events = repository
-            .find_by_trace_id("trace_token_refresh_audit")
+            .find_by_tenant_and_trace_id("tenant_refresh_audit", "trace_token_refresh_audit")
             .await?;
         assert_eq!(events.len(), 1);
 
@@ -111,7 +180,12 @@ fn postgres_live_token_refresh_audit_roundtrip() {
 
         let payload: serde_json::Value = sqlx::query_scalar(
             r#"
-            SELECT payload
+            SELECT
+              jsonb_build_object(
+              'before_summary', before_summary,
+              'after_summary', after_summary,
+              'execution_result', execution_result
+            )
             FROM audit_events
             WHERE event_id = $1
             "#,
@@ -169,6 +243,51 @@ fn postgres_live_audit_outbox_enqueue_sets_retry_defaults() {
         assert_eq!(status, "pending");
         assert_eq!(attempt_count, 0);
         assert_eq!(stored_payload, payload);
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_audit_outbox_enqueue_rejects_unsafe_payload_without_insert() {
+    run_live_postgres_test("audit_outbox_unsafe_payload", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_outbox_unsafe_payload",
+            "user_outbox_unsafe_payload",
+        )
+        .await?;
+
+        let repository = PostgresAuditEventRepository::new(pool.clone());
+        let result = repository
+            .enqueue_outbox(
+                "tenant_outbox_unsafe_payload",
+                "audit-events",
+                "trace_outbox_unsafe_payload",
+                &json!({
+                    "trace_id": "trace_outbox_unsafe_payload",
+                    "authorization": "Bearer secret_value"
+                }),
+                1_748_250_011_000,
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(PostgresRepositoryError::UnsafeAuditOutboxPayload)
+        ));
+
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM audit_outbox
+            WHERE tenant_id = $1
+            "#,
+        )
+        .bind("tenant_outbox_unsafe_payload")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(count, 0);
 
         Ok(())
     });
@@ -412,7 +531,14 @@ fn postgres_live_audit_outbox_worker_drains_mixed_delivery_outcomes() {
             repository,
             dispatcher,
             move || ticks.pop().unwrap_or(5_999),
-            AuditOutboxDrainConfig::new("tenant_outbox_worker", "audit-events", 10, 3_000, 7_000),
+            AuditOutboxDrainConfig::new(
+                "tenant_outbox_worker",
+                "audit-events",
+                10,
+                3_000,
+                7_000,
+                3,
+            ),
         );
 
         let report = worker.drain_once().await?;
@@ -421,6 +547,7 @@ fn postgres_live_audit_outbox_worker_drains_mixed_delivery_outcomes() {
         assert_eq!(report.sent, 1);
         assert_eq!(report.retryable, 1);
         assert_eq!(report.failed, 1);
+        assert_eq!(report.exhausted, 0);
         assert_eq!(report.stale, 0);
 
         let rows = sqlx::query(
@@ -460,6 +587,147 @@ fn postgres_live_audit_outbox_worker_drains_mixed_delivery_outcomes() {
                 ("trace_failed".to_string(), "failed".to_string(), 1, None),
             ]
         );
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_audit_outbox_worker_err_below_retry_cap_stays_retryable() {
+    run_live_postgres_test("audit_outbox_worker_err_retryable", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_outbox_worker_retry_cap",
+            "user_outbox_worker_retry_cap",
+        )
+        .await?;
+
+        let repository = PostgresAuditEventRepository::new(pool.clone());
+        let message_id = repository
+            .enqueue_outbox(
+                "tenant_outbox_worker_retry_cap",
+                "audit-events",
+                "trace_retry_cap",
+                &json!({ "trace_id": "trace_retry_cap" }),
+                1_000,
+            )
+            .await?;
+
+        let dispatcher = AlwaysErrOutboxDispatcher;
+        let mut ticks = vec![5_000_u64, 5_100];
+        ticks.reverse();
+        let mut worker = PostgresAuditOutboxWorker::new(
+            repository,
+            dispatcher,
+            move || ticks.pop().unwrap_or(5_100),
+            AuditOutboxDrainConfig::new(
+                "tenant_outbox_worker_retry_cap",
+                "audit-events",
+                10,
+                3_000,
+                7_000,
+                3,
+            ),
+        );
+
+        let report = worker.drain_once().await?;
+
+        assert_eq!(report.claimed, 1);
+        assert_eq!(report.sent, 0);
+        assert_eq!(report.retryable, 1);
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.exhausted, 0);
+        assert_eq!(report.stale, 0);
+
+        let row = sqlx::query(
+            r#"
+            SELECT status, attempt_count,
+                   floor(extract(epoch from next_attempt_at) * 1000)::bigint AS next_attempt_at_ms
+            FROM audit_outbox
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .fetch_one(&pool)
+        .await?;
+
+        assert_eq!(row.try_get::<String, _>("status")?, "pending");
+        assert_eq!(row.try_get::<i32, _>("attempt_count")?, 1);
+        assert_eq!(
+            row.try_get::<Option<i64>, _>("next_attempt_at_ms")?,
+            Some(12_100)
+        );
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_audit_outbox_worker_err_at_retry_cap_marks_failed() {
+    run_live_postgres_test("audit_outbox_worker_err_exhausted", |pool| async move {
+        seed_user(
+            &pool,
+            "tenant_outbox_worker_exhausted",
+            "user_outbox_worker_exhausted",
+        )
+        .await?;
+
+        let repository = PostgresAuditEventRepository::new(pool.clone());
+        let message_id = repository
+            .enqueue_outbox(
+                "tenant_outbox_worker_exhausted",
+                "audit-events",
+                "trace_exhausted",
+                &json!({ "trace_id": "trace_exhausted" }),
+                1_000,
+            )
+            .await?;
+
+        let dispatcher = AlwaysErrOutboxDispatcher;
+        let mut ticks = vec![5_000_u64, 5_100, 12_100];
+        ticks.reverse();
+        let mut worker = PostgresAuditOutboxWorker::new(
+            repository,
+            dispatcher,
+            move || ticks.pop().unwrap_or(12_100),
+            AuditOutboxDrainConfig::new(
+                "tenant_outbox_worker_exhausted",
+                "audit-events",
+                10,
+                3_000,
+                7_000,
+                2,
+            ),
+        );
+
+        let first_report = worker.drain_once().await?;
+        assert_eq!(first_report.claimed, 1);
+        assert_eq!(first_report.retryable, 1);
+        assert_eq!(first_report.failed, 0);
+        assert_eq!(first_report.exhausted, 0);
+
+        let second_report = worker.drain_once().await?;
+        assert_eq!(second_report.claimed, 1);
+        assert_eq!(second_report.retryable, 0);
+        assert_eq!(second_report.failed, 1);
+        assert_eq!(second_report.exhausted, 1);
+        assert_eq!(second_report.stale, 0);
+
+        let row = sqlx::query(
+            r#"
+            SELECT status, attempt_count,
+                   floor(extract(epoch from next_attempt_at) * 1000)::bigint AS next_attempt_at_ms
+            FROM audit_outbox
+            WHERE id = $1
+            "#,
+        )
+        .bind(message_id)
+        .fetch_one(&pool)
+        .await?;
+
+        assert_eq!(row.try_get::<String, _>("status")?, "failed");
+        assert_eq!(row.try_get::<i32, _>("attempt_count")?, 2);
+        assert_eq!(row.try_get::<Option<i64>, _>("next_attempt_at_ms")?, None);
 
         Ok(())
     });

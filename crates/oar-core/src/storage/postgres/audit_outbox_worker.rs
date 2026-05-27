@@ -9,6 +9,7 @@ pub struct AuditOutboxDrainConfig {
     pub batch_limit: i64,
     pub lease_ms: u64,
     pub retry_delay_ms: u64,
+    pub max_attempts: u32,
 }
 
 impl AuditOutboxDrainConfig {
@@ -18,6 +19,7 @@ impl AuditOutboxDrainConfig {
         batch_limit: i64,
         lease_ms: u64,
         retry_delay_ms: u64,
+        max_attempts: u32,
     ) -> Self {
         Self {
             tenant_id: tenant_id.into(),
@@ -25,6 +27,7 @@ impl AuditOutboxDrainConfig {
             batch_limit,
             lease_ms,
             retry_delay_ms,
+            max_attempts,
         }
     }
 }
@@ -35,6 +38,7 @@ pub struct AuditOutboxDrainReport {
     pub sent: usize,
     pub retryable: usize,
     pub failed: usize,
+    pub exhausted: usize,
     pub stale: usize,
 }
 
@@ -103,6 +107,7 @@ where
             sent: 0,
             retryable: 0,
             failed: 0,
+            exhausted: 0,
             stale: 0,
         };
 
@@ -112,7 +117,16 @@ where
                 .deliver(&message)
                 .await
                 .unwrap_or(AuditOutboxDelivery::Retryable);
-            let mark_result = match delivery {
+            let exhausted = matches!(delivery, AuditOutboxDelivery::Retryable)
+                && u32::try_from(message.attempt_count)
+                    .map(|attempt_count| attempt_count >= self.config.max_attempts)
+                    .unwrap_or(false);
+            let effective_delivery = if exhausted {
+                AuditOutboxDelivery::Failed
+            } else {
+                delivery
+            };
+            let mark_result = match effective_delivery {
                 AuditOutboxDelivery::Sent => {
                     let sent_at_ms = self.now_ms();
                     self.repository
@@ -155,10 +169,15 @@ where
                 continue;
             }
 
-            match delivery {
+            match effective_delivery {
                 AuditOutboxDelivery::Sent => report.sent += 1,
                 AuditOutboxDelivery::Retryable => report.retryable += 1,
-                AuditOutboxDelivery::Failed => report.failed += 1,
+                AuditOutboxDelivery::Failed => {
+                    report.failed += 1;
+                    if exhausted {
+                        report.exhausted += 1;
+                    }
+                }
             }
         }
 

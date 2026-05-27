@@ -59,6 +59,11 @@ fn parse_safe_envelope(
                 safe_error: parse_string(obj.get("safe_error"))?,
             },
         )),
+        "config_required" => Ok(LarkAuthRefreshResponse::Failure(
+            LarkAuthRefreshFailure::ConfigRequired {
+                safe_error: parse_string(obj.get("safe_error"))?,
+            },
+        )),
         _ => Err(LarkAuthRefreshParseError::InvalidEnvelope),
     }
 }

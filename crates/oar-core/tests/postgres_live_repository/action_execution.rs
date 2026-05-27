@@ -40,7 +40,10 @@ fn postgres_live_action_executor_records_success_audit_and_outbox() {
         );
 
         let persisted = audit
-            .find_by_trace_id("trace-idem_executor_success")
+            .find_by_tenant_and_trace_id(
+                "tenant_executor_success",
+                "trace-tenant_executor_success-idem_executor_success",
+            )
             .await?;
         assert_eq!(persisted, report.events);
         assert_eq!(
@@ -52,10 +55,13 @@ fn postgres_live_action_executor_records_success_audit_and_outbox() {
             r#"
             SELECT COUNT(*)
             FROM audit_events
-            WHERE trace_id = $1 AND operation_id = $2
+            WHERE tenant_id = $1
+              AND trace_id = $2
+              AND operation_id = $3
             "#,
         )
-        .bind("trace-idem_executor_success")
+        .bind("tenant_executor_success")
+        .bind("trace-tenant_executor_success-idem_executor_success")
         .bind(&report.operation.operation_id)
         .fetch_one(&pool)
         .await?;
@@ -97,7 +103,12 @@ fn postgres_live_action_executor_duplicate_retry_skips_adapter_and_side_effects(
         assert_eq!(adapter.execute_calls(), 1);
 
         let audit = PostgresAuditEventRepository::new(pool.clone());
-        let events = audit.find_by_trace_id("trace-idem_executor_dup").await?;
+        let events = audit
+            .find_by_tenant_and_trace_id(
+                "tenant_executor_dup",
+                "trace-tenant_executor_dup-idem_executor_dup",
+            )
+            .await?;
         assert_eq!(events.len(), 3);
         assert_eq!(audit_outbox_count(&pool, "tenant_executor_dup").await?, 3);
 
@@ -123,8 +134,8 @@ fn postgres_live_action_executor_resumes_after_confirmation_only_crash() {
             "op-idem_executor_resume",
             &AuditEvent::confirmed_action(
                 audit_context(
-                    "trace-idem_executor_resume-evt-1",
-                    "trace-idem_executor_resume",
+                    "trace-tenant_executor_resume-idem_executor_resume-evt-1",
+                    "trace-tenant_executor_resume-idem_executor_resume",
                     1,
                     1_748_260_001_000,
                     "user_executor_resume",
@@ -135,7 +146,7 @@ fn postgres_live_action_executor_resumes_after_confirmation_only_crash() {
             ),
             &outbox_envelope(
                 "tenant_executor_resume",
-                "trace-idem_executor_resume",
+                "trace-tenant_executor_resume-idem_executor_resume",
                 1_748_260_002_000,
             ),
         )
@@ -158,7 +169,12 @@ fn postgres_live_action_executor_resumes_after_confirmation_only_crash() {
         );
 
         let audit = PostgresAuditEventRepository::new(pool.clone());
-        let persisted = audit.find_by_trace_id("trace-idem_executor_resume").await?;
+        let persisted = audit
+            .find_by_tenant_and_trace_id(
+                "tenant_executor_resume",
+                "trace-tenant_executor_resume-idem_executor_resume",
+            )
+            .await?;
         assert_eq!(persisted.len(), 3);
         assert_eq!(
             persisted
@@ -203,8 +219,8 @@ fn postgres_live_action_executor_resumes_existing_executing_operation() {
             "op-idem_executor_executing_resume",
             &AuditEvent::confirmed_action(
                 audit_context(
-                    "trace-idem_executor_executing_resume-evt-1",
-                    "trace-idem_executor_executing_resume",
+                    "trace-tenant_executor_executing_resume-idem_executor_executing_resume-evt-1",
+                    "trace-tenant_executor_executing_resume-idem_executor_executing_resume",
                     1,
                     1_748_260_001_000,
                     "user_executor_executing_resume",
@@ -215,7 +231,7 @@ fn postgres_live_action_executor_resumes_existing_executing_operation() {
             ),
             &outbox_envelope(
                 "tenant_executor_executing_resume",
-                "trace-idem_executor_executing_resume",
+                "trace-tenant_executor_executing_resume-idem_executor_executing_resume",
                 1_748_260_002_000,
             ),
         )
@@ -226,8 +242,8 @@ fn postgres_live_action_executor_resumes_existing_executing_operation() {
             1_748_260_003_000,
             &AuditEvent::dry_run(
                 audit_context(
-                    "trace-idem_executor_executing_resume-evt-2",
-                    "trace-idem_executor_executing_resume",
+                    "trace-tenant_executor_executing_resume-idem_executor_executing_resume-evt-2",
+                    "trace-tenant_executor_executing_resume-idem_executor_executing_resume",
                     2,
                     1_748_260_003_000,
                     "user_executor_executing_resume",
@@ -239,7 +255,7 @@ fn postgres_live_action_executor_resumes_existing_executing_operation() {
             ),
             &outbox_envelope(
                 "tenant_executor_executing_resume",
-                "trace-idem_executor_executing_resume",
+                "trace-tenant_executor_executing_resume-idem_executor_executing_resume",
                 1_748_260_004_000,
             ),
         )
@@ -266,7 +282,10 @@ fn postgres_live_action_executor_resumes_existing_executing_operation() {
 
         let audit = PostgresAuditEventRepository::new(pool.clone());
         let persisted = audit
-            .find_by_trace_id("trace-idem_executor_executing_resume")
+            .find_by_tenant_and_trace_id(
+                "tenant_executor_executing_resume",
+                "trace-tenant_executor_executing_resume-idem_executor_executing_resume",
+            )
             .await?;
         assert_eq!(persisted.len(), 3);
         assert_eq!(
@@ -325,7 +344,10 @@ fn postgres_live_action_executor_records_adapter_failure_as_terminal_state() {
         );
 
         let persisted = audit
-            .find_by_trace_id("trace-idem_executor_failure")
+            .find_by_tenant_and_trace_id(
+                "tenant_executor_failure",
+                "trace-tenant_executor_failure-idem_executor_failure",
+            )
             .await?;
         assert_eq!(persisted, report.events);
         assert_eq!(
@@ -410,7 +432,12 @@ fn postgres_live_action_executor_policy_denial_records_safe_audit_without_adapte
         );
 
         let audit = PostgresAuditEventRepository::new(pool.clone());
-        let persisted = audit.find_by_trace_id("trace-idem_executor_policy").await?;
+        let persisted = audit
+            .find_by_tenant_and_trace_id(
+                "tenant_executor_policy",
+                "trace-tenant_executor_policy-idem_executor_policy",
+            )
+            .await?;
         assert_eq!(persisted, report.events);
         assert_eq!(
             audit_outbox_count(&pool, "tenant_executor_policy").await?,

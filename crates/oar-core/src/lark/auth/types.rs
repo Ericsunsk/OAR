@@ -3,7 +3,8 @@ use std::fmt;
 use crate::domain::token_refresh::types::TokenRefreshGrantSnapshot;
 
 use super::safety::{
-    sanitize_safe_error, SAFE_PARSE_ERROR, SAFE_REAUTH_ERROR, SAFE_TRANSIENT_ERROR,
+    sanitize_safe_error, SAFE_CONFIG_ERROR, SAFE_PARSE_ERROR, SAFE_REAUTH_ERROR,
+    SAFE_TRANSIENT_ERROR,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +76,7 @@ impl fmt::Debug for LarkAuthRefreshSuccess {
         f.debug_struct("LarkAuthRefreshSuccess")
             .field("encrypted_primary", &"[REDACTED]")
             .field("encrypted_renewal", &"[REDACTED]")
-            .field("key_id", &self.key_id)
+            .field("key_id", &"[REDACTED]")
             .field("new_fingerprint", &"[REDACTED]")
             .field("refreshed_at_ms", &self.refreshed_at_ms)
             .field("expires_at_ms", &self.expires_at_ms)
@@ -87,6 +88,7 @@ impl fmt::Debug for LarkAuthRefreshSuccess {
 pub enum LarkAuthRefreshFailure {
     Transient { safe_error: String },
     ReauthRequired { safe_error: String },
+    ConfigRequired { safe_error: String },
 }
 
 impl fmt::Debug for LarkAuthRefreshFailure {
@@ -104,6 +106,13 @@ impl fmt::Debug for LarkAuthRefreshFailure {
                 .field(
                     "safe_error",
                     &sanitize_safe_error(safe_error, SAFE_REAUTH_ERROR),
+                )
+                .finish(),
+            LarkAuthRefreshFailure::ConfigRequired { safe_error } => f
+                .debug_struct("ConfigRequired")
+                .field(
+                    "safe_error",
+                    &sanitize_safe_error(safe_error, SAFE_CONFIG_ERROR),
                 )
                 .finish(),
         }

@@ -63,6 +63,11 @@ pub const AUTH_REFRESH_REAUTH_REQUIRED_JSON: &str = r#"{
   "safe_error": "invalid_grant"
 }"#;
 
+pub const AUTH_REFRESH_CONFIG_REQUIRED_JSON: &str = r#"{
+  "outcome": "config_required",
+  "safe_error": "refresh_config_required"
+}"#;
+
 pub const AUTH_REFRESH_TRANSIENT_FAILURE_JSON: &str = r#"{
   "outcome": "transient_failure",
   "safe_error": "temporarily unavailable"

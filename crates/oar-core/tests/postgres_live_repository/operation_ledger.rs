@@ -21,6 +21,26 @@ fn postgres_repository_rejects_unconfirmed_action_before_db_access() {
 }
 
 #[test]
+fn postgres_repository_transition_reports_repository_failure_for_infra_errors() {
+    runtime().block_on(async {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/oar_unreachable")
+            .expect("lazy pool should parse static database url");
+        let repository = PostgresOperationLedgerRepository::new(pool);
+
+        let error = repository
+            .mark_executing("tenant", "idem", 0)
+            .await
+            .expect_err("unreachable postgres should surface as repository failure");
+
+        assert!(
+            matches!(error, LedgerError::RepositoryFailure(_)),
+            "infra errors must not be reported as unknown idempotency keys: {error:?}"
+        );
+    });
+}
+
+#[test]
 fn postgres_live_operation_repository_preserves_idempotent_transitions() {
     run_live_postgres_test("operation_repository", |pool| async move {
         seed_user(&pool, "tenant_live", "user_live").await?;
