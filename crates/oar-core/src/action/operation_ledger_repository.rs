@@ -58,6 +58,17 @@ impl InMemoryOperationLedgerRepository {
     pub fn get_by_idempotency_key(&self, idempotency_key: &str) -> Option<OperationRecord> {
         <Self as OperationLedgerRepository>::get_by_idempotency_key(self, idempotency_key)
     }
+
+    fn with_ledger<T>(
+        &self,
+        op: impl FnOnce(&mut OperationLedger) -> Result<T, LedgerError>,
+    ) -> Result<T, LedgerError> {
+        let mut ledger = self.ledger.lock().map_err(|_| {
+            tracing::warn!("operation ledger mutex poisoned");
+            LedgerError::RepositoryFailure("operation ledger unavailable".to_string())
+        })?;
+        op(&mut ledger)
+    }
 }
 
 impl OperationLedgerRepository for InMemoryOperationLedgerRepository {
@@ -65,24 +76,15 @@ impl OperationLedgerRepository for InMemoryOperationLedgerRepository {
         &self,
         action: &ConfirmedAction,
     ) -> Result<SubmitResult, LedgerError> {
-        self.ledger
-            .lock()
-            .expect("operation ledger mutex should not be poisoned")
-            .submit_confirmed_action(action)
+        self.with_ledger(|ledger| ledger.submit_confirmed_action(action))
     }
 
     fn mark_executing(&self, idempotency_key: &str) -> Result<OperationRecord, LedgerError> {
-        self.ledger
-            .lock()
-            .expect("operation ledger mutex should not be poisoned")
-            .mark_executing(idempotency_key)
+        self.with_ledger(|ledger| ledger.mark_executing(idempotency_key))
     }
 
     fn mark_succeeded(&self, idempotency_key: &str) -> Result<OperationRecord, LedgerError> {
-        self.ledger
-            .lock()
-            .expect("operation ledger mutex should not be poisoned")
-            .mark_succeeded(idempotency_key)
+        self.with_ledger(|ledger| ledger.mark_succeeded(idempotency_key))
     }
 
     fn mark_failed(
@@ -90,16 +92,16 @@ impl OperationLedgerRepository for InMemoryOperationLedgerRepository {
         idempotency_key: &str,
         error: String,
     ) -> Result<OperationRecord, LedgerError> {
-        self.ledger
-            .lock()
-            .expect("operation ledger mutex should not be poisoned")
-            .mark_failed(idempotency_key, error)
+        self.with_ledger(|ledger| ledger.mark_failed(idempotency_key, error))
     }
 
     fn get_by_idempotency_key(&self, idempotency_key: &str) -> Option<OperationRecord> {
-        self.ledger
-            .lock()
-            .ok()
-            .and_then(|ledger| ledger.get_by_idempotency_key(idempotency_key).cloned())
+        match self.ledger.lock() {
+            Ok(ledger) => ledger.get_by_idempotency_key(idempotency_key).cloned(),
+            Err(_) => {
+                tracing::warn!("operation ledger mutex poisoned while reading");
+                None
+            }
+        }
     }
 }

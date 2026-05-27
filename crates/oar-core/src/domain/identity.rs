@@ -1,3 +1,4 @@
+use secrecy::ExposeSecret;
 use std::fmt;
 use std::time::SystemTime;
 
@@ -69,16 +70,20 @@ pub enum ScopeBoundary {
     Service,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct SecretString(String);
+#[derive(Clone)]
+pub struct SecretString(secrecy::SecretString);
 
 impl SecretString {
     pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
+        Self(secrecy::SecretString::new(value.into().into_boxed_str()))
     }
 
     pub fn expose(&self) -> &str {
-        &self.0
+        self.0.expose_secret()
+    }
+
+    pub fn expose_secret(&self) -> &str {
+        self.0.expose_secret()
     }
 }
 
@@ -87,6 +92,20 @@ impl fmt::Debug for SecretString {
         f.write_str("[REDACTED]")
     }
 }
+
+impl fmt::Display for SecretString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+
+impl PartialEq for SecretString {
+    fn eq(&self, other: &Self) -> bool {
+        self.expose_secret() == other.expose_secret()
+    }
+}
+
+impl Eq for SecretString {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OAuthTokens {

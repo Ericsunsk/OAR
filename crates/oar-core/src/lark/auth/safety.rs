@@ -55,12 +55,5 @@ pub(crate) fn reject_sensitive_json(
 }
 
 pub(crate) fn contains_sensitive_marker(input: &str) -> bool {
-    let normalized = input.to_ascii_lowercase();
-    normalized.contains("access_token")
-        || normalized.contains("refresh_token")
-        || normalized.contains("authorization_code")
-        || normalized.contains("auth_code")
-        || normalized.contains("authorization")
-        || normalized.contains("bearer")
-        || normalized.contains("refresh_token=")
+    crate::security::contains_sensitive_marker(input)
 }

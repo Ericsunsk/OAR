@@ -62,7 +62,7 @@ fn decrypt_renewal_material<S, K>(
 ) -> Result<DecryptedFeishuGrantMaterial, AesGcmRefreshMaterialProviderError<S, K>> {
     let (_, renewal) = parse_encrypted_grant_blob(&stored.encrypted_oauth_grant)
         .map_err(|_| AesGcmRefreshMaterialProviderError::MalformedGrantMaterial)?;
-    let refresh_token = decrypt_v1_envelope(&key, renewal)
+    let refresh_token = decrypt_v1_envelope(key, renewal)
         .map_err(|_| AesGcmRefreshMaterialProviderError::DecryptFailed)?;
     let refresh_token = String::from_utf8(refresh_token)
         .map_err(|_| AesGcmRefreshMaterialProviderError::DecryptFailed)?;

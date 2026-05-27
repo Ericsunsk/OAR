@@ -40,33 +40,35 @@ fn proposed_action(tenant_id: &str, user_id: &str, id: &str, version: u64) -> Pr
     action
 }
 
-fn inbox_item(
-    id: &str,
-    tenant_id: &str,
-    user_id: &str,
-    proposed_action_id: &str,
+struct InboxItemSpec<'a> {
+    id: &'a str,
+    tenant_id: &'a str,
+    user_id: &'a str,
+    proposed_action_id: &'a str,
     proposed_action_version: u64,
     sort_key: i64,
     sync_cursor: u64,
     status: ReviewInboxItemStatus,
-    ledger_status: Option<&str>,
-    operation_id: Option<&str>,
-) -> ReviewInboxItem {
+    ledger_status: Option<&'a str>,
+    operation_id: Option<&'a str>,
+}
+
+fn inbox_item(spec: InboxItemSpec<'_>) -> ReviewInboxItem {
     let mut item = ReviewInboxItem::new(
-        ReviewInboxItemId(id.to_string()),
-        TenantId(tenant_id.to_string()),
-        WorkspaceUserId(user_id.to_string()),
-        proposed_action_id,
-        proposed_action_version,
+        ReviewInboxItemId(spec.id.to_string()),
+        TenantId(spec.tenant_id.to_string()),
+        WorkspaceUserId(spec.user_id.to_string()),
+        spec.proposed_action_id,
+        spec.proposed_action_version,
         80,
         10,
-        sort_key,
-        sync_cursor,
-        ms(1_748_250_005_000 + sync_cursor),
+        spec.sort_key,
+        spec.sync_cursor,
+        ms(1_748_250_005_000 + spec.sync_cursor),
     );
-    item.status = status;
-    item.ledger_status = ledger_status.map(str::to_string);
-    item.operation_id = operation_id.map(str::to_string);
+    item.status = spec.status;
+    item.ledger_status = spec.ledger_status.map(str::to_string);
+    item.operation_id = spec.operation_id.map(str::to_string);
     item
 }
 
@@ -99,32 +101,32 @@ fn postgres_live_review_inbox_roundtrip_and_ordering() {
             .await?;
 
         repository
-            .upsert_review_inbox_item(&inbox_item(
-                "inbox_1",
-                "tenant_inbox",
-                "user_inbox",
-                "action_1",
-                1,
-                100,
-                101,
-                ReviewInboxItemStatus::Open,
-                Some("confirmed"),
-                Some("op_1"),
-            ))
+            .upsert_review_inbox_item(&inbox_item(InboxItemSpec {
+                id: "inbox_1",
+                tenant_id: "tenant_inbox",
+                user_id: "user_inbox",
+                proposed_action_id: "action_1",
+                proposed_action_version: 1,
+                sort_key: 100,
+                sync_cursor: 101,
+                status: ReviewInboxItemStatus::Open,
+                ledger_status: Some("confirmed"),
+                operation_id: Some("op_1"),
+            }))
             .await?;
         repository
-            .upsert_review_inbox_item(&inbox_item(
-                "inbox_2",
-                "tenant_inbox",
-                "user_inbox",
-                "action_2",
-                1,
-                200,
-                202,
-                ReviewInboxItemStatus::Open,
-                Some("executing"),
-                Some("op_2"),
-            ))
+            .upsert_review_inbox_item(&inbox_item(InboxItemSpec {
+                id: "inbox_2",
+                tenant_id: "tenant_inbox",
+                user_id: "user_inbox",
+                proposed_action_id: "action_2",
+                proposed_action_version: 1,
+                sort_key: 200,
+                sync_cursor: 202,
+                status: ReviewInboxItemStatus::Open,
+                ledger_status: Some("executing"),
+                operation_id: Some("op_2"),
+            }))
             .await?;
 
         let rows = repository
@@ -210,18 +212,18 @@ fn postgres_live_review_decision_recorder_confirm_and_reject() {
                 .insert_proposed_action(&action, Some(ms(1_748_250_020_000)))
                 .await?;
             repository
-                .upsert_review_inbox_item(&inbox_item(
-                    "inbox_recorder",
-                    "tenant_recorder",
-                    "user_recorder",
-                    "action_recorder",
-                    1,
-                    500,
-                    300,
-                    ReviewInboxItemStatus::Open,
-                    None,
-                    None,
-                ))
+                .upsert_review_inbox_item(&inbox_item(InboxItemSpec {
+                    id: "inbox_recorder",
+                    tenant_id: "tenant_recorder",
+                    user_id: "user_recorder",
+                    proposed_action_id: "action_recorder",
+                    proposed_action_version: 1,
+                    sort_key: 500,
+                    sync_cursor: 300,
+                    status: ReviewInboxItemStatus::Open,
+                    ledger_status: None,
+                    operation_id: None,
+                }))
                 .await?;
 
             let report = recorder
@@ -239,18 +241,18 @@ fn postgres_live_review_decision_recorder_confirm_and_reject() {
                     confirmed_action: None,
                     confirmed_at_ms: None,
                     operation_id: None,
-                    inbox_item: &inbox_item(
-                        "inbox_recorder",
-                        "tenant_recorder",
-                        "user_recorder",
-                        "action_recorder",
-                        1,
-                        500,
-                        301,
-                        ReviewInboxItemStatus::Rejected,
-                        None,
-                        None,
-                    ),
+                    inbox_item: &inbox_item(InboxItemSpec {
+                        id: "inbox_recorder",
+                        tenant_id: "tenant_recorder",
+                        user_id: "user_recorder",
+                        proposed_action_id: "action_recorder",
+                        proposed_action_version: 1,
+                        sort_key: 500,
+                        sync_cursor: 301,
+                        status: ReviewInboxItemStatus::Rejected,
+                        ledger_status: None,
+                        operation_id: None,
+                    }),
                     event: &AuditEvent::proposed_action_decision(
                         audit_context(
                             "evt_recorder_reject",

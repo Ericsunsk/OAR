@@ -10,19 +10,20 @@ postgres = ["dep:sqlx", "oar-core/postgres"]
 [dependencies]
 oar-core = { path = "../oar-core" }
 aes-gcm = "0.10"
-async-trait = "0.1"
+async-trait.workspace = true
 hex = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-secrecy = "0.10"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+reqwest.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 sha2 = "0.10"
-sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots"], optional = true }
-thiserror = "2.0.18"
-tokio = { version = "1.52.3", default-features = false, features = ["rt"] }
+sqlx = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 oar-core = { path = "../oar-core", features = ["postgres"] }
-serde_json = "1"
-sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots"] }
-tokio = { version = "1.52.3", default-features = false, features = ["rt"] }
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true

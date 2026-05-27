@@ -253,7 +253,7 @@ fn is_allowed_audit_outbox_payload_key(key: &str) -> bool {
 }
 
 fn validate_audit_outbox_payload_entry(key: &str, value: &Value) -> PgRepositoryResult<()> {
-    if contains_sensitive_marker(key) {
+    if contains_sensitive_audit_payload_marker(key) {
         return Err(PostgresRepositoryError::UnsafeAuditOutboxPayload);
     }
     validate_audit_outbox_payload_value(value)
@@ -264,7 +264,7 @@ fn validate_audit_outbox_payload_value(value: &Value) -> PgRepositoryResult<()> 
         Value::Object(_) | Value::Array(_) => {
             return Err(PostgresRepositoryError::UnsafeAuditOutboxPayload);
         }
-        Value::String(text) if contains_sensitive_marker(text) => {
+        Value::String(text) if contains_sensitive_audit_payload_marker(text) => {
             return Err(PostgresRepositoryError::UnsafeAuditOutboxPayload);
         }
         _ => {}
@@ -272,36 +272,9 @@ fn validate_audit_outbox_payload_value(value: &Value) -> PgRepositoryResult<()> 
     Ok(())
 }
 
-fn contains_sensitive_marker(value: &str) -> bool {
+fn contains_sensitive_audit_payload_marker(value: &str) -> bool {
     let lowered = value.to_ascii_lowercase();
-    let contains_direct_marker = [
-        "access_token",
-        "accesstoken",
-        "refresh_token",
-        "refreshtoken",
-        "authorization_code",
-        "authorizationcode",
-        "oauth_grant",
-        "authorization",
-        "bearer",
-        "stdout",
-        "stderr",
-        "encrypted",
-        "fingerprint",
-    ]
-    .iter()
-    .any(|needle| lowered.contains(needle));
-    if contains_direct_marker {
-        return true;
-    }
-
-    lowered
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .filter(|segment| !segment.is_empty())
-        .any(|segment| {
-            matches!(
-                segment,
-                "token" | "secret" | "password" | "cookie" | "oauth" | "grant"
-            )
-        })
+    crate::security::contains_sensitive_marker(&lowered)
+        || lowered.contains("encrypted")
+        || lowered.contains("fingerprint")
 }

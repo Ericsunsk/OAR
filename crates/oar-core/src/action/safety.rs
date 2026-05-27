@@ -1,3 +1,5 @@
+use crate::security::contains_sensitive_marker;
+
 const SAFE_ADAPTER_ERROR_MESSAGE: &str = "adapter execution failed";
 const FALLBACK_ADAPTER_ERROR_CODE: &str = "adapter_error";
 const MAX_SAFE_ERROR_MESSAGE_CHARS: usize = 240;
@@ -45,26 +47,4 @@ pub(crate) fn sanitize_adapter_error_code(code: &str) -> String {
     } else {
         normalized
     }
-}
-
-fn contains_sensitive_marker(input: &str) -> bool {
-    let lowered = input.to_ascii_lowercase();
-    [
-        "access token",
-        "access_token",
-        "refresh token",
-        "refresh_token",
-        "authorization:",
-        "authorization code",
-        "authorization_code",
-        "auth code",
-        "auth_code",
-        "bearer ",
-        "client_secret",
-        "oauth_grant",
-        "stdout",
-        "stderr",
-    ]
-    .iter()
-    .any(|needle| lowered.contains(needle))
 }

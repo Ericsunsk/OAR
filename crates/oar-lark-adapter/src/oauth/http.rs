@@ -112,8 +112,15 @@ pub struct ReqwestBlockingHttpClient {
 
 impl ReqwestBlockingHttpClient {
     pub fn new() -> Self {
-        Self::with_config(&FeishuOpenApiConfig::default())
-            .expect("default Feishu reqwest client config should be valid")
+        match Self::with_config(&FeishuOpenApiConfig::default()) {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::warn!(?error, "failed to build configured blocking http client");
+                Self {
+                    client: reqwest::blocking::Client::new(),
+                }
+            }
+        }
     }
 
     pub fn with_config(config: &FeishuOpenApiConfig) -> Result<Self, HttpClientFailure> {
@@ -156,8 +163,15 @@ pub struct ReqwestAsyncHttpClient {
 
 impl ReqwestAsyncHttpClient {
     pub fn new() -> Self {
-        Self::with_config(&FeishuOpenApiConfig::default())
-            .expect("default Feishu reqwest client config should be valid")
+        match Self::with_config(&FeishuOpenApiConfig::default()) {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::warn!(?error, "failed to build configured async http client");
+                Self {
+                    client: reqwest::Client::new(),
+                }
+            }
+        }
     }
 
     pub fn with_config(config: &FeishuOpenApiConfig) -> Result<Self, HttpClientFailure> {

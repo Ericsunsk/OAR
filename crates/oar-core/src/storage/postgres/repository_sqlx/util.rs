@@ -96,22 +96,7 @@ pub(super) async fn tenant_mismatch_or_row_not_found<T>(
 }
 
 pub(super) fn sanitize_refresh_error_for_storage(reason: &str) -> String {
-    let lowered = reason.to_ascii_lowercase();
-    let looks_sensitive = [
-        "access token",
-        "access_token",
-        "refresh token",
-        "refresh_token",
-        "authorization:",
-        "bearer ",
-        "client_secret",
-        "authorization_code",
-        "oauth_grant",
-    ]
-    .iter()
-    .any(|needle| lowered.contains(needle));
-
-    if looks_sensitive {
+    if crate::security::contains_sensitive_marker(reason) {
         return REDACTED_REFRESH_ERROR.to_string();
     }
 
