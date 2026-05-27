@@ -14,7 +14,7 @@ use crate::domain::review_inbox::{ReviewInboxItem, ReviewInboxItemStatus};
 use crate::domain::scheduler::{
     SchedulerJobKind, SchedulerJobLease, SchedulerJobStatus, SchedulerLeaseAcquire,
 };
-use crate::domain::token_refresh::bridge::{plan_token_refresh_command, TokenRefreshBridgeError};
+use crate::domain::token_refresh::bridge::plan_token_refresh_command;
 use crate::domain::token_refresh::service::{
     token_refresh_short_circuit_report, AsyncAuthRefreshAdapter,
 };
@@ -59,12 +59,13 @@ use serde_json::Value;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::fmt;
 use std::time::SystemTime;
-use thiserror::Error;
 
 mod action_execution;
 mod audit;
 mod codec;
+mod error;
 mod identity;
+mod repositories;
 mod review_inbox;
 mod rows;
 mod scheduler;
@@ -73,6 +74,16 @@ mod types;
 mod util;
 
 use codec::*;
+pub use error::{PgRepositoryResult, PostgresRepositoryError};
+use error::{MAX_REFRESH_ERROR_CHARS, REDACTED_REFRESH_ERROR, REDACTED_TENANT_ACTUAL};
+pub use repositories::{
+    PostgresAuditEventRepository, PostgresDeviceSessionRepository, PostgresExecutionUnitOfWork,
+    PostgresIdentityRepository, PostgresLarkIdentityRepository, PostgresOarUserRepository,
+    PostgresOperationLedgerRepository, PostgresReviewDecisionUnitOfWork,
+    PostgresReviewInboxRepository, PostgresSchedulerJobRepository, PostgresTenantRepository,
+    PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator, PostgresTokenRefreshSweep,
+    PostgresTokenRefreshUnitOfWork,
+};
 use rows::*;
 use types::StatusTransitionRequest;
 pub use types::{
@@ -91,197 +102,6 @@ use util::*;
 use audit::validate_audit_outbox_payload;
 #[cfg(test)]
 use scheduler::ensure_scheduler_safe_error_code;
-
-#[derive(Debug, Error)]
-pub enum PostgresRepositoryError {
-    #[error("postgres query failed: {0}")]
-    Sqlx(#[from] sqlx::Error),
-    #[error("unknown action status from database: {0}")]
-    UnknownActionStatus(String),
-    #[error("unknown audit actor kind from database: {0}")]
-    UnknownAuditActorKind(String),
-    #[error("unknown audit event type from database: {0}")]
-    UnknownAuditEventType(String),
-    #[error("unknown execution status from database: {0}")]
-    UnknownExecutionStatus(String),
-    #[error("unknown device entry point from database: {0}")]
-    UnknownDeviceEntryPoint(String),
-    #[error("unknown device session state from database: {0}")]
-    UnknownDeviceSessionState(String),
-    #[error("unknown token grant state from database: {0}")]
-    UnknownTokenGrantState(String),
-    #[error("unknown tenant status from database: {0}")]
-    UnknownTenantStatus(String),
-    #[error("unknown oar user status from database: {0}")]
-    UnknownOarUserStatus(String),
-    #[error("unknown identity actor kind from database: {0}")]
-    UnknownIdentityActorKind(String),
-    #[error("unknown scope boundary from database: {0}")]
-    UnknownScopeBoundary(String),
-    #[error("unknown evidence source kind from database: {0}")]
-    UnknownEvidenceSourceKind(String),
-    #[error("unknown evidence visibility scope from database: {0}")]
-    UnknownEvidenceVisibilityScope(String),
-    #[error("unknown proposed action status from database: {0}")]
-    UnknownProposedActionStatus(String),
-    #[error("unknown proposed action kind from database: {0}")]
-    UnknownProposedActionKind(String),
-    #[error("unknown risk severity from database: {0}")]
-    UnknownRiskSeverity(String),
-    #[error("unknown proposed action decision from database: {0}")]
-    UnknownProposedActionDecision(String),
-    #[error("unknown review inbox item status from database: {0}")]
-    UnknownReviewInboxItemStatus(String),
-    #[error("unknown scheduler job kind from database: {0}")]
-    UnknownSchedulerJobKind(String),
-    #[error("unknown scheduler job status from database: {0}")]
-    UnknownSchedulerJobStatus(String),
-    #[error("scheduler job safe error code contains sensitive marker")]
-    UnsafeSchedulerJobErrorCode,
-    #[error("audit outbox payload contains unsafe content")]
-    UnsafeAuditOutboxPayload,
-    #[error("action must be confirmed before persistence: {0:?}")]
-    ActionNotConfirmed(ActionStatus),
-    #[error("tenant mismatch for {field}: expected {expected}, got {actual}")]
-    TenantMismatch {
-        field: &'static str,
-        expected: String,
-        actual: String,
-    },
-    #[error("lark identity actor external binding conflict")]
-    LarkIdentityActorExternalBindingConflict {
-        tenant_id: String,
-        actor_kind: ActorKind,
-        actor_external_id: String,
-    },
-    #[error("invalid signed integer for {field}: {value}")]
-    NegativeInteger { field: &'static str, value: i64 },
-    #[error("invalid audit JSON payload: {0}")]
-    Json(#[from] serde_json::Error),
-    #[error("token refresh decision bridge failed")]
-    TokenRefreshDecisionBridge(#[source] TokenRefreshBridgeError),
-    #[error("invalid operation status transition from {from:?} to {to:?}")]
-    InvalidOperationStatusTransition {
-        from: ActionStatus,
-        to: ActionStatus,
-    },
-    #[error("unknown operation idempotency key: {0}")]
-    UnknownOperationIdempotencyKey(String),
-    #[error(
-        "token refresh planned command mismatch for {field}: expected {expected}, got {actual}"
-    )]
-    TokenRefreshPlanMismatch {
-        field: &'static str,
-        expected: String,
-        actual: String,
-    },
-    #[error("review decision request mismatch for {field}: expected {expected}, got {actual}")]
-    ReviewDecisionRequestMismatch {
-        field: &'static str,
-        expected: String,
-        actual: String,
-    },
-    #[error("confirm/edit decision requires a confirmed action")]
-    MissingConfirmedActionForDecision,
-    #[error("confirm/edit decision requires a confirmation timestamp")]
-    MissingConfirmedAtForDecision,
-    #[error("confirm/edit decision requires an operation id")]
-    MissingOperationIdForDecision,
-    #[error("reject decision must not include a confirmed action")]
-    UnexpectedConfirmedActionForDecision,
-    #[error("reject decision must not include an operation id")]
-    UnexpectedOperationIdForDecision,
-}
-
-pub type PgRepositoryResult<T> = Result<T, PostgresRepositoryError>;
-
-const REDACTED_TENANT_ACTUAL: &str = "<redacted>";
-const REDACTED_REFRESH_ERROR: &str = "<redacted refresh error>";
-const MAX_REFRESH_ERROR_CHARS: usize = 256;
-
-#[derive(Debug, Clone)]
-pub struct PostgresTokenGrantRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresTokenRefreshOrchestrator<A>
-where
-    A: AsyncAuthRefreshAdapter,
-{
-    adapter: A,
-    uow: PostgresTokenRefreshUnitOfWork,
-    audit: PostgresAuditEventRepository,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresTokenRefreshSweep<A>
-where
-    A: AsyncAuthRefreshAdapter,
-{
-    candidates: PostgresTokenGrantRepository,
-    orchestrator: PostgresTokenRefreshOrchestrator<A>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresDeviceSessionRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresTenantRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresOarUserRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresLarkIdentityRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresIdentityRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresReviewInboxRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresSchedulerJobRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresOperationLedgerRepository {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresExecutionUnitOfWork {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresReviewDecisionUnitOfWork {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresTokenRefreshUnitOfWork {
-    pool: PgPool,
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresAuditEventRepository {
-    pool: PgPool,
-}
 
 #[cfg(test)]
 mod tests {
