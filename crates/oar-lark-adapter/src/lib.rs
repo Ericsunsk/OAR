@@ -9,6 +9,7 @@ pub mod error;
 pub mod factory;
 pub mod material;
 pub mod oauth;
+pub mod okr;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod redaction;
@@ -51,6 +52,11 @@ pub use oauth::{
     FeishuGrantEncryptor, FeishuGrantEnvelope, FeishuOAuthTransport, FeishuOAuthTransportError,
     FeishuRefreshMaterial, FeishuRefreshMaterialProvider, HttpClient, HttpResponse,
     ReqwestAsyncHttpClient, ReqwestBlockingHttpClient,
+};
+pub use okr::{
+    build_batch_get_okr_request, build_progress_list_request, AsyncFeishuOkrRead,
+    FeishuOkrBatchGetData, FeishuOkrBatchGetRequest, FeishuOkrBatchGetResponse, FeishuOkrItem,
+    FeishuOkrReadClient, FeishuOkrReadError, OkrProgressListRequest, OkrUserIdType,
 };
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresFeishuGrantMaterialStore, PostgresFeishuGrantMaterialStoreError};

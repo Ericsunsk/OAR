@@ -8,11 +8,19 @@ use crate::config::FeishuOpenApiConfig;
 
 pub trait HttpClient {
     fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure>;
+
+    fn send_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
+        self.post_json(request)
+    }
 }
 
 #[async_trait]
 pub trait AsyncHttpClient {
     async fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure>;
+
+    async fn send_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
+        self.post_json(request).await
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -26,14 +34,33 @@ pub struct HttpRequest {
 
 impl fmt::Debug for HttpRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let headers = self
+            .headers
+            .iter()
+            .map(|(name, value)| {
+                if is_sensitive_header(name) {
+                    (name.clone(), "[REDACTED]".to_string())
+                } else {
+                    (name.clone(), value.clone())
+                }
+            })
+            .collect::<Vec<_>>();
         f.debug_struct("HttpRequest")
             .field("method", &self.method)
             .field("url", &self.url)
-            .field("headers", &self.headers)
+            .field("headers", &headers)
             .field("body", &"[REDACTED]")
             .field("max_response_bytes", &self.max_response_bytes)
             .finish()
     }
+}
+
+fn is_sensitive_header(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower == "authorization"
+        || lower == "cookie"
+        || lower == "set-cookie"
+        || lower.starts_with("x-lark-")
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -134,12 +161,21 @@ impl ReqwestBlockingHttpClient {
 }
 
 impl HttpClient for ReqwestBlockingHttpClient {
-    fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
-        let builder = apply_headers!(self.client.post(&request.url), &request.headers);
-        let response = builder
-            .json(&request.body)
-            .send()
-            .map_err(|_| HttpClientFailure::Transport)?;
+    fn post_json(&mut self, mut request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
+        request.method = "POST".to_string();
+        self.send_json(request)
+    }
+
+    fn send_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
+        let method = request.method.to_ascii_uppercase();
+        let builder = match method.as_str() {
+            "GET" => apply_headers!(self.client.get(&request.url), &request.headers),
+            "POST" => {
+                apply_headers!(self.client.post(&request.url), &request.headers).json(&request.body)
+            }
+            _ => return Err(HttpClientFailure::Transport),
+        };
+        let response = builder.send().map_err(|_| HttpClientFailure::Transport)?;
         let status = response.status().as_u16();
         let mut body = String::new();
         let max_read = request.max_response_bytes.saturating_add(1) as u64;
@@ -186,10 +222,24 @@ impl ReqwestAsyncHttpClient {
 
 #[async_trait]
 impl AsyncHttpClient for ReqwestAsyncHttpClient {
-    async fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
-        let builder = apply_headers!(self.client.post(&request.url), &request.headers);
+    async fn post_json(
+        &mut self,
+        mut request: HttpRequest,
+    ) -> Result<HttpResponse, HttpClientFailure> {
+        request.method = "POST".to_string();
+        self.send_json(request).await
+    }
+
+    async fn send_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
+        let method = request.method.to_ascii_uppercase();
+        let builder = match method.as_str() {
+            "GET" => apply_headers!(self.client.get(&request.url), &request.headers),
+            "POST" => {
+                apply_headers!(self.client.post(&request.url), &request.headers).json(&request.body)
+            }
+            _ => return Err(HttpClientFailure::Transport),
+        };
         let response = builder
-            .json(&request.body)
             .send()
             .await
             .map_err(|_| HttpClientFailure::Transport)?;
