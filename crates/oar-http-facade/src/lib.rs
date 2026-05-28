@@ -11,8 +11,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
-use http_body_util::Full;
-use hyper::body::Incoming;
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Full, StreamBody};
+use hyper::body::{Frame, Incoming};
 use hyper::header::{ACCEPT, AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
 use hyper::http::{HeaderValue, Method, StatusCode};
 use hyper::server::conn::http1;
@@ -39,9 +40,13 @@ use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
+use tokio::sync::{mpsc, Notify};
+use tokio::time;
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info};
 
-type ResponseBody = Full<Bytes>;
+type ResponseBody = BoxBody<Bytes, Infallible>;
+const FEISHU_LOGIN_SSE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OarHttpFacadeConfig {
@@ -260,6 +265,8 @@ struct FeishuLoginSession {
     qr_page_url: String,
     expires_at: SystemTime,
     state: FeishuLoginSessionState,
+    event_version: u64,
+    notify: Arc<Notify>,
 }
 
 #[derive(Debug, Clone)]
@@ -387,6 +394,9 @@ pub async fn handle_hyper_request_with_runtime(
     runtime: Arc<OarHttpFacadeRuntime>,
     request: Request<Incoming>,
 ) -> Result<Response<ResponseBody>, Infallible> {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let query = request.uri().query().map(str::to_string);
     let authorization = request
         .headers()
         .get(AUTHORIZATION)
@@ -395,11 +405,31 @@ pub async fn handle_hyper_request_with_runtime(
         .headers()
         .get(ACCEPT)
         .and_then(|value| value.to_str().ok());
+    if is_auth_session_events_route(&method, &path) {
+        if !accepts_event_stream(accept) {
+            return Ok(json_facade_response(
+                StatusCode::NOT_ACCEPTABLE,
+                json!({
+                    "error": "event_stream_required",
+                    "safe_message": "Auth session events require Accept: text/event-stream."
+                }),
+            )
+            .into_hyper_response());
+        }
+        let Some(session_id) = auth_session_events_id(&path) else {
+            return Ok(not_found().into_hyper_response());
+        };
+        return Ok(feishu_login_session_event_stream_response(
+            runtime.feishu_login.clone(),
+            session_id.to_string(),
+        ));
+    }
+
     let facade_response = dispatch_request_with_runtime(
         runtime,
-        request.method(),
-        request.uri().path(),
-        request.uri().query(),
+        &method,
+        &path,
+        query.as_deref(),
         authorization,
         accept,
     )
@@ -429,7 +459,7 @@ pub async fn dispatch_request_with_runtime(
             return feishu_login_session_status(runtime.feishu_login.as_deref(), session_id);
         }
         _ if is_auth_session_events_route(method, path) => {
-            if accept != Some("text/event-stream") {
+            if !accepts_event_stream(accept) {
                 return json_facade_response(
                     StatusCode::NOT_ACCEPTABLE,
                     json!({
@@ -494,7 +524,7 @@ pub fn dispatch_request(
             "Feishu QR login is not configured in this backend facade.",
         ),
         _ if is_auth_session_events_route(method, path) => {
-            if accept != Some("text/event-stream") {
+            if !accepts_event_stream(accept) {
                 return json_facade_response(
                     StatusCode::NOT_ACCEPTABLE,
                     json!({
@@ -520,7 +550,7 @@ pub fn dispatch_request(
 
 impl FacadeResponse {
     fn into_hyper_response(self) -> Response<ResponseBody> {
-        let mut response = Response::new(Full::new(Bytes::from(self.body)));
+        let mut response = Response::new(full_response_body(self.body));
         *response.status_mut() = self.status;
         response
             .headers_mut()
@@ -530,6 +560,12 @@ impl FacadeResponse {
             .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
         response
     }
+}
+
+fn full_response_body(body: String) -> ResponseBody {
+    Full::new(Bytes::from(body))
+        .map_err(|never| match never {})
+        .boxed()
 }
 
 fn empty_review_inbox_snapshot() -> Value {
@@ -647,6 +683,8 @@ fn create_feishu_login_session(runtime: Option<&FeishuLoginRuntime>) -> FacadeRe
         qr_page_url,
         expires_at,
         state: FeishuLoginSessionState::Pending,
+        event_version: 0,
+        notify: Arc::new(Notify::new()),
     };
     let body = qr_session_json(&session);
     runtime
@@ -685,27 +723,164 @@ fn feishu_login_session_event(
     runtime: Option<&FeishuLoginRuntime>,
     session_id: &str,
 ) -> FacadeResponse {
-    let response = feishu_login_session_status(runtime, session_id);
-    if response.status != StatusCode::OK {
-        return response;
-    }
-    let Ok(status) = serde_json::from_str::<Value>(&response.body) else {
+    let Some(runtime) = runtime else {
         return service_unavailable(
-            "feishu_auth_event_unavailable",
-            "Feishu QR login event could not be created.",
+            "feishu_auth_not_configured",
+            "Feishu QR login is not configured in this backend facade.",
         );
     };
-    let event = match status.get("status").and_then(Value::as_str) {
+    match feishu_login_event_snapshot(runtime, session_id) {
+        Ok(snapshot) => sse_facade_response(snapshot.frame),
+        Err(response) => response,
+    }
+}
+
+fn feishu_login_session_event_stream_response(
+    runtime: Option<Arc<FeishuLoginRuntime>>,
+    session_id: String,
+) -> Response<ResponseBody> {
+    let Some(runtime) = runtime else {
+        return service_unavailable(
+            "feishu_auth_not_configured",
+            "Feishu QR login is not configured in this backend facade.",
+        )
+        .into_hyper_response();
+    };
+    let initial_snapshot = match feishu_login_event_snapshot(&runtime, &session_id) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response.into_hyper_response(),
+    };
+
+    let (sender, receiver) = mpsc::channel::<Result<Frame<Bytes>, Infallible>>(8);
+    tokio::spawn(async move {
+        if send_sse_frame(&sender, initial_snapshot.frame)
+            .await
+            .is_err()
+            || initial_snapshot.is_terminal
+        {
+            return;
+        }
+
+        let notify = initial_snapshot.notify;
+        let mut last_version = initial_snapshot.version;
+        let mut keepalive = time::interval(FEISHU_LOGIN_SSE_KEEPALIVE_INTERVAL);
+        keepalive.tick().await;
+
+        loop {
+            let notified = notify.notified();
+            tokio::pin!(notified);
+
+            match feishu_login_event_snapshot(&runtime, &session_id) {
+                Ok(snapshot) if snapshot.version != last_version => {
+                    last_version = snapshot.version;
+                    let is_terminal = snapshot.is_terminal;
+                    if send_sse_frame(&sender, snapshot.frame).await.is_err() || is_terminal {
+                        break;
+                    }
+                    continue;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+
+            tokio::select! {
+                _ = &mut notified => {
+                    match feishu_login_event_snapshot(&runtime, &session_id) {
+                        Ok(snapshot) => {
+                            last_version = snapshot.version;
+                            let is_terminal = snapshot.is_terminal;
+                            if send_sse_frame(&sender, snapshot.frame).await.is_err() || is_terminal {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                _ = keepalive.tick() => {
+                    match feishu_login_event_snapshot(&runtime, &session_id) {
+                        Ok(snapshot) if snapshot.is_terminal => {
+                            let _ = send_sse_frame(&sender, snapshot.frame).await;
+                            break;
+                        }
+                        Ok(_) => {
+                            if send_sse_frame(&sender, ": keepalive\n\n".to_string()).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+        }
+    });
+
+    let body = StreamBody::new(ReceiverStream::new(receiver)).boxed();
+    let mut response = Response::new(body);
+    *response.status_mut() = StatusCode::OK;
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+async fn send_sse_frame(
+    sender: &mpsc::Sender<Result<Frame<Bytes>, Infallible>>,
+    frame: String,
+) -> Result<(), mpsc::error::SendError<Result<Frame<Bytes>, Infallible>>> {
+    sender.send(Ok(Frame::data(Bytes::from(frame)))).await
+}
+
+struct FeishuLoginEventSnapshot {
+    frame: String,
+    is_terminal: bool,
+    version: u64,
+    notify: Arc<Notify>,
+}
+
+fn feishu_login_event_snapshot(
+    runtime: &FeishuLoginRuntime,
+    session_id: &str,
+) -> Result<FeishuLoginEventSnapshot, FacadeResponse> {
+    let mut sessions = runtime.sessions.lock().expect("feishu login session mutex");
+    let Some(session) = sessions.get_mut(session_id) else {
+        return Err(json_facade_response(
+            StatusCode::NOT_FOUND,
+            json!({
+                "error": "feishu_auth_session_not_found",
+                "safe_message": "Feishu login session was not found."
+            }),
+        ));
+    };
+    expire_session_if_needed(session);
+    let status = session_status_json(session);
+    let event = auth_event_name(&status);
+    let is_terminal = auth_event_is_terminal(event);
+    Ok(FeishuLoginEventSnapshot {
+        frame: format!(
+            "event: {event}\ndata: {}\n\n",
+            auth_event_json(session_id, event, &status)
+        ),
+        is_terminal,
+        version: session.event_version,
+        notify: Arc::clone(&session.notify),
+    })
+}
+
+fn auth_event_name(status: &Value) -> &'static str {
+    match status.get("status").and_then(Value::as_str) {
         Some("pending") => "pending",
         Some("authorized") => "authorized",
         Some("denied") => "denied",
         Some("expired") => "expired",
         _ => "keepalive",
-    };
-    sse_facade_response(format!(
-        "event: {event}\ndata: {}\n\n",
-        auth_event_json(session_id, event, &status)
-    ))
+    }
+}
+
+fn auth_event_is_terminal(event: &str) -> bool {
+    matches!(event, "authorized" | "denied" | "expired")
 }
 
 async fn complete_feishu_login_callback(
@@ -819,6 +994,7 @@ async fn complete_feishu_login_callback(
             display_name: login.user.display_name,
             tenant_name,
         };
+        notify_session_changed(session);
     }
 
     callback_html(StatusCode::OK, "OAR 登录成功", "可以回到 OAR 客户端继续。")
@@ -982,6 +1158,7 @@ fn mark_session_denied(runtime: &FeishuLoginRuntime, session_id: &str, safe_mess
         session.state = FeishuLoginSessionState::Denied {
             safe_message: safe_message.to_string(),
         };
+        notify_session_changed(session);
     }
 }
 
@@ -990,7 +1167,13 @@ fn expire_session_if_needed(session: &mut FeishuLoginSession) {
         && SystemTime::now() > session.expires_at
     {
         session.state = FeishuLoginSessionState::Expired;
+        notify_session_changed(session);
     }
+}
+
+fn notify_session_changed(session: &mut FeishuLoginSession) {
+    session.event_version = session.event_version.saturating_add(1);
+    session.notify.notify_waiters();
 }
 
 fn qr_session_json(session: &FeishuLoginSession) -> Value {
@@ -1074,6 +1257,16 @@ fn is_auth_session_status_route(method: &Method, path: &str) -> bool {
 
 fn is_auth_session_events_route(method: &Method, path: &str) -> bool {
     *method == Method::GET && auth_session_events_id(path).is_some()
+}
+
+fn accepts_event_stream(accept: Option<&str>) -> bool {
+    accept
+        .map(|value| {
+            value
+                .split(',')
+                .any(|part| part.trim().starts_with("text/event-stream"))
+        })
+        .unwrap_or(false)
 }
 
 fn non_empty_env(env: &impl Fn(&str) -> Option<String>, key: &str) -> Option<String> {
@@ -1477,6 +1670,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hyper_sse_stream_pushes_authorized_event_when_session_changes() {
+        let runtime = Arc::new(
+            OarHttpFacadeRuntime::from_env_map(&|key| match key {
+                "OAR_FEISHU_APP_ID" => Some("cli_test".to_string()),
+                "OAR_FEISHU_APP_SECRET" => Some("super-secret".to_string()),
+                "OAR_FEISHU_REDIRECT_URI" => {
+                    Some("https://oar.example.test/auth/feishu/callback".to_string())
+                }
+                _ => None,
+            })
+            .expect("runtime"),
+        );
+
+        let create = create_feishu_login_session(runtime.feishu_login.as_deref());
+        let created: Value = serde_json::from_str(&create.body).expect("create json");
+        let session_id = created["session_id"].as_str().expect("session id");
+        let response = feishu_login_session_event_stream_response(
+            runtime.feishu_login.clone(),
+            session_id.to_string(),
+        );
+
+        authorize_test_session(&runtime, session_id);
+
+        let collected = time::timeout(Duration::from_secs(1), response.into_body().collect())
+            .await
+            .expect("stream should complete")
+            .expect("body should collect");
+        let body = String::from_utf8(collected.to_bytes().to_vec()).expect("utf8 body");
+
+        assert_eq!(create.status, StatusCode::CREATED);
+        assert!(body.contains("event: pending"));
+        assert!(body.contains("event: authorized"));
+        assert!(body.contains("\"session_id\":\"mock-oar-session\""));
+        assert!(!body.contains("super-secret"));
+    }
+
+    #[tokio::test]
     async fn callback_without_code_does_not_invalidate_pending_login_session() {
         let runtime = Arc::new(
             OarHttpFacadeRuntime::from_env_map(&|key| match key {
@@ -1611,6 +1841,22 @@ mod tests {
                 display_name: "Alice".to_string(),
             },
         }
+    }
+
+    fn authorize_test_session(runtime: &OarHttpFacadeRuntime, session_id: &str) {
+        let login_runtime = runtime.feishu_login.as_ref().expect("feishu login runtime");
+        let mut sessions = login_runtime
+            .sessions
+            .lock()
+            .expect("feishu login session mutex");
+        let session = sessions.get_mut(session_id).expect("session");
+        session.state = FeishuLoginSessionState::Authorized {
+            oar_session_id: "mock-oar-session".to_string(),
+            user_id: "ou_123".to_string(),
+            display_name: "陈敏".to_string(),
+            tenant_name: "tenant_1".to_string(),
+        };
+        notify_session_changed(session);
     }
 
     fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {

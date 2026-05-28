@@ -10,11 +10,18 @@ final class AuthViewModel {
 
     private let provider: AuthProviding
     private let sessionStore: AppSessionStore
+    private let pollingIntervalNanoseconds: UInt64
     private var eventTask: Task<Void, Never>?
+    private var pollingTask: Task<Void, Never>?
 
-    init(provider: AuthProviding, sessionStore: AppSessionStore) {
+    init(
+        provider: AuthProviding,
+        sessionStore: AppSessionStore,
+        pollingIntervalNanoseconds: UInt64 = 1_000_000_000
+    ) {
         self.provider = provider
         self.sessionStore = sessionStore
+        self.pollingIntervalNanoseconds = pollingIntervalNanoseconds
     }
 
     var qrSession: FeishuQRCodeAuthSession? {
@@ -35,7 +42,7 @@ final class AuthViewModel {
             case .sseLive:
                 return "等待扫码"
             case .pollingFallback:
-                return "可手动刷新"
+                return "自动检查中"
             case .idle:
                 return "等待扫码"
             }
@@ -82,8 +89,7 @@ final class AuthViewModel {
     }
 
     func cancelLogin() {
-        eventTask?.cancel()
-        eventTask = nil
+        cancelLoginObservation()
         transportState = .idle
         state = .signedOut
         errorMessage = nil
@@ -103,14 +109,64 @@ final class AuthViewModel {
             } catch is CancellationError {
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "登录事件连接中断，可手动刷新扫码状态。"
-                    self.transportState = .pollingFallback
+                    guard case let .waitingForScan(session) = self.state,
+                          session.id == sessionID else {
+                        return
+                    }
+                    self.errorMessage = "登录事件连接中断，正在自动检查扫码状态。"
                 }
             }
 
             await MainActor.run {
-                if self.transportState != .pollingFallback {
-                    self.transportState = .idle
+                guard case let .waitingForScan(session) = self.state,
+                      session.id == sessionID else {
+                    return
+                }
+                self.transportState = .pollingFallback
+                self.startPollingQRCodeSession(sessionID)
+            }
+        }
+    }
+
+    private func startPollingQRCodeSession(_ sessionID: String) {
+        pollingTask?.cancel()
+        let interval = pollingIntervalNanoseconds
+
+        pollingTask = Task { [provider] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: interval)
+                } catch is CancellationError {
+                    break
+                } catch {
+                    break
+                }
+
+                guard !Task.isCancelled else { break }
+
+                do {
+                    let nextState = try await provider.pollFeishuQRCodeSession(sessionID)
+                    await MainActor.run {
+                        guard case let .waitingForScan(session) = self.state,
+                              session.id == sessionID else {
+                            return
+                        }
+                        if self.transportState == .idle {
+                            self.transportState = .pollingFallback
+                        }
+                        self.apply(nextState)
+                    }
+                } catch is CancellationError {
+                    break
+                } catch {
+                    await MainActor.run {
+                        guard case let .waitingForScan(session) = self.state,
+                              session.id == sessionID else {
+                            return
+                        }
+                        self.errorMessage = "检查扫码状态失败：\(error.localizedDescription)"
+                        self.transportState = .pollingFallback
+                    }
                 }
             }
         }
@@ -118,11 +174,17 @@ final class AuthViewModel {
 
     private func apply(_ nextState: AuthSessionState) {
         state = nextState
-        if case let .authorized(appSession) = nextState {
+
+        switch nextState {
+        case let .authorized(appSession):
             sessionStore.apply(appSession)
-            eventTask?.cancel()
-            eventTask = nil
+            cancelLoginObservation()
             transportState = .idle
+        case .denied, .expired, .signedOut:
+            cancelLoginObservation()
+            transportState = .idle
+        case .waitingForScan:
+            break
         }
     }
 
@@ -138,15 +200,20 @@ final class AuthViewModel {
         case let .denied(_, message):
             state = .denied(message)
             transportState = .idle
-            eventTask?.cancel()
-            eventTask = nil
+            cancelLoginObservation()
         case .expired:
             state = .expired
             transportState = .idle
-            eventTask?.cancel()
-            eventTask = nil
+            cancelLoginObservation()
         case .keepalive:
             transportState = .sseLive
         }
+    }
+
+    private func cancelLoginObservation() {
+        eventTask?.cancel()
+        eventTask = nil
+        pollingTask?.cancel()
+        pollingTask = nil
     }
 }

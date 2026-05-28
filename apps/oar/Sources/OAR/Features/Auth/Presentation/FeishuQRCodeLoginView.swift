@@ -73,7 +73,7 @@ private struct QRPanel: View {
                     .font(.codexBody(12, weight: .semibold))
                     .foregroundStyle(Color.codexMuted)
                 Spacer()
-                if model.isWorking || model.transportState == .sseConnecting || model.transportState == .sseLive {
+                if isCheckingAuthStatus {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -126,6 +126,10 @@ private struct QRPanel: View {
                 }
             }
         }
+    }
+
+    private var isCheckingAuthStatus: Bool {
+        model.isWorking || [.sseConnecting, .sseLive, .pollingFallback].contains(model.transportState)
     }
 }
 
