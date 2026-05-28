@@ -54,9 +54,12 @@ pub use oauth::{
     ReqwestAsyncHttpClient, ReqwestBlockingHttpClient,
 };
 pub use okr::{
-    build_batch_get_okr_request, build_progress_list_request, AsyncFeishuOkrRead,
-    FeishuOkrBatchGetData, FeishuOkrBatchGetRequest, FeishuOkrBatchGetResponse, FeishuOkrItem,
-    FeishuOkrReadClient, FeishuOkrReadError, OkrProgressListRequest, OkrUserIdType,
+    build_batch_get_okr_request, build_progress_list_request, plan_okr_review_inbox_sync,
+    AsyncFeishuOkrRead, FeishuOkr, FeishuOkrBatchGetData, FeishuOkrBatchGetRequest,
+    FeishuOkrBatchGetResponse, FeishuOkrItem, FeishuOkrKeyResult, FeishuOkrObjective,
+    FeishuOkrProgressRate, FeishuOkrProgressRecordRef, FeishuOkrReadClient, FeishuOkrReadError,
+    OkrProgressListRequest, OkrReadKeyResult, OkrReadObjective, OkrReadOkr, OkrReadSnapshot,
+    OkrReviewInboxPlan, OkrReviewInboxPlanError, OkrReviewInboxPlanInput, OkrUserIdType,
 };
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresFeishuGrantMaterialStore, PostgresFeishuGrantMaterialStoreError};

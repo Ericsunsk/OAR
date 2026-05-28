@@ -1,5 +1,6 @@
 mod client;
 mod error;
+mod review_inbox;
 mod types;
 
 pub use client::{
@@ -7,8 +8,14 @@ pub use client::{
     FeishuOkrReadClient, OkrProgressListRequest,
 };
 pub use error::FeishuOkrReadError;
+pub use review_inbox::{
+    plan_okr_review_inbox_sync, OkrReviewInboxPlan, OkrReviewInboxPlanError,
+    OkrReviewInboxPlanInput,
+};
 pub use types::{
-    FeishuOkrBatchGetData, FeishuOkrBatchGetRequest, FeishuOkrBatchGetResponse, FeishuOkrItem,
+    FeishuOkr, FeishuOkrBatchGetData, FeishuOkrBatchGetRequest, FeishuOkrBatchGetResponse,
+    FeishuOkrItem, FeishuOkrKeyResult, FeishuOkrObjective, FeishuOkrProgressRate,
+    FeishuOkrProgressRecordRef, OkrReadKeyResult, OkrReadObjective, OkrReadOkr, OkrReadSnapshot,
     OkrUserIdType,
 };
 
