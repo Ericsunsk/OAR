@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AgentSidecarView: View {
@@ -135,7 +136,7 @@ struct AgentSidecarView: View {
 
     private func send(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, !model.isSending else { return }
         draft = ""
         Task {
             await model.send(text, context: context)
@@ -265,10 +266,18 @@ private struct ChatInputBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            TextField("问证据、理由或风险", text: $draft)
-                .font(.codexBody(13))
-                .textFieldStyle(.plain)
-                .onSubmit(send)
+            ZStack(alignment: .topLeading) {
+                AgentComposerTextView(text: $draft, submit: send)
+                    .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 64)
+
+                if draft.isEmpty {
+                    Text("问证据、理由或风险")
+                        .font(.codexBody(13))
+                        .foregroundStyle(Color.codexMuted.opacity(0.72))
+                        .padding(.top, 7)
+                        .allowsHitTesting(false)
+                }
+            }
 
             Button(action: send) {
                 Image(systemName: isSending ? "hourglass" : "arrow.up")
@@ -282,12 +291,91 @@ private struct ChatInputBar: View {
             .disabled(sendDisabled)
         }
         .padding(.horizontal, 12)
-        .frame(height: 44)
+        .padding(.vertical, 6)
+        .frame(minHeight: 46)
         .background(Color.white.opacity(0.42))
     }
 
     private var sendDisabled: Bool {
         isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+private struct AgentComposerTextView: NSViewRepresentable {
+    @Binding var text: String
+    let submit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, submit: submit)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.drawsBackground = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.font = .systemFont(ofSize: 13)
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.textContainerInset = NSSize(width: 0, height: 6)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.minSize = NSSize(width: 0, height: 32)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.frame = NSRect(x: 0, y: 0, width: 240, height: 32)
+
+        let scrollView = NSScrollView()
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.submit = submit
+
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        let contentSize = scrollView.contentSize
+        let targetSize = NSSize(width: contentSize.width, height: max(contentSize.height, 32))
+        if textView.frame.size != targetSize {
+            textView.frame = NSRect(origin: .zero, size: targetSize)
+        }
+        if textView.string != text {
+            textView.string = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var submit: () -> Void
+
+        init(text: Binding<String>, submit: @escaping () -> Void) {
+            self.text = text
+            self.submit = submit
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text.wrappedValue = textView.string
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                submit()
+                return true
+            }
+            return false
+        }
     }
 }
 
