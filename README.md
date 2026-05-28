@@ -238,6 +238,14 @@ docker run --rm -p 8080:8080 oar-backend
 docker compose -f docker/compose.dev.yml up --build
 ```
 
+`compose.dev.yml` 会在全新的 Postgres volume 首次初始化时自动加载 `crates/oar-core/migrations/`
+里的 schema。若 volume 已经存在但表还没建，可以手动补一次：
+
+```bash
+docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql
+docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0002_review_inbox_domain.sql
+```
+
 生产 / 云端 compose 只启动 backend，必须显式提供外部 `DATABASE_URL`：
 
 ```bash

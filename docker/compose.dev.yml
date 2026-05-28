@@ -37,6 +37,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ../crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql:/docker-entrypoint-initdb.d/001_phase_0_6_identity_action_audit.sql:ro
+      - ../crates/oar-core/migrations/0002_review_inbox_domain.sql:/docker-entrypoint-initdb.d/002_review_inbox_domain.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
