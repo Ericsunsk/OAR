@@ -41,7 +41,7 @@ struct AgentSidecarView: View {
                                 .id(message.id)
                         }
 
-                        if model.isSending {
+                        if model.isSending, model.messages.last?.role != .assistant {
                             AgentThinkingBubble()
                                 .id("agent-thinking")
                         }
@@ -53,6 +53,9 @@ struct AgentSidecarView: View {
                     scrollToBottom(proxy)
                 }
                 .onChange(of: model.isSending) { _, _ in
+                    scrollToBottom(proxy)
+                }
+                .onChange(of: model.messages.last?.text) { _, _ in
                     scrollToBottom(proxy)
                 }
             }

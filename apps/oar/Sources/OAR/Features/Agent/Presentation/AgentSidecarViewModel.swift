@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class AgentSidecarViewModel {
     private static let fallbackConversationID = "__oar_agent_default__"
+    private static let streamFlushInterval: TimeInterval = 0.045
 
     private static func initialMessages() -> [AgentMessage] {
         [
@@ -95,18 +96,43 @@ final class AgentSidecarViewModel {
             }
         }
 
+        let assistantID = UUID()
+        var assistantText = ""
+        var didStartAssistantReply = false
+
         do {
-            let reply = try await provider.send(
-                messages: thread,
-                context: context,
-                settings: resolvedSettings
+            let displayStream = CoalescedAgentTextStream(
+                events: provider.stream(
+                    messages: thread,
+                    context: context,
+                    settings: resolvedSettings
+                ),
+                flushInterval: Self.streamFlushInterval
             )
-            thread.append(reply)
-            conversationsByID[conversationID] = thread
-            if activeConversationID == conversationID {
-                messages = thread
+            for try await displayText in displayStream {
+                assistantText = displayText
+                flushAssistantReply(
+                    id: assistantID,
+                    text: displayText,
+                    conversationID: conversationID,
+                    thread: &thread,
+                    didStart: &didStartAssistantReply
+                )
+            }
+
+            guard didStartAssistantReply else {
+                throw AgentProviderError.invalidResponse
             }
         } catch {
+            if !assistantText.isEmpty {
+                flushAssistantReply(
+                    id: assistantID,
+                    text: assistantText,
+                    conversationID: conversationID,
+                    thread: &thread,
+                    didStart: &didStartAssistantReply
+                )
+            }
             let message = (error as? LocalizedError)?.errorDescription ?? "Agent 暂时不可用。"
             errorsByID[conversationID] = message
             if activeConversationID == conversationID {
@@ -131,5 +157,84 @@ final class AgentSidecarViewModel {
             return Self.fallbackConversationID
         }
         return trimmed
+    }
+
+    private func flushAssistantReply(
+        id: UUID,
+        text: String,
+        conversationID: String,
+        thread: inout [AgentMessage],
+        didStart: inout Bool
+    ) {
+        if didStart {
+            updateAssistantReply(
+                id: id,
+                text: text,
+                in: &thread
+            )
+        } else {
+            thread.append(AgentMessage(id: id, role: .assistant, text: text))
+            didStart = true
+        }
+        conversationsByID[conversationID] = thread
+        if activeConversationID == conversationID {
+            messages = thread
+        }
+    }
+
+    private func updateAssistantReply(id: UUID, text: String, in thread: inout [AgentMessage]) {
+        guard let index = thread.firstIndex(where: { $0.id == id }) else { return }
+        thread[index] = AgentMessage(id: id, role: .assistant, text: text)
+    }
+}
+
+private struct CoalescedAgentTextStream<Base: AsyncSequence>: AsyncSequence where Base.Element == AgentStreamEvent {
+    typealias Element = String
+
+    let events: Base
+    let flushInterval: TimeInterval
+
+    func makeAsyncIterator() -> Iterator {
+        Iterator(eventIterator: events.makeAsyncIterator(), flushInterval: flushInterval)
+    }
+
+    struct Iterator: AsyncIteratorProtocol {
+        var eventIterator: Base.AsyncIterator
+        let flushInterval: TimeInterval
+        var accumulatedText = ""
+        var lastEmittedText = ""
+        var lastEmitDate = Date.distantPast
+        var didFinish = false
+
+        mutating func next() async throws -> String? {
+            guard !didFinish else { return nil }
+
+            while let event = try await eventIterator.next() {
+                switch event {
+                case .delta(let chunk):
+                    guard !chunk.isEmpty else { continue }
+                    accumulatedText += chunk
+
+                    let now = Date()
+                    if now.timeIntervalSince(lastEmitDate) >= flushInterval {
+                        lastEmitDate = now
+                        lastEmittedText = accumulatedText
+                        return accumulatedText
+                    }
+                case .completed:
+                    return finish()
+                }
+            }
+
+            return finish()
+        }
+
+        private mutating func finish() -> String? {
+            didFinish = true
+            let finalText = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !finalText.isEmpty, finalText != lastEmittedText else { return nil }
+            lastEmittedText = finalText
+            return finalText
+        }
     }
 }

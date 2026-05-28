@@ -26,6 +26,11 @@ struct AgentMessage: Identifiable, Equatable {
     }
 }
 
+enum AgentStreamEvent: Equatable {
+    case delta(String)
+    case completed
+}
+
 struct AgentConversationContext: Equatable {
     var title: String
     var riskReason: String

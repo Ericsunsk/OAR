@@ -29,7 +29,7 @@ final class AgentSidecarViewModelTests: XCTestCase {
             model: "agent-model",
             apiKey: "sk-test"
         )
-        let provider = CapturingAgentProvider()
+        let provider = ManualStreamingAgentProvider(immediateReply: "收到。")
         let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
 
         await model.send("解释风险", context: .empty)
@@ -40,9 +40,33 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testStreamingReplyUpdatesAssistantMessageIncrementally() async throws {
+        let settingsStore = try configuredSettingsStore()
+        let provider = ManualStreamingAgentProvider()
+        let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
+
+        let sendTask = Task {
+            await model.send("解释风险", context: .empty)
+        }
+        await provider.waitForStream()
+        XCTAssertTrue(model.isSending)
+
+        provider.yield("流式")
+        await waitForLastMessage("流式", in: model)
+        XCTAssertEqual(model.messages.suffix(2).map(\.role), [.user, .assistant])
+
+        provider.yield("回复")
+        provider.finish()
+        await sendTask.value
+
+        XCTAssertFalse(model.isSending)
+        XCTAssertEqual(model.messages.last?.text, "流式回复")
+        XCTAssertNil(model.errorMessage)
+    }
+
     func testMissingSettingsDoesNotCallProvider() async {
         let settingsStore = AgentSettingsStore(userDefaults: userDefaults, secretStore: secretStore)
-        let provider = CapturingAgentProvider()
+        let provider = ManualStreamingAgentProvider(immediateReply: "收到。")
         let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
 
         await model.send("解释风险", context: .empty)
@@ -54,7 +78,7 @@ final class AgentSidecarViewModelTests: XCTestCase {
 
     func testConversationHistoryIsScopedByItemID() async throws {
         let settingsStore = try configuredSettingsStore()
-        let provider = CapturingAgentProvider()
+        let provider = ManualStreamingAgentProvider(immediateReply: "收到。")
         let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
 
         model.activateConversation(itemID: "review-a")
@@ -74,14 +98,14 @@ final class AgentSidecarViewModelTests: XCTestCase {
 
     func testLateReplyDoesNotPolluteActiveConversation() async throws {
         let settingsStore = try configuredSettingsStore()
-        let provider = DeferredAgentProvider()
+        let provider = ManualStreamingAgentProvider()
         let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
 
         model.activateConversation(itemID: "review-a")
         let sendTask = Task {
             await model.send("解释 A", context: .empty)
         }
-        await provider.waitForRequest()
+        await provider.waitForStream()
         XCTAssertTrue(model.isSending)
 
         model.activateConversation(itemID: "review-b")
@@ -106,18 +130,65 @@ final class AgentSidecarViewModelTests: XCTestCase {
         )
         return settingsStore
     }
+
+    private func waitForLastMessage(_ expectedText: String, in model: AgentSidecarViewModel) async {
+        for _ in 0..<100 {
+            if model.messages.last?.text == expectedText {
+                return
+            }
+            await Task.yield()
+        }
+        XCTFail("Expected last message to become \(expectedText), got \(model.messages.last?.text ?? "nil")")
+    }
 }
 
-private final class CapturingAgentProvider: AgentProviding {
+private final class ManualStreamingAgentProvider: AgentProviding {
     var lastSettings: ResolvedAgentSettings?
+    private let immediateReply: String?
+    private var continuation: AsyncThrowingStream<AgentStreamEvent, Error>.Continuation?
 
-    func send(
+    init(immediateReply: String? = nil) {
+        self.immediateReply = immediateReply
+    }
+
+    func stream(
         messages: [AgentMessage],
         context: AgentConversationContext,
         settings: ResolvedAgentSettings
-    ) async throws -> AgentMessage {
+    ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
         lastSettings = settings
-        return AgentMessage(role: .assistant, text: "收到。")
+        if let immediateReply {
+            return AsyncThrowingStream { continuation in
+                continuation.yield(.delta(immediateReply))
+                continuation.yield(.completed)
+                continuation.finish()
+            }
+        }
+
+        return AsyncThrowingStream { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitForStream() async {
+        while continuation == nil {
+            await Task.yield()
+        }
+    }
+
+    func yield(_ text: String) {
+        continuation?.yield(.delta(text))
+    }
+
+    func finish() {
+        continuation?.yield(.completed)
+        continuation?.finish()
+        continuation = nil
+    }
+
+    func finish(with text: String) {
+        yield(text)
+        finish()
     }
 }
 
@@ -134,30 +205,5 @@ private final class ViewModelTestSecretStore: AgentSecretStoring {
 
     func deleteAPIKey() throws {
         apiKey = nil
-    }
-}
-
-private final class DeferredAgentProvider: AgentProviding {
-    private var continuation: CheckedContinuation<AgentMessage, Error>?
-
-    func send(
-        messages: [AgentMessage],
-        context: AgentConversationContext,
-        settings: ResolvedAgentSettings
-    ) async throws -> AgentMessage {
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-        }
-    }
-
-    func waitForRequest() async {
-        while continuation == nil {
-            await Task.yield()
-        }
-    }
-
-    func finish(with text: String) {
-        continuation?.resume(returning: AgentMessage(role: .assistant, text: text))
-        continuation = nil
     }
 }

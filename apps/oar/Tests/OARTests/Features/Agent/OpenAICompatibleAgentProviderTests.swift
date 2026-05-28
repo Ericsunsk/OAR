@@ -7,16 +7,18 @@ final class OpenAICompatibleAgentProviderTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSendUsesOpenAICompatibleRequestShape() async throws {
+    func testStreamUsesOpenAICompatibleRequestShapeAndYieldsDeltas() async throws {
         AgentTestURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.absoluteString, "https://llm.example.test/v1/chat/completions")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-secret")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
 
             let body = try Self.bodyData(from: request)
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             XCTAssertEqual(json["model"] as? String, "model-test")
+            XCTAssertEqual(json["stream"] as? Bool, true)
             XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("sk-secret") ?? true)
 
             let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
@@ -29,38 +31,76 @@ final class OpenAICompatibleAgentProviderTests: XCTestCase {
                     url: request.url!,
                     statusCode: 200,
                     httpVersion: nil,
-                    headerFields: ["Content-Type": "application/json"]
+                    headerFields: ["Content-Type": "text/event-stream"]
                 )!,
                 Data(
                     """
-                    {
-                      "choices": [
-                        { "message": { "role": "assistant", "content": "风险来自连续延期。" } }
-                      ]
-                    }
+                    : keep-alive
+
+                    data: {"choices":[{"delta":{"role":"assistant"}}]}
+
+                    data: {"choices":[{"delta":{"content":"风险"}}]}
+
+                    data: {"choices":[{"delta":{"content":"来自延期。"}}]}
+
+                    data: [DONE]
+
                     """.utf8
                 )
             )
         }
 
         let provider = OpenAICompatibleAgentProvider(urlSession: Self.urlSession)
-        let reply = try await provider.send(
-            messages: [AgentMessage(role: .user, text: "解释风险")],
-            context: AgentConversationContext(
-                title: "KR 风险",
-                riskReason: "连续延期",
-                actionSummary: "更新进度",
-                evidenceSummaries: ["连续两周延期"]
-            ),
-            settings: ResolvedAgentSettings(
-                baseURL: URL(string: "https://llm.example.test/v1")!,
-                model: "model-test",
-                apiKey: "sk-secret"
+        let events = try await Self.collectEvents(
+            from: provider.stream(
+                messages: [AgentMessage(role: .user, text: "解释风险")],
+                context: AgentConversationContext(
+                    title: "KR 风险",
+                    riskReason: "连续延期",
+                    actionSummary: "更新进度",
+                    evidenceSummaries: ["连续两周延期"]
+                ),
+                settings: Self.resolvedSettings
             )
         )
 
-        XCTAssertEqual(reply.role, .assistant)
-        XCTAssertEqual(reply.text, "风险来自连续延期。")
+        XCTAssertEqual(events, [.delta("风险"), .delta("来自延期。"), .completed])
+    }
+
+    func testStreamEmptyCompletionMapsToInvalidResponse() async {
+        AgentTestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                )!,
+                Data(
+                    """
+                    data: [DONE]
+
+                    """.utf8
+                )
+            )
+        }
+
+        let provider = OpenAICompatibleAgentProvider(urlSession: Self.urlSession)
+
+        do {
+            try await Self.drain(
+                provider.stream(
+                    messages: [AgentMessage(role: .user, text: "解释风险")],
+                    context: .empty,
+                    settings: Self.resolvedSettings
+                )
+            )
+            XCTFail("Expected invalid response error")
+        } catch let error as AgentProviderError {
+            XCTAssertEqual(error, .invalidResponse)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testUnauthorizedStatusMapsWithoutLeakingAPIKey() async {
@@ -79,13 +119,11 @@ final class OpenAICompatibleAgentProviderTests: XCTestCase {
         let provider = OpenAICompatibleAgentProvider(urlSession: Self.urlSession)
 
         do {
-            _ = try await provider.send(
-                messages: [AgentMessage(role: .user, text: "hi")],
-                context: .empty,
-                settings: ResolvedAgentSettings(
-                    baseURL: URL(string: "https://llm.example.test/v1")!,
-                    model: "model-test",
-                    apiKey: "sk-secret"
+            try await Self.drain(
+                provider.stream(
+                    messages: [AgentMessage(role: .user, text: "hi")],
+                    context: .empty,
+                    settings: Self.resolvedSettings
                 )
             )
             XCTFail("Expected unauthorized error")
@@ -97,10 +135,31 @@ final class OpenAICompatibleAgentProviderTests: XCTestCase {
         }
     }
 
+    private static let resolvedSettings = ResolvedAgentSettings(
+        baseURL: URL(string: "https://llm.example.test/v1")!,
+        model: "model-test",
+        apiKey: "sk-secret"
+    )
+
     private static var urlSession: URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AgentTestURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    private static func collectEvents(
+        from stream: AsyncThrowingStream<AgentStreamEvent, Error>
+    ) async throws -> [AgentStreamEvent] {
+        var events: [AgentStreamEvent] = []
+        for try await event in stream {
+            events.append(event)
+        }
+        return events
+    }
+
+    private static func drain(_ stream: AsyncThrowingStream<AgentStreamEvent, Error>) async throws {
+        for try await _ in stream {
+        }
     }
 
     private static func bodyData(from request: URLRequest) throws -> Data {
