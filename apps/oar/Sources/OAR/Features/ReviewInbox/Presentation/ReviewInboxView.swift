@@ -22,7 +22,11 @@ struct ReviewInboxRootView: View {
                     .layoutPriority(1)
 
                 if showAgent {
-                    AgentSidecar(item: model.selectedItem, action: model.selectedAction)
+                    AgentSidecarView(
+                        item: model.selectedItem,
+                        action: model.selectedAction,
+                        evidence: model.evidenceForSelectedItem
+                    )
                         .frame(width: 320)
                         .layoutPriority(2)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -874,169 +878,6 @@ private struct ConfirmationDock: View {
 
     private var isExecutableAction: Bool {
         action.canEnterProductionExecution
-    }
-}
-
-private enum AgentRole: Equatable {
-    case agent
-    case user
-}
-
-private struct AgentMessage: Identifiable {
-    let id = UUID()
-    let role: AgentRole
-    let text: String
-}
-
-private struct AgentSidecar: View {
-    let item: ReviewInboxDisplayItem?
-    let action: ReviewInboxSuggestedAction?
-
-    @State private var draft = ""
-    @State private var messages = [
-        AgentMessage(
-            role: .agent,
-            text: "我只基于当前风险、摘要证据和 dry-run 结果回答。确认前不会写回飞书。"
-        )
-    ]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("OAR Agent")
-                    .font(.codexDisplay(16, weight: .semibold))
-                Circle()
-                    .fill(Color.oarMoss)
-                    .frame(width: 6, height: 6)
-                Spacer()
-            }
-            .padding(16)
-
-            ContextCard(item: item, action: action)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-
-            Divider()
-                .overlay(Color.codexBorder.opacity(0.28))
-
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(messages) { message in
-                        AgentBubble(message: message)
-                    }
-                }
-                .padding(16)
-            }
-            .scrollIndicators(.hidden)
-
-            ChatInputBar(draft: $draft, send: sendMessage)
-        }
-        .background(.thinMaterial)
-        .background(Color.white.opacity(0.16))
-    }
-
-    private func sendMessage() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        messages.append(AgentMessage(role: .user, text: text))
-        draft = ""
-        messages.append(AgentMessage(role: .agent, text: agentReply(for: text)))
-    }
-
-    private func agentReply(for text: String) -> String {
-        guard let item else {
-            return "先选一条风险，我会围绕当前 KR 和摘要证据回答。"
-        }
-
-        let actionName = action?.actionType.rawValue ?? "建议动作"
-        if text.contains("证据") {
-            return "当前证据能解释风险，但仍建议确认负责人最新口径。风险点是：\(item.riskReason)"
-        }
-        if text.contains("理由") || text.contains("备注") {
-            return "可以写：已核对摘要证据和 dry-run 影响范围，同意先执行“\(actionName)”，不修改 owner、target 或权重。"
-        }
-        return "这条 KR 适合先处理“\(actionName)”。我会保持只读辅助，最终写回必须由你确认。"
-    }
-}
-
-private struct ContextCard: View {
-    let item: ReviewInboxDisplayItem?
-    let action: ReviewInboxSuggestedAction?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("当前上下文")
-                .font(.codexBody(11, weight: .semibold))
-                .foregroundStyle(Color.codexMuted)
-            Text(item?.keyResultTitle ?? "未选择风险")
-                .font(.codexBody(13, weight: .semibold))
-                .lineLimit(2)
-            Text(action?.actionType.rawValue ?? "等待建议动作")
-                .font(.codexBody(12, weight: .medium))
-                .foregroundStyle(Color.codexMuted)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.38))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-private struct AgentBubble: View {
-    let message: AgentMessage
-
-    private var isUser: Bool {
-        message.role == .user
-    }
-
-    var body: some View {
-        HStack {
-            if isUser {
-                Spacer(minLength: 34)
-            }
-
-            Text(message.text)
-                .font(.codexBody(12.5))
-                .lineSpacing(3)
-                .foregroundStyle(isUser ? Color.white : Color.codexInk)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 9)
-                .background(isUser ? Color.codexInk.opacity(0.88) : Color.white.opacity(0.48))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .textSelection(.enabled)
-
-            if !isUser {
-                Spacer(minLength: 34)
-            }
-        }
-    }
-}
-
-private struct ChatInputBar: View {
-    @Binding var draft: String
-    let send: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            TextField("问证据、理由或风险", text: $draft)
-                .font(.codexBody(13))
-                .textFieldStyle(.plain)
-                .onSubmit(send)
-
-            Button(action: send) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 25, height: 25)
-                    .background(draft.isEmpty ? Color.codexMuted.opacity(0.14) : Color.codexInk)
-                    .foregroundStyle(draft.isEmpty ? Color.codexMuted : Color.white)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 44)
-        .background(Color.white.opacity(0.42))
     }
 }
 
