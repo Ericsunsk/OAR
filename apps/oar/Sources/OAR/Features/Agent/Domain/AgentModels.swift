@@ -4,7 +4,7 @@ enum AgentRole: Equatable, Codable {
     case assistant
     case user
 
-    var openAIRole: String {
+    var backendRole: String {
         switch self {
         case .assistant:
             return "assistant"
@@ -45,62 +45,22 @@ struct AgentConversationContext: Equatable {
     )
 }
 
-struct AgentSettings: Equatable {
-    static let defaultBaseURL = URL(string: "https://api.openai.com/v1")!
-
-    var baseURL: URL
-    var model: String
-    var hasAPIKey: Bool
-
-    static let empty = AgentSettings(
-        baseURL: defaultBaseURL,
-        model: "",
-        hasAPIKey: false
-    )
-}
-
-struct ResolvedAgentSettings: Equatable {
-    let baseURL: URL
-    let model: String
-    let apiKey: String
-}
-
-enum AgentSettingsError: LocalizedError, Equatable {
-    case invalidBaseURL
-    case missingModel
-    case missingAPIKey
-    case secretStoreUnavailable
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidBaseURL:
-            return "Base URL 无效。"
-        case .missingModel:
-            return "请填写模型名称。"
-        case .missingAPIKey:
-            return "请填写 API Key。"
-        case .secretStoreUnavailable:
-            return "密钥存储暂时不可用。"
-        }
-    }
-}
-
 enum AgentProviderError: LocalizedError, Equatable {
-    case missingConfiguration
+    case missingBackendConfiguration
     case unauthorized
     case invalidResponse
     case serverUnavailable
 
     var errorDescription: String? {
         switch self {
-        case .missingConfiguration:
-            return "请先在 Agent 设置中配置模型服务。"
+        case .missingBackendConfiguration:
+            return "请配置 OAR 后端地址后再使用 Agent。"
         case .unauthorized:
-            return "模型服务认证失败，请检查 API Key。"
+            return "登录会话已失效，请重新扫码登录。"
         case .invalidResponse:
-            return "模型服务返回了无法识别的响应。"
+            return "OAR 后端返回了无法识别的 Agent 响应。"
         case .serverUnavailable:
-            return "模型服务暂时不可用。"
+            return "OAR 后端 Agent 服务暂时不可用。"
         }
     }
 }

@@ -22,6 +22,7 @@ Sources/OAR/
     Domain/                    Client-side display models and filter enums
     Data/                      API DTOs, providers, and local-only mock fixtures
     Presentation/              SwiftUI views and view models
+  Features/Agent/              Sidecar UI and OAR backend streaming provider
 Tests/OARTests/
   Features/ReviewInbox/        Feature-level contract and view-model tests
 ```
@@ -52,6 +53,7 @@ The frontend calls only OAR backend endpoints:
 - `GET /auth/feishu/qr-sessions/{session_id}/events`
 - `GET /review-inbox/snapshot`
 - `POST /review-inbox/decisions`
+- `POST /agent/stream`
 
 Current repository status: `oar-http-facade` can create a real Feishu OAuth
 authorization URL when `OAR_FEISHU_APP_ID`, `OAR_FEISHU_APP_SECRET`, and
@@ -70,6 +72,11 @@ each successful scan creates a grant bound to the Feishu tenant and user. For
 Docker, the backend may set
 `OAR_HTTP_BIND_ADDR=0.0.0.0:8080`; the macOS client remains hardwired to the
 local backend origin until in-app server settings are introduced.
+
+The Agent sidecar no longer stores model `baseURL` or `apiKey` in the frontend.
+It streams through `/agent/stream` with the current OAR session; model provider
+configuration lives in the backend via `OAR_AGENT_PROVIDER` plus either the
+`OAR_AGENT_OPENAI_*` or `OAR_AGENT_ANTHROPIC_*` env group.
 
 ```bash
 docker build -f ../../docker/backend.Dockerfile -t oar-backend ../..

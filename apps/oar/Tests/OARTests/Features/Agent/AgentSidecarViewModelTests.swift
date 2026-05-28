@@ -3,47 +3,20 @@ import XCTest
 
 @MainActor
 final class AgentSidecarViewModelTests: XCTestCase {
-    private var suiteName: String!
-    private var userDefaults: UserDefaults!
-    private var secretStore: ViewModelTestSecretStore!
-
-    override func setUp() {
-        super.setUp()
-        suiteName = "AgentSidecarViewModelTests-\(UUID().uuidString)"
-        userDefaults = UserDefaults(suiteName: suiteName)!
-        secretStore = ViewModelTestSecretStore()
-    }
-
-    override func tearDown() {
-        userDefaults.removePersistentDomain(forName: suiteName)
-        suiteName = nil
-        userDefaults = nil
-        secretStore = nil
-        super.tearDown()
-    }
-
-    func testSendAppendsUserAndAssistantMessages() async throws {
-        let settingsStore = AgentSettingsStore(userDefaults: userDefaults, secretStore: secretStore)
-        _ = try settingsStore.save(
-            baseURLString: "https://llm.example.test/v1",
-            model: "agent-model",
-            apiKey: "sk-test"
-        )
+    func testSendAppendsUserAndAssistantMessages() async {
         let provider = ManualStreamingAgentProvider(immediateReply: "收到。")
-        let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
+        let model = AgentSidecarViewModel(provider: provider)
 
         await model.send("解释风险", context: .empty)
 
         XCTAssertEqual(model.messages.suffix(2).map(\.role), [.user, .assistant])
         XCTAssertEqual(model.messages.last?.text, "收到。")
-        XCTAssertEqual(provider.lastSettings?.model, "agent-model")
         XCTAssertNil(model.errorMessage)
     }
 
-    func testStreamingReplyUpdatesAssistantMessageIncrementally() async throws {
-        let settingsStore = try configuredSettingsStore()
+    func testStreamingReplyUpdatesAssistantMessageIncrementally() async {
         let provider = ManualStreamingAgentProvider()
-        let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
+        let model = AgentSidecarViewModel(provider: provider)
 
         let sendTask = Task {
             await model.send("解释风险", context: .empty)
@@ -64,22 +37,19 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
-    func testMissingSettingsDoesNotCallProvider() async {
-        let settingsStore = AgentSettingsStore(userDefaults: userDefaults, secretStore: secretStore)
-        let provider = ManualStreamingAgentProvider(immediateReply: "收到。")
-        let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
+    func testMissingBackendProviderShowsConfigurationError() async {
+        let model = AgentSidecarViewModel(provider: MissingBackendAgentProvider())
 
         await model.send("解释风险", context: .empty)
 
         XCTAssertEqual(model.messages.last?.role, .user)
-        XCTAssertNil(provider.lastSettings)
-        XCTAssertEqual(model.errorMessage, AgentSettingsError.missingModel.localizedDescription)
+        XCTAssertFalse(model.isConfigured)
+        XCTAssertEqual(model.errorMessage, AgentProviderError.missingBackendConfiguration.localizedDescription)
     }
 
-    func testConversationHistoryIsScopedByItemID() async throws {
-        let settingsStore = try configuredSettingsStore()
+    func testConversationHistoryIsScopedByItemID() async {
         let provider = ManualStreamingAgentProvider(immediateReply: "收到。")
-        let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
+        let model = AgentSidecarViewModel(provider: provider)
 
         model.activateConversation(itemID: "review-a")
         await model.send("解释 A", context: .empty)
@@ -96,10 +66,9 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释 A", "收到。"])
     }
 
-    func testLateReplyDoesNotPolluteActiveConversation() async throws {
-        let settingsStore = try configuredSettingsStore()
+    func testLateReplyDoesNotPolluteActiveConversation() async {
         let provider = ManualStreamingAgentProvider()
-        let model = AgentSidecarViewModel(provider: provider, settingsStore: settingsStore)
+        let model = AgentSidecarViewModel(provider: provider)
 
         model.activateConversation(itemID: "review-a")
         let sendTask = Task {
@@ -121,16 +90,6 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertFalse(model.isSending)
     }
 
-    private func configuredSettingsStore() throws -> AgentSettingsStore {
-        let settingsStore = AgentSettingsStore(userDefaults: userDefaults, secretStore: secretStore)
-        _ = try settingsStore.save(
-            baseURLString: "https://llm.example.test/v1",
-            model: "agent-model",
-            apiKey: "sk-test"
-        )
-        return settingsStore
-    }
-
     private func waitForLastMessage(_ expectedText: String, in model: AgentSidecarViewModel) async {
         for _ in 0..<100 {
             if model.messages.last?.text == expectedText {
@@ -143,7 +102,8 @@ final class AgentSidecarViewModelTests: XCTestCase {
 }
 
 private final class ManualStreamingAgentProvider: AgentProviding {
-    var lastSettings: ResolvedAgentSettings?
+    var isAvailable: Bool { true }
+
     private let immediateReply: String?
     private var continuation: AsyncThrowingStream<AgentStreamEvent, Error>.Continuation?
 
@@ -153,10 +113,8 @@ private final class ManualStreamingAgentProvider: AgentProviding {
 
     func stream(
         messages: [AgentMessage],
-        context: AgentConversationContext,
-        settings: ResolvedAgentSettings
+        context: AgentConversationContext
     ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
-        lastSettings = settings
         if let immediateReply {
             return AsyncThrowingStream { continuation in
                 continuation.yield(.delta(immediateReply))
@@ -189,21 +147,5 @@ private final class ManualStreamingAgentProvider: AgentProviding {
     func finish(with text: String) {
         yield(text)
         finish()
-    }
-}
-
-private final class ViewModelTestSecretStore: AgentSecretStoring {
-    private var apiKey: String?
-
-    func readAPIKey() throws -> String? {
-        apiKey
-    }
-
-    func saveAPIKey(_ apiKey: String) throws {
-        self.apiKey = apiKey
-    }
-
-    func deleteAPIKey() throws {
-        apiKey = nil
     }
 }

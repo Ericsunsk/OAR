@@ -2,17 +2,19 @@ import SwiftUI
 
 struct ReviewInboxRootView: View {
     @State private var model: ReviewInboxViewModel
-    @State private var agentModel = AgentSidecarViewModel()
+    @State private var agentModel: AgentSidecarViewModel
     @State private var showAgent = true
 
     init(
         provider: ReviewInboxDataProviding,
+        agentProvider: AgentProviding,
         onSessionInvalidated: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         _model = State(initialValue: ReviewInboxViewModel(
             provider: provider,
             onSessionInvalidated: onSessionInvalidated
         ))
+        _agentModel = State(initialValue: AgentSidecarViewModel(provider: agentProvider))
     }
 
     var body: some View {

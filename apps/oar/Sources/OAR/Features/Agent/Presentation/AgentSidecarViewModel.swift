@@ -18,26 +18,21 @@ final class AgentSidecarViewModel {
     var messages: [AgentMessage] = AgentSidecarViewModel.initialMessages()
     var isSending = false
     var errorMessage: String?
-    var settings: AgentSettings
 
     private let provider: AgentProviding
-    private let settingsStore: AgentSettingsStore
     private var activeConversationID = AgentSidecarViewModel.fallbackConversationID
     private var conversationsByID: [String: [AgentMessage]] = [:]
     private var errorsByID: [String: String] = [:]
     private var sendingConversationIDs: Set<String> = []
 
     init(
-        provider: AgentProviding = OpenAICompatibleAgentProvider(),
-        settingsStore: AgentSettingsStore = AgentSettingsStore()
+        provider: AgentProviding
     ) {
         self.provider = provider
-        self.settingsStore = settingsStore
-        self.settings = settingsStore.load()
     }
 
     var isConfigured: Bool {
-        settings.hasAPIKey && !settings.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        provider.isAvailable
     }
 
     func activateConversation(itemID: String?) {
@@ -49,10 +44,6 @@ final class AgentSidecarViewModel {
         messages = conversationsByID[conversationID] ?? Self.initialMessages()
         errorMessage = errorsByID[conversationID]
         isSending = sendingConversationIDs.contains(conversationID)
-    }
-
-    func reloadSettings() {
-        settings = settingsStore.load()
     }
 
     func send(_ text: String, context: AgentConversationContext) async {
@@ -74,21 +65,6 @@ final class AgentSidecarViewModel {
         errorsByID[conversationID] = nil
         sendingConversationIDs.insert(conversationID)
 
-        let resolvedSettings: ResolvedAgentSettings
-        do {
-            resolvedSettings = try settingsStore.resolve()
-        } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? "请先配置模型服务。"
-            errorsByID[conversationID] = message
-            if activeConversationID == conversationID {
-                errorMessage = message
-                isSending = false
-            }
-            sendingConversationIDs.remove(conversationID)
-            reloadSettings()
-            return
-        }
-
         defer {
             sendingConversationIDs.remove(conversationID)
             if activeConversationID == conversationID {
@@ -104,8 +80,7 @@ final class AgentSidecarViewModel {
             let displayStream = CoalescedAgentTextStream(
                 events: provider.stream(
                     messages: thread,
-                    context: context,
-                    settings: resolvedSettings
+                    context: context
                 ),
                 flushInterval: Self.streamFlushInterval
             )
@@ -139,16 +114,6 @@ final class AgentSidecarViewModel {
                 errorMessage = message
             }
         }
-    }
-
-    func saveSettings(baseURLString: String, model: String, apiKey: String?) throws {
-        settings = try settingsStore.save(
-            baseURLString: baseURLString,
-            model: model,
-            apiKey: apiKey
-        )
-        errorsByID.removeAll()
-        errorMessage = nil
     }
 
     private func conversationID(for itemID: String?) -> String {

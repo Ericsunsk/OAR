@@ -8,7 +8,6 @@ struct AgentSidecarView: View {
     let evidence: [ReviewInboxDisplayEvidence]
 
     @State private var draft = ""
-    @State private var showsSettings = false
 
     init(
         model: AgentSidecarViewModel,
@@ -77,15 +76,6 @@ struct AgentSidecarView: View {
         }
         .background(.thinMaterial)
         .background(Color.white.opacity(0.16))
-        .sheet(isPresented: $showsSettings) {
-            AgentSettingsSheet(settings: model.settings) { baseURL, modelName, apiKey in
-                try model.saveSettings(
-                    baseURLString: baseURL,
-                    model: modelName,
-                    apiKey: apiKey
-                )
-            }
-        }
         .onAppear(perform: syncConversation)
         .onChange(of: item?.id) { _, _ in
             syncConversation()
@@ -98,16 +88,6 @@ struct AgentSidecarView: View {
                 .font(.codexDisplay(16, weight: .semibold))
             OARSymbolDot(color: model.isConfigured ? Color.oarMoss : Color.oarAmber, size: 6)
             Spacer()
-            Button {
-                showsSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.codexMuted)
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Agent 设置")
         }
         .padding(16)
     }
@@ -408,96 +388,6 @@ private struct AgentComposerTextView: NSViewRepresentable {
                 return true
             }
             return false
-        }
-    }
-}
-
-private struct AgentSettingsSheet: View {
-    let settings: AgentSettings
-    let save: (String, String, String?) throws -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var baseURLString: String
-    @State private var modelName: String
-    @State private var apiKey = ""
-    @State private var errorMessage: String?
-
-    init(
-        settings: AgentSettings,
-        save: @escaping (String, String, String?) throws -> Void
-    ) {
-        self.settings = settings
-        self.save = save
-        _baseURLString = State(initialValue: settings.baseURL.absoluteString)
-        _modelName = State(initialValue: settings.model)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Agent 设置")
-                    .font(.codexDisplay(18, weight: .semibold))
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("关闭设置")
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                settingsField("Base URL", text: $baseURLString)
-                settingsField("Model", text: $modelName)
-                SecureField(settings.hasAPIKey ? "API Key（留空保持不变）" : "API Key", text: $apiKey)
-                    .font(.codexBody(13))
-                    .textFieldStyle(.plain)
-                    .padding(10)
-                    .background(Color.white.opacity(0.58))
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-            }
-
-            Text("当前上下文会发送到你配置的模型服务。API Key 只保存在本机 Keychain。")
-                .font(.codexBody(11.5))
-                .foregroundStyle(Color.codexMuted)
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.codexBody(12, weight: .semibold))
-                    .foregroundStyle(Color.oarSignal)
-            }
-
-            HStack {
-                Spacer()
-                Button("保存") {
-                    do {
-                        try save(baseURLString, modelName, apiKey.isEmpty ? nil : apiKey)
-                        dismiss()
-                    } catch {
-                        errorMessage = (error as? LocalizedError)?.errorDescription ?? "保存失败。"
-                    }
-                }
-                .buttonStyle(OARButtonStyle(prominent: true))
-            }
-        }
-        .padding(22)
-        .frame(width: 420)
-        .background(.thinMaterial)
-    }
-
-    private func settingsField(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.codexBody(11, weight: .semibold))
-                .foregroundStyle(Color.codexMuted)
-            TextField(title, text: text)
-                .font(.codexBody(13))
-                .textFieldStyle(.plain)
-                .padding(10)
-                .background(Color.white.opacity(0.58))
-                .clipShape(RoundedRectangle(cornerRadius: 7))
         }
     }
 }

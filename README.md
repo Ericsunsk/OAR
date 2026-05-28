@@ -218,6 +218,22 @@ swift run
 `GET /review-inbox/snapshot` 目前返回空快照，decision 写路径明确返回不支持。前端期望的 HTTP endpoint 记录在
 [`apps/oar/README.md`](apps/oar/README.md)。
 
+Agent 模型服务只在后端配置。macOS 前端通过 `POST /agent/stream` 发送会话上下文和消息，
+并携带 OAR session bearer；后端再按 `OAR_AGENT_PROVIDER` 选择 OpenAI-compatible 或
+Anthropic adapter 调模型服务，不会让前端保存或直连模型 `baseURL` / `apiKey`。本地验证 Agent 需要额外配置：
+
+```bash
+OAR_AGENT_PROVIDER=openai-compatible
+OAR_AGENT_OPENAI_BASE_URL=https://api.openai.com/v1
+OAR_AGENT_OPENAI_API_KEY=...
+OAR_AGENT_OPENAI_MODEL=gpt-4.1
+
+# 或：
+OAR_AGENT_PROVIDER=anthropic
+OAR_AGENT_ANTHROPIC_API_KEY=...
+OAR_AGENT_ANTHROPIC_MODEL=claude-sonnet-4-5
+```
+
 后端 Docker 运行时可以用环境变量覆盖监听地址。默认本地开发绑定
 `127.0.0.1:8080`，容器内运行绑定 `0.0.0.0:8080`：
 

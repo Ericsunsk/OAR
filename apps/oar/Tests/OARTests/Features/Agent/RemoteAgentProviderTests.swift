@@ -1,30 +1,28 @@
 import XCTest
 @testable import OAR
 
-final class OpenAICompatibleAgentProviderTests: XCTestCase {
+final class RemoteAgentProviderTests: XCTestCase {
     override func tearDown() {
         AgentTestURLProtocol.handler = nil
         super.tearDown()
     }
 
-    func testStreamUsesOpenAICompatibleRequestShapeAndYieldsDeltas() async throws {
+    func testStreamUsesOARBackendRequestShapeAndYieldsDeltas() async throws {
         AgentTestURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.absoluteString, "https://llm.example.test/v1/chat/completions")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-secret")
+            XCTAssertEqual(request.url?.absoluteString, "https://oar.example.test/agent/stream")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer oar_session_secret")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
 
             let body = try Self.bodyData(from: request)
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
-            XCTAssertEqual(json["model"] as? String, "model-test")
-            XCTAssertEqual(json["stream"] as? Bool, true)
-            XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("sk-secret") ?? true)
-
             let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
-            XCTAssertEqual(messages.first?["role"] as? String, "system")
+            XCTAssertEqual(messages.count, 13)
             XCTAssertEqual(messages.last?["role"] as? String, "user")
-            XCTAssertEqual(messages.last?["content"] as? String, "解释风险")
+            XCTAssertEqual(messages.last?["text"] as? String, "解释风险")
+            XCTAssertNotNil(json["context"] as? [String: Any])
+            XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("sk-") ?? true)
 
             return (
                 HTTPURLResponse(
@@ -37,73 +35,41 @@ final class OpenAICompatibleAgentProviderTests: XCTestCase {
                     """
                     : keep-alive
 
-                    data: {"choices":[{"delta":{"role":"assistant"}}]}
+                    data: {"event":"delta","delta":"风险"}
 
-                    data: {"choices":[{"delta":{"content":"风险"}}]}
+                    data: {"event":"delta","delta":"来自延期。"}
 
-                    data: {"choices":[{"delta":{"content":"来自延期。"}}]}
-
-                    data: [DONE]
+                    data: {"event":"completed"}
 
                     """.utf8
                 )
             )
         }
 
-        let provider = OpenAICompatibleAgentProvider(urlSession: Self.urlSession)
+        let provider = RemoteAgentProvider(
+            baseURL: URL(string: "https://oar.example.test")!,
+            appSession: Self.appSession,
+            urlSession: Self.urlSession
+        )
+        let conversation = (0..<12).map { index in
+            AgentMessage(role: .assistant, text: "历史回复 \(index)")
+        } + [AgentMessage(role: .user, text: "解释风险")]
         let events = try await Self.collectEvents(
             from: provider.stream(
-                messages: [AgentMessage(role: .user, text: "解释风险")],
+                messages: conversation,
                 context: AgentConversationContext(
                     title: "KR 风险",
                     riskReason: "连续延期",
                     actionSummary: "更新进度",
                     evidenceSummaries: ["连续两周延期"]
-                ),
-                settings: Self.resolvedSettings
+                )
             )
         )
 
         XCTAssertEqual(events, [.delta("风险"), .delta("来自延期。"), .completed])
     }
 
-    func testStreamEmptyCompletionMapsToInvalidResponse() async {
-        AgentTestURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "text/event-stream"]
-                )!,
-                Data(
-                    """
-                    data: [DONE]
-
-                    """.utf8
-                )
-            )
-        }
-
-        let provider = OpenAICompatibleAgentProvider(urlSession: Self.urlSession)
-
-        do {
-            try await Self.drain(
-                provider.stream(
-                    messages: [AgentMessage(role: .user, text: "解释风险")],
-                    context: .empty,
-                    settings: Self.resolvedSettings
-                )
-            )
-            XCTFail("Expected invalid response error")
-        } catch let error as AgentProviderError {
-            XCTAssertEqual(error, .invalidResponse)
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
-    }
-
-    func testUnauthorizedStatusMapsWithoutLeakingAPIKey() async {
+    func testUnauthorizedStatusMapsToSessionError() async {
         AgentTestURLProtocol.handler = { request in
             (
                 HTTPURLResponse(
@@ -112,33 +78,34 @@ final class OpenAICompatibleAgentProviderTests: XCTestCase {
                     httpVersion: nil,
                     headerFields: nil
                 )!,
-                Data("bad key".utf8)
+                Data("unauthorized".utf8)
             )
         }
 
-        let provider = OpenAICompatibleAgentProvider(urlSession: Self.urlSession)
+        let provider = RemoteAgentProvider(
+            baseURL: URL(string: "https://oar.example.test")!,
+            appSession: Self.appSession,
+            urlSession: Self.urlSession
+        )
 
         do {
-            try await Self.drain(
-                provider.stream(
-                    messages: [AgentMessage(role: .user, text: "hi")],
-                    context: .empty,
-                    settings: Self.resolvedSettings
-                )
-            )
+            try await Self.drain(provider.stream(messages: [AgentMessage(role: .user, text: "hi")], context: .empty))
             XCTFail("Expected unauthorized error")
         } catch let error as AgentProviderError {
             XCTAssertEqual(error, .unauthorized)
-            XCTAssertFalse(error.localizedDescription.contains("sk-secret"))
+            XCTAssertFalse(error.localizedDescription.contains("oar_session_secret"))
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
     }
 
-    private static let resolvedSettings = ResolvedAgentSettings(
-        baseURL: URL(string: "https://llm.example.test/v1")!,
-        model: "model-test",
-        apiKey: "sk-secret"
+    private static let appSession = AppSession(
+        sessionID: "oar_session_secret",
+        user: AuthenticatedUser(
+            id: "user_1",
+            displayName: "陈敏",
+            tenantName: "OAR 测试租户"
+        )
     )
 
     private static var urlSession: URLSession {

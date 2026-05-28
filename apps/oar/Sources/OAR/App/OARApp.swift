@@ -54,6 +54,10 @@ private struct AppRootView: View {
                     appSession: session,
                     environment: environment
                 ),
+                agentProvider: AgentProviderFactory.makeProvider(
+                    appSession: session,
+                    environment: environment
+                ),
                 onSessionInvalidated: { message in
                     sessionStore.clear(reason: message)
                 }
