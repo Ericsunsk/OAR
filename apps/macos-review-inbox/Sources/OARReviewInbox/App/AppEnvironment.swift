@@ -1,6 +1,8 @@
 import Foundation
 
 struct AppEnvironment {
+    static let defaultBackendBaseURL = URL(string: "http://127.0.0.1:8080")!
+
     let oarBackendBaseURL: URL?
     let allowsMockAuthFallback: Bool
     let allowsMockReviewInboxFallback: Bool
@@ -15,23 +17,11 @@ struct AppEnvironment {
         self.allowsMockReviewInboxFallback = allowsMockReviewInboxFallback
     }
 
-    static func current(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppEnvironment {
+    static func current() -> AppEnvironment {
         AppEnvironment(
-            oarBackendBaseURL: backendBaseURL(from: environment["OAR_BACKEND_BASE_URL"]),
-            allowsMockAuthFallback: environment["OAR_ALLOW_MOCK_AUTH"] == "1",
-            allowsMockReviewInboxFallback: environment["OAR_ALLOW_MOCK_REVIEW_INBOX"] == "1"
+            oarBackendBaseURL: defaultBackendBaseURL,
+            allowsMockAuthFallback: false,
+            allowsMockReviewInboxFallback: false
         )
-    }
-
-    private static func backendBaseURL(from rawValue: String?) -> URL? {
-        guard let rawValue,
-              let url = URL(string: rawValue),
-              let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              url.host != nil else {
-            return nil
-        }
-
-        return url
     }
 }

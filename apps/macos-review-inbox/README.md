@@ -30,11 +30,19 @@ Naming rule: API payload types keep the `DTO` suffix and mirror backend contract
 
 ## Runtime Configuration
 
-Set `OAR_BACKEND_BASE_URL` to the OAR backend origin before using the app with real data:
+The app connects to `http://127.0.0.1:8080` by default. Start the local backend
+facade before launching the client:
 
 ```bash
-OAR_BACKEND_BASE_URL=https://oar.example.test swift run
+# terminal 1
+cargo run -p oar-http-facade
+
+# terminal 2
+swift run
 ```
+
+Future private deployment support should use an in-app server setting rather
+than process environment variables.
 
 The frontend calls only OAR backend endpoints:
 
@@ -44,10 +52,13 @@ The frontend calls only OAR backend endpoints:
 - `GET /review-inbox/snapshot`
 - `POST /review-inbox/decisions`
 
-Local mock fallbacks are opt-in and should not be enabled for production validation:
+Current repository status: `oar-http-facade` exposes a safe local backend shell
+for contract wiring. It returns an empty Review Inbox snapshot and rejects auth
+or decision write paths until real Feishu auth and the `ConfirmedAction ->
+OperationLedger -> PlatformAdapter -> AuditEvent` execution chain are connected.
 
-- `OAR_ALLOW_MOCK_AUTH=1`
-- `OAR_ALLOW_MOCK_REVIEW_INBOX=1`
+Mock fallbacks remain test-only injection paths and should not be exposed for
+production validation.
 
 ## Production Boundary
 
