@@ -1,4 +1,6 @@
 use std::fmt;
+use std::fs::File;
+use std::io::Read;
 
 use oar_core::lark::auth::adapter::FeishuAuthRefreshAdapter as CoreFeishuAuthRefreshAdapter;
 use oar_core::lark::auth::client::{
@@ -69,6 +71,7 @@ pub enum PostgresFeishuAuthRefreshEnvConfigError {
     MissingGrantKeyId,
     MissingGrantKeyHex,
     InvalidGrantKeyHex,
+    EphemeralGrantKeyUnavailable,
 }
 
 impl fmt::Debug for PostgresFeishuAuthRefreshEnvConfigError {
@@ -94,6 +97,10 @@ impl fmt::Debug for PostgresFeishuAuthRefreshEnvConfigError {
                 f,
                 "PostgresFeishuAuthRefreshEnvConfigError(invalid_oar_grant_key_hex)"
             ),
+            Self::EphemeralGrantKeyUnavailable => write!(
+                f,
+                "PostgresFeishuAuthRefreshEnvConfigError(ephemeral_grant_key_unavailable)"
+            ),
         }
     }
 }
@@ -107,6 +114,9 @@ impl fmt::Display for PostgresFeishuAuthRefreshEnvConfigError {
             Self::MissingGrantKeyHex => write!(f, "oar grant key hex is required"),
             Self::InvalidGrantKeyHex => {
                 write!(f, "oar grant key hex must decode to exactly 32 bytes")
+            }
+            Self::EphemeralGrantKeyUnavailable => {
+                write!(f, "oar ephemeral grant key could not be generated")
             }
         }
     }
@@ -128,22 +138,26 @@ impl PostgresFeishuAuthRefreshEnvConfig {
             "OAR_FEISHU_APP_SECRET",
             PostgresFeishuAuthRefreshEnvConfigError::MissingAppSecret,
         )?;
-        let grant_key_id = required_env(
-            env,
-            "OAR_GRANT_KEY_ID",
-            PostgresFeishuAuthRefreshEnvConfigError::MissingGrantKeyId,
-        )?;
-        let grant_key_hex = required_env(
-            env,
-            "OAR_GRANT_KEY_HEX",
-            PostgresFeishuAuthRefreshEnvConfigError::MissingGrantKeyHex,
-        )?;
+        let grant_key_id = optional_env(env, "OAR_GRANT_KEY_ID");
+        let grant_key_hex = optional_env(env, "OAR_GRANT_KEY_HEX");
 
-        let decoded = hex::decode(grant_key_hex)
-            .map_err(|_| PostgresFeishuAuthRefreshEnvConfigError::InvalidGrantKeyHex)?;
-        let grant_key_material: [u8; 32] = decoded
-            .try_into()
-            .map_err(|_| PostgresFeishuAuthRefreshEnvConfigError::InvalidGrantKeyHex)?;
+        let (grant_key_id, grant_key_material) = match (grant_key_id, grant_key_hex) {
+            (Some(grant_key_id), Some(grant_key_hex)) => {
+                (grant_key_id, decode_grant_key_hex(&grant_key_hex)?)
+            }
+            (Some(_), None) => {
+                return Err(PostgresFeishuAuthRefreshEnvConfigError::MissingGrantKeyHex);
+            }
+            (None, Some(_)) => {
+                return Err(PostgresFeishuAuthRefreshEnvConfigError::MissingGrantKeyId);
+            }
+            (None, None) if env_flag(env, "OAR_ALLOW_EPHEMERAL_GRANT_KEY") => {
+                generate_ephemeral_dev_grant_key()?
+            }
+            (None, None) => {
+                return Err(PostgresFeishuAuthRefreshEnvConfigError::MissingGrantKeyId);
+            }
+        };
 
         Ok(Self {
             app_id,
@@ -152,6 +166,29 @@ impl PostgresFeishuAuthRefreshEnvConfig {
             grant_key_material,
         })
     }
+}
+
+fn decode_grant_key_hex(
+    grant_key_hex: &str,
+) -> Result<[u8; 32], PostgresFeishuAuthRefreshEnvConfigError> {
+    let decoded = hex::decode(grant_key_hex)
+        .map_err(|_| PostgresFeishuAuthRefreshEnvConfigError::InvalidGrantKeyHex)?;
+    decoded
+        .try_into()
+        .map_err(|_| PostgresFeishuAuthRefreshEnvConfigError::InvalidGrantKeyHex)
+}
+
+fn generate_ephemeral_dev_grant_key(
+) -> Result<(String, [u8; 32]), PostgresFeishuAuthRefreshEnvConfigError> {
+    let mut bytes = [0_u8; 40];
+    File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|_| PostgresFeishuAuthRefreshEnvConfigError::EphemeralGrantKeyUnavailable)?;
+
+    let key_id = format!("dev-ephemeral-{}", hex::encode(&bytes[..8]));
+    let mut material = [0_u8; 32];
+    material.copy_from_slice(&bytes[8..]);
+    Ok((key_id, material))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -369,13 +406,20 @@ fn required_env(
     key: &str,
     error: PostgresFeishuAuthRefreshEnvConfigError,
 ) -> Result<String, PostgresFeishuAuthRefreshEnvConfigError> {
-    let Some(value) = env(key) else {
-        return Err(error);
-    };
-    if value.trim().is_empty() {
-        return Err(error);
-    }
-    Ok(value)
+    optional_env(env, key).ok_or(error)
+}
+
+fn optional_env(env: &impl Fn(&str) -> Option<String>, key: &str) -> Option<String> {
+    env(key).and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn env_flag(env: &impl Fn(&str) -> Option<String>, key: &str) -> bool {
+    optional_env(env, key)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

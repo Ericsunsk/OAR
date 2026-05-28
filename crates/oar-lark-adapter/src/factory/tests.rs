@@ -144,6 +144,40 @@ fn postgres_refresh_env_config_parses_required_runtime_secrets() {
 }
 
 #[test]
+fn postgres_refresh_env_config_can_generate_dev_ephemeral_grant_key() {
+    let config = PostgresFeishuAuthRefreshEnvConfig::from_env_map(&|key| match key {
+        "OAR_FEISHU_APP_ID" => Some("cli_dev".to_string()),
+        "OAR_FEISHU_APP_SECRET" => Some("very-secret-value".to_string()),
+        "OAR_ALLOW_EPHEMERAL_GRANT_KEY" => Some("true".to_string()),
+        _ => None,
+    })
+    .expect("dev ephemeral grant key should generate");
+
+    assert_eq!(config.app_id, "cli_dev");
+    assert!(config.grant_key_id.starts_with("dev-ephemeral-"));
+    assert_ne!(config.grant_key_material, [0; 32]);
+    assert!(!format!("{config:?}").contains("very-secret-value"));
+    assert!(!format!("{config:?}").contains(&config.grant_key_id));
+}
+
+#[test]
+fn postgres_refresh_env_config_does_not_generate_ephemeral_key_for_partial_grant_config() {
+    let partial = PostgresFeishuAuthRefreshEnvConfig::from_env_map(&|key| match key {
+        "OAR_FEISHU_APP_ID" => Some("cli_dev".to_string()),
+        "OAR_FEISHU_APP_SECRET" => Some("very-secret-value".to_string()),
+        "OAR_GRANT_KEY_ID" => Some("key-dev-v1".to_string()),
+        "OAR_ALLOW_EPHEMERAL_GRANT_KEY" => Some("true".to_string()),
+        _ => None,
+    })
+    .expect_err("partial grant config should still fail");
+
+    assert_eq!(
+        partial,
+        PostgresFeishuAuthRefreshEnvConfigError::MissingGrantKeyHex
+    );
+}
+
+#[test]
 fn postgres_refresh_env_config_rejects_missing_or_empty_required_values() {
     let missing_secret = PostgresFeishuAuthRefreshEnvConfig::from_env_map(&|key| match key {
         "OAR_FEISHU_APP_ID" => Some("cli_prod".to_string()),

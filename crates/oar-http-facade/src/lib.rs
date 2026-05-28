@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
@@ -19,11 +19,25 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
+use oar_core::domain::device_sync::{DeviceEntryPoint, DeviceSession};
+use oar_core::domain::identity::{
+    ActorKind, DeviceSessionId, LarkIdentity, LarkIdentityId, ScopeBoundary, Tenant, TenantId,
+    TenantStatus, TokenGrantState, WorkspaceUser, WorkspaceUserId, WorkspaceUserStatus,
+};
+use oar_core::storage::postgres::{
+    EncryptedTokenGrantRecord, PostgresDeviceSessionRepository, PostgresLarkIdentityRepository,
+    PostgresTenantRepository, PostgresTokenGrantRepository, PostgresWorkspaceUserRepository,
+};
+use oar_lark_adapter::material::compose_encrypted_grant_blob;
 use oar_lark_adapter::{
-    AsyncFeishuOAuthLogin, FeishuOAuthLoginClient, FeishuOAuthLoginConfig, FeishuOpenApiConfig,
-    ReqwestAsyncHttpClient,
+    AesGcmGrantEncryptor, AsyncFeishuOAuthLogin, FeishuGrantEncryptionInput, FeishuGrantEncryptor,
+    FeishuOAuthLogin, FeishuOAuthLoginClient, FeishuOAuthLoginConfig, FeishuOpenApiConfig,
+    PostgresFeishuAuthRefreshEnvConfig, ReqwestAsyncHttpClient,
 };
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
@@ -91,6 +105,8 @@ pub enum OarHttpFacadeRuntimeError {
     PartialFeishuAuthConfig,
     InvalidFeishuOpenApiConfig,
     InvalidFeishuLoginConfig,
+    InvalidFeishuGrantConfig,
+    DatabaseConnectFailed,
     HttpClientBuildFailed,
 }
 
@@ -106,6 +122,10 @@ impl fmt::Display for OarHttpFacadeRuntimeError {
             Self::InvalidFeishuLoginConfig => {
                 write!(f, "oar_feishu_login_config_invalid")
             }
+            Self::InvalidFeishuGrantConfig => {
+                write!(f, "oar_feishu_grant_config_invalid")
+            }
+            Self::DatabaseConnectFailed => write!(f, "oar_database_connect_failed"),
             Self::HttpClientBuildFailed => write!(f, "oar_feishu_http_client_build_failed"),
         }
     }
@@ -120,6 +140,41 @@ impl OarHttpFacadeRuntime {
 
     pub fn from_env_map(
         env: &impl Fn(&str) -> Option<String>,
+    ) -> Result<Self, OarHttpFacadeRuntimeError> {
+        Self::from_env_map_with_persistence(env, None)
+    }
+
+    pub async fn from_env_map_async(
+        env: &impl Fn(&str) -> Option<String>,
+    ) -> Result<Self, OarHttpFacadeRuntimeError> {
+        let runtime = Self::from_env_map(env)?;
+        if runtime.feishu_login.is_none() {
+            return Ok(runtime);
+        }
+
+        let Some(database_url) = non_empty_env(env, "DATABASE_URL") else {
+            return Ok(runtime);
+        };
+        let grant_config = PostgresFeishuAuthRefreshEnvConfig::from_env_map(env)
+            .map_err(|_| OarHttpFacadeRuntimeError::InvalidFeishuGrantConfig)?;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .map_err(|_| OarHttpFacadeRuntimeError::DatabaseConnectFailed)?;
+        Self::from_env_map_with_persistence(
+            env,
+            Some(FeishuGrantPersistenceRuntime {
+                pool,
+                grant_key_id: grant_config.grant_key_id,
+                grant_key_material: grant_config.grant_key_material,
+            }),
+        )
+    }
+
+    fn from_env_map_with_persistence(
+        env: &impl Fn(&str) -> Option<String>,
+        grant_persistence: Option<FeishuGrantPersistenceRuntime>,
     ) -> Result<Self, OarHttpFacadeRuntimeError> {
         let app_id = non_empty_env(env, "OAR_FEISHU_APP_ID");
         let app_secret = non_empty_env(env, "OAR_FEISHU_APP_SECRET");
@@ -157,6 +212,7 @@ impl OarHttpFacadeRuntime {
             feishu_login: Some(Arc::new(FeishuLoginRuntime {
                 config: login_config,
                 http_client,
+                grant_persistence,
                 sessions: Mutex::new(HashMap::new()),
             })),
         })
@@ -166,6 +222,7 @@ impl OarHttpFacadeRuntime {
 struct FeishuLoginRuntime {
     config: FeishuOAuthLoginConfig,
     http_client: ReqwestAsyncHttpClient,
+    grant_persistence: Option<FeishuGrantPersistenceRuntime>,
     sessions: Mutex<HashMap<String, FeishuLoginSession>>,
 }
 
@@ -174,7 +231,25 @@ impl fmt::Debug for FeishuLoginRuntime {
         f.debug_struct("FeishuLoginRuntime")
             .field("config", &self.config)
             .field("http_client", &"[REDACTED]")
+            .field("grant_persistence", &self.grant_persistence.is_some())
             .field("sessions", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+struct FeishuGrantPersistenceRuntime {
+    pool: PgPool,
+    grant_key_id: String,
+    grant_key_material: [u8; 32],
+}
+
+impl fmt::Debug for FeishuGrantPersistenceRuntime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FeishuGrantPersistenceRuntime")
+            .field("pool", &"[REDACTED]")
+            .field("grant_key_id", &"[REDACTED]")
+            .field("grant_key_material", &"[REDACTED]")
             .finish()
     }
 }
@@ -201,6 +276,39 @@ enum FeishuLoginSessionState {
     },
     Expired,
 }
+
+#[derive(Debug, Clone)]
+struct FeishuLoginPersistencePlan {
+    tenant: Tenant,
+    user: WorkspaceUser,
+    identity: LarkIdentity,
+    grant: EncryptedTokenGrantRecord,
+    session: DeviceSession,
+    session_identity_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FeishuLoginPersistenceError {
+    MissingTenantKey,
+    MissingRefreshToken,
+    EncryptGrantFailed,
+    StoreFailed { stage: &'static str },
+}
+
+impl fmt::Display for FeishuLoginPersistenceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingTenantKey => write!(f, "feishu_login_missing_tenant_key"),
+            Self::MissingRefreshToken => write!(f, "feishu_login_missing_refresh_token"),
+            Self::EncryptGrantFailed => write!(f, "feishu_login_grant_encrypt_failed"),
+            Self::StoreFailed { stage } => {
+                write!(f, "feishu_login_grant_store_failed:{stage}")
+            }
+        }
+    }
+}
+
+impl Error for FeishuLoginPersistenceError {}
 
 #[derive(Debug)]
 pub enum OarHttpFacadeError {
@@ -675,6 +783,18 @@ async fn complete_feishu_login_callback(
         "oar_session_{}",
         secure_random_hex(18).unwrap_or_else(|_| sanitize_session_suffix(state))
     );
+    if let Err(error) =
+        persist_feishu_login_grant(runtime.grant_persistence.as_ref(), &login, &oar_session_id)
+            .await
+    {
+        tracing::warn!(?error, "feishu oauth login grant persistence failed");
+        mark_session_denied(runtime, state, "OAR 登录态保存失败，请重新扫码。");
+        return callback_html(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OAR 登录暂不可用",
+            "OAR 登录态保存失败，请回到客户端重新发起登录。",
+        );
+    }
     let tenant_name = login
         .user
         .tenant_key
@@ -698,6 +818,154 @@ async fn complete_feishu_login_callback(
     }
 
     callback_html(StatusCode::OK, "OAR 登录成功", "可以回到 OAR 客户端继续。")
+}
+
+async fn persist_feishu_login_grant(
+    persistence: Option<&FeishuGrantPersistenceRuntime>,
+    login: &FeishuOAuthLogin,
+    oar_session_id: &str,
+) -> Result<(), FeishuLoginPersistenceError> {
+    let Some(persistence) = persistence else {
+        return Ok(());
+    };
+
+    let plan = build_feishu_login_persistence_plan(
+        login,
+        oar_session_id,
+        &persistence.grant_key_id,
+        persistence.grant_key_material,
+        SystemTime::now(),
+    )?;
+    PostgresTenantRepository::new(persistence.pool.clone())
+        .upsert(&plan.tenant)
+        .await
+        .map_err(|_| FeishuLoginPersistenceError::StoreFailed { stage: "tenant" })?;
+    PostgresWorkspaceUserRepository::new(persistence.pool.clone())
+        .upsert(&plan.user)
+        .await
+        .map_err(|_| FeishuLoginPersistenceError::StoreFailed {
+            stage: "workspace_user",
+        })?;
+    PostgresLarkIdentityRepository::new(persistence.pool.clone())
+        .upsert(&plan.identity)
+        .await
+        .map_err(|_| FeishuLoginPersistenceError::StoreFailed {
+            stage: "lark_identity",
+        })?;
+    PostgresTokenGrantRepository::new(persistence.pool.clone())
+        .upsert_encrypted_grant(&plan.grant)
+        .await
+        .map_err(|_| FeishuLoginPersistenceError::StoreFailed {
+            stage: "token_grant",
+        })?;
+    PostgresDeviceSessionRepository::new(persistence.pool.clone())
+        .upsert_with_identity_hash(&plan.session, &plan.session_identity_hash)
+        .await
+        .map_err(|_| FeishuLoginPersistenceError::StoreFailed {
+            stage: "device_session",
+        })?;
+    Ok(())
+}
+
+fn build_feishu_login_persistence_plan(
+    login: &FeishuOAuthLogin,
+    oar_session_id: &str,
+    grant_key_id: &str,
+    grant_key_material: [u8; 32],
+    now: SystemTime,
+) -> Result<FeishuLoginPersistencePlan, FeishuLoginPersistenceError> {
+    let tenant_key = login
+        .user
+        .tenant_key
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or(FeishuLoginPersistenceError::MissingTenantKey)?;
+    let refresh_token = login
+        .token
+        .refresh_token
+        .clone()
+        .ok_or(FeishuLoginPersistenceError::MissingRefreshToken)?;
+
+    let tenant_id = TenantId(stable_prefixed_id("feishu_tenant", &[tenant_key]));
+    let user_id = WorkspaceUserId(stable_prefixed_id(
+        "feishu_user",
+        &[tenant_key, &login.user.open_id],
+    ));
+    let identity_id = LarkIdentityId(stable_prefixed_id(
+        "feishu_identity",
+        &[tenant_key, &login.user.open_id],
+    ));
+    let grant_id = stable_prefixed_id("feishu_grant", &[tenant_key, &login.user.open_id]);
+    let mut encryptor = AesGcmGrantEncryptor::new(grant_key_id.to_string(), grant_key_material);
+    let envelope = encryptor
+        .encrypt(FeishuGrantEncryptionInput {
+            grant_id: grant_id.clone(),
+            tenant_id: tenant_id.0.clone(),
+            expected_fingerprint: "initial_login".to_string(),
+            access_token: login.token.access_token.clone(),
+            refresh_token,
+            expires_in_seconds: login.token.expires_in_seconds,
+            refresh_token_expires_in_seconds: login.token.refresh_token_expires_in_seconds,
+            token_type: login.token.token_type.clone(),
+            scope: login.token.scope.clone(),
+        })
+        .map_err(|_| FeishuLoginPersistenceError::EncryptGrantFailed)?;
+    let encrypted_oauth_grant =
+        compose_encrypted_grant_blob(envelope.encrypted_primary, envelope.encrypted_renewal);
+    let issued_at_ms = system_time_to_ms_lossy(now);
+    let grant = EncryptedTokenGrantRecord {
+        id: grant_id,
+        tenant_id: tenant_id.0.clone(),
+        identity_id: identity_id.0.clone(),
+        actor_kind: ActorKind::User,
+        scope_boundary: ScopeBoundary::User,
+        scopes: oauth_scope_list(login.token.scope.as_deref()),
+        state: TokenGrantState::Valid,
+        issued_at_ms,
+        expires_at_ms: envelope.expires_at_ms,
+        refreshed_at_ms: Some(envelope.refreshed_at_ms),
+        revoked_at_ms: None,
+        reauth_required_at_ms: None,
+        last_refresh_error: None,
+        encrypted_oauth_grant,
+        oauth_grant_key_id: envelope.key_id,
+        oauth_grant_fingerprint: envelope.new_fingerprint,
+        revocation_reason: None,
+    };
+    let session = DeviceSession::new(
+        DeviceSessionId(oar_session_id.to_string()),
+        tenant_id.clone(),
+        user_id.clone(),
+        DeviceEntryPoint::MacOs,
+        "review_inbox",
+        0,
+        now,
+    );
+    let session_identity_hash = stable_sha256_hex(&[&tenant_id.0, &user_id.0, oar_session_id]);
+
+    Ok(FeishuLoginPersistencePlan {
+        tenant: Tenant {
+            id: tenant_id.clone(),
+            display_name: tenant_key.to_string(),
+            status: TenantStatus::Active,
+        },
+        user: WorkspaceUser {
+            id: user_id,
+            tenant_id: tenant_id.clone(),
+            display_name: login.user.display_name.clone(),
+            status: WorkspaceUserStatus::Active,
+        },
+        identity: LarkIdentity {
+            id: identity_id,
+            tenant_id,
+            actor_kind: ActorKind::User,
+            actor_external_id: login.user.open_id.clone(),
+            display_name: Some(login.user.display_name.clone()),
+        },
+        grant,
+        session,
+        session_identity_hash,
+    })
 }
 
 fn mark_session_denied(runtime: &FeishuLoginRuntime, session_id: &str, safe_message: &str) {
@@ -811,6 +1079,86 @@ fn non_empty_env(env: &impl Fn(&str) -> Option<String>, key: &str) -> Option<Str
     })
 }
 
+fn oauth_scope_list(scope: Option<&str>) -> Vec<String> {
+    scope
+        .into_iter()
+        .flat_map(str::split_whitespace)
+        .filter(|scope| !scope.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn stable_prefixed_id(prefix: &str, parts: &[&str]) -> String {
+    const MAX_FRAGMENT_CHARS: usize = 96;
+
+    let fragment = parts
+        .iter()
+        .map(|part| sanitize_id_fragment(part))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("_");
+    let digest = stable_sha256_hex(parts);
+    if fragment.is_empty() {
+        return format!("{prefix}_{}", &digest[..16]);
+    }
+    if fragment.chars().count() <= MAX_FRAGMENT_CHARS {
+        return format!("{prefix}_{fragment}");
+    }
+
+    let shortened = fragment
+        .chars()
+        .take(MAX_FRAGMENT_CHARS)
+        .collect::<String>();
+    format!("{prefix}_{shortened}_{}", &digest[..16])
+}
+
+fn sanitize_id_fragment(value: &str) -> String {
+    let trimmed = value.trim().trim_matches('_');
+    let mut out = String::with_capacity(trimmed.len());
+    let mut previous_was_separator = false;
+    for character in trimmed.chars() {
+        let next = if character.is_ascii_alphanumeric() {
+            previous_was_separator = false;
+            Some(character)
+        } else if character == '-' || character == '_' {
+            if previous_was_separator {
+                None
+            } else {
+                previous_was_separator = true;
+                Some('_')
+            }
+        } else if previous_was_separator {
+            None
+        } else {
+            previous_was_separator = true;
+            Some('_')
+        };
+        if let Some(next) = next {
+            out.push(next);
+        }
+    }
+    out.trim_matches('_').to_string()
+}
+
+fn stable_sha256_hex(parts: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part.as_bytes());
+    }
+    hex::encode(hasher.finalize())
+}
+
+fn system_time_to_ms_lossy(time: SystemTime) -> u64 {
+    let millis = time
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::from_secs(0))
+        .as_millis();
+    millis.min(u128::from(u64::MAX)) as u64
+}
+
 fn secure_random_hex(bytes_len: usize) -> std::io::Result<String> {
     let mut bytes = vec![0_u8; bytes_len];
     File::open("/dev/urandom")?.read_exact(&mut bytes)?;
@@ -909,6 +1257,7 @@ fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oar_lark_adapter::{FeishuOAuthLoginToken, FeishuOAuthLoginUser, SecretString};
 
     #[test]
     fn healthz_returns_safe_service_status() {
@@ -995,6 +1344,83 @@ mod tests {
             .expect("qr url")
             .contains("client_id=cli_test"));
         assert!(!response.body.contains("super-secret"));
+    }
+
+    #[tokio::test]
+    async fn async_runtime_requires_grant_key_config_when_database_is_enabled() {
+        let error = OarHttpFacadeRuntime::from_env_map_async(&|key| match key {
+            "DATABASE_URL" => Some("postgres://oar:oar@127.0.0.1:5432/oar".to_string()),
+            "OAR_FEISHU_APP_ID" => Some("cli_test".to_string()),
+            "OAR_FEISHU_APP_SECRET" => Some("super-secret".to_string()),
+            "OAR_FEISHU_REDIRECT_URI" => {
+                Some("https://oar.example.test/auth/feishu/callback".to_string())
+            }
+            _ => None,
+        })
+        .await
+        .expect_err("database-backed login requires grant encryption key config");
+
+        assert_eq!(error.to_string(), "oar_feishu_grant_config_invalid");
+        assert!(!format!("{error:?}").contains("super-secret"));
+    }
+
+    #[test]
+    fn feishu_login_persistence_plan_builds_stable_redacted_grant() {
+        let login = sample_feishu_login(Some("refresh-token-sensitive"));
+        let plan = build_feishu_login_persistence_plan(
+            &login,
+            "oar_session_abc",
+            "key-prod-v1",
+            [7; 32],
+            UNIX_EPOCH + Duration::from_secs(1),
+        )
+        .expect("plan");
+
+        assert_eq!(plan.tenant.id.0, "feishu_tenant_tenant_1");
+        assert_eq!(plan.user.id.0, "feishu_user_tenant_1_ou_123");
+        assert_eq!(plan.identity.actor_external_id, "ou_123");
+        assert_eq!(plan.grant.identity_id, plan.identity.id.0);
+        assert_eq!(plan.grant.scope_boundary, ScopeBoundary::User);
+        assert_eq!(
+            plan.grant.scopes,
+            vec!["auth:user.id:read", "offline_access"]
+        );
+        assert_eq!(plan.grant.state, TokenGrantState::Valid);
+        assert_eq!(plan.grant.issued_at_ms, 1_000);
+        assert!(plan.grant.refreshed_at_ms.is_some());
+        assert!(plan.grant.expires_at_ms.is_some());
+        assert!(plan.grant.encrypted_oauth_grant.len() > "access-token-sensitive".len());
+        assert_eq!(plan.session.id.0, "oar_session_abc");
+        assert_eq!(plan.session_identity_hash.len(), 64);
+
+        let grant_debug = format!("{:?}", plan.grant);
+        assert!(!grant_debug.contains("access-token-sensitive"));
+        assert!(!grant_debug.contains("refresh-token-sensitive"));
+        assert!(!grant_debug.contains("key-prod-v1"));
+        assert!(!grant_debug.contains(&plan.grant.oauth_grant_fingerprint));
+        assert!(!contains_bytes(
+            &plan.grant.encrypted_oauth_grant,
+            b"access-token-sensitive"
+        ));
+        assert!(!contains_bytes(
+            &plan.grant.encrypted_oauth_grant,
+            b"refresh-token-sensitive"
+        ));
+    }
+
+    #[test]
+    fn feishu_login_persistence_plan_requires_refresh_token() {
+        let login = sample_feishu_login(None);
+        let error = build_feishu_login_persistence_plan(
+            &login,
+            "oar_session_abc",
+            "key-prod-v1",
+            [7; 32],
+            UNIX_EPOCH,
+        )
+        .expect_err("refresh token required");
+
+        assert_eq!(error, FeishuLoginPersistenceError::MissingRefreshToken);
     }
 
     #[tokio::test]
@@ -1100,5 +1526,30 @@ mod tests {
         assert!(!create.body.contains("access_token"));
         assert!(!poll.body.contains("refresh_token"));
         assert!(!events.body.contains("authorization"));
+    }
+
+    fn sample_feishu_login(refresh_token: Option<&str>) -> FeishuOAuthLogin {
+        FeishuOAuthLogin {
+            token: FeishuOAuthLoginToken {
+                access_token: SecretString::new("access-token-sensitive"),
+                refresh_token: refresh_token.map(SecretString::new),
+                expires_in_seconds: 7_200,
+                refresh_token_expires_in_seconds: Some(30 * 86_400),
+                token_type: Some("Bearer".to_string()),
+                scope: Some("offline_access auth:user.id:read offline_access".to_string()),
+            },
+            user: FeishuOAuthLoginUser {
+                open_id: "ou_123".to_string(),
+                union_id: Some("on_123".to_string()),
+                tenant_key: Some("tenant_1".to_string()),
+                display_name: "Alice".to_string(),
+            },
+        }
+    }
+
+    fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
     }
 }
