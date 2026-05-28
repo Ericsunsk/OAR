@@ -2,25 +2,24 @@ import AppKit
 import SwiftUI
 
 struct AgentSidecarView: View {
+    @Bindable var model: AgentSidecarViewModel
     let item: ReviewInboxDisplayItem?
     let action: ReviewInboxSuggestedAction?
     let evidence: [ReviewInboxDisplayEvidence]
 
-    @State private var model: AgentSidecarViewModel
     @State private var draft = ""
     @State private var showsSettings = false
 
-    @MainActor
     init(
+        model: AgentSidecarViewModel,
         item: ReviewInboxDisplayItem?,
         action: ReviewInboxSuggestedAction?,
-        evidence: [ReviewInboxDisplayEvidence],
-        model: AgentSidecarViewModel? = nil
+        evidence: [ReviewInboxDisplayEvidence]
     ) {
+        self.model = model
         self.item = item
         self.action = action
         self.evidence = evidence
-        _model = State(initialValue: model ?? AgentSidecarViewModel())
     }
 
     var body: some View {
@@ -94,9 +93,7 @@ struct AgentSidecarView: View {
         HStack(spacing: 8) {
             Text("OAR Agent")
                 .font(.codexDisplay(16, weight: .semibold))
-            Circle()
-                .fill(model.isConfigured ? Color.oarMoss : Color.oarAmber)
-                .frame(width: 6, height: 6)
+            OARSymbolDot(color: model.isConfigured ? Color.oarMoss : Color.oarAmber, size: 6)
             Spacer()
             Button {
                 showsSettings = true
@@ -217,9 +214,7 @@ private struct AgentThinkingBubble: View {
         HStack {
             HStack(spacing: 5) {
                 ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(Color.codexMuted.opacity(0.52))
-                        .frame(width: 5, height: 5)
+                    OARSymbolDot(color: Color.codexMuted.opacity(0.52), size: 5)
                         .opacity(index == 1 ? 0.72 : 0.42)
                 }
             }
@@ -289,6 +284,7 @@ private struct ChatInputBar: View {
             }
             .buttonStyle(.plain)
             .disabled(sendDisabled)
+            .accessibilityLabel("发送消息")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -412,6 +408,7 @@ private struct AgentSettingsSheet: View {
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("关闭设置")
             }
 
             VStack(alignment: .leading, spacing: 10) {

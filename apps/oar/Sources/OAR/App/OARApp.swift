@@ -36,15 +36,54 @@ private struct AppRootView: View {
                 provider: ReviewInboxProviderFactory.makeProvider(
                     appSession: session,
                     environment: environment
-                )
+                ),
+                onSessionInvalidated: { message in
+                    sessionStore.clear(reason: message)
+                }
             )
         } else {
-            FeishuQRCodeLoginView(
-                model: AuthViewModel(
-                    provider: AuthProviderFactory.makeDefaultProvider(environment: environment),
-                    sessionStore: sessionStore
+            ZStack(alignment: .top) {
+                FeishuQRCodeLoginView(
+                    model: AuthViewModel(
+                        provider: AuthProviderFactory.makeDefaultProvider(environment: environment),
+                        sessionStore: sessionStore
+                    )
                 )
-            )
+
+                if let message = sessionStore.sessionTerminationMessage {
+                    SessionTerminationBanner(message: message) {
+                        sessionStore.dismissSessionTerminationMessage()
+                    }
+                    .padding(.top, 22)
+                }
+            }
         }
+    }
+}
+
+private struct SessionTerminationBanner: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(message)
+                .lineLimit(2)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭会话提示")
+        }
+        .font(.codexBody(12, weight: .semibold))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.thinMaterial)
+        .background(Color.white.opacity(0.35))
+        .foregroundStyle(Color.oarSignal)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }

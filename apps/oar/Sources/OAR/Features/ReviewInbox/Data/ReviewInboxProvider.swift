@@ -29,10 +29,24 @@ enum ReviewInboxDataProviderError: Error {
     case actionVersionMismatch
     case staleSyncCursor
     case unsupportedAction
+    case decisionPathNotWired
+    case remoteRejected(String)
     case missingBackendConfiguration
     case unauthorized
     case serverUnavailable
     case remoteProviderNotConfigured
+}
+
+private struct ReviewInboxErrorResponseDTO: Decodable {
+    let error: String?
+    let reason: String?
+    let safeMessage: String?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case reason
+        case safeMessage = "safe_message"
+    }
 }
 
 final class MockReviewInboxDataProvider: ReviewInboxDataProviding {
@@ -222,6 +236,16 @@ struct RemoteReviewInboxDataProvider: ReviewInboxDataProviding {
         case 409:
             throw ReviewInboxDataProviderError.staleSyncCursor
         case 422:
+            if let response = try? decoder.decode(ReviewInboxErrorResponseDTO.self, from: data) {
+                let code = response.error ?? response.reason
+                if code == "review_decision_not_wired" {
+                    throw ReviewInboxDataProviderError.decisionPathNotWired
+                }
+                if let safeMessage = response.safeMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !safeMessage.isEmpty {
+                    throw ReviewInboxDataProviderError.remoteRejected(safeMessage)
+                }
+            }
             throw ReviewInboxDataProviderError.unsupportedAction
         case 500..<600:
             throw ReviewInboxDataProviderError.serverUnavailable
@@ -242,6 +266,10 @@ extension ReviewInboxDataProviderError: LocalizedError {
             return "复盘项已被其他端更新，请重新同步。"
         case .unsupportedAction:
             return "当前动作不在生产执行白名单内。"
+        case .decisionPathNotWired:
+            return "当前后端尚未接通复盘决策写入链路。"
+        case let .remoteRejected(message):
+            return message
         case .missingBackendConfiguration:
             return "请配置 OAR 后端地址后再同步真实复盘数据。"
         case .unauthorized:

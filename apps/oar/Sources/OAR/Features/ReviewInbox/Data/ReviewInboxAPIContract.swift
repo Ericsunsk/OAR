@@ -375,7 +375,16 @@ private extension Optional where Wrapped == ProposedActionDecisionDTO {
         case .some(.reject):
             return .rejected
         case .none:
-            return status == .published ? .pending : .rejected
+            switch status {
+            case .published:
+                return .pending
+            case .draft:
+                return .draft
+            case .superseded:
+                return .superseded
+            case .withdrawn:
+                return .withdrawn
+            }
         }
     }
 }

@@ -2,10 +2,17 @@ import SwiftUI
 
 struct ReviewInboxRootView: View {
     @State private var model: ReviewInboxViewModel
+    @State private var agentModel = AgentSidecarViewModel()
     @State private var showAgent = true
 
-    init(provider: ReviewInboxDataProviding) {
-        _model = State(initialValue: ReviewInboxViewModel(provider: provider))
+    init(
+        provider: ReviewInboxDataProviding,
+        onSessionInvalidated: @escaping @MainActor (String) -> Void = { _ in }
+    ) {
+        _model = State(initialValue: ReviewInboxViewModel(
+            provider: provider,
+            onSessionInvalidated: onSessionInvalidated
+        ))
     }
 
     var body: some View {
@@ -23,6 +30,7 @@ struct ReviewInboxRootView: View {
 
                 if showAgent {
                     AgentSidecarView(
+                        model: agentModel,
                         item: model.selectedItem,
                         action: model.selectedAction,
                         evidence: model.evidenceForSelectedItem
@@ -145,7 +153,7 @@ private struct NavigationRail: View {
                 NavRow(
                     icon: "exclamationmark.triangle",
                     title: "高风险",
-                    count: model.criticalCount,
+                    count: model.highRiskCount,
                     selected: model.filter == .highRisk
                 ) {
                     model.setFilter(.highRisk)
@@ -153,7 +161,7 @@ private struct NavigationRail: View {
                 NavRow(
                     icon: "hand.raised",
                     title: "待确认",
-                    count: model.pendingGateCount,
+                    count: model.needsConfirmationCount,
                     selected: model.filter == .needsConfirmation
                 ) {
                     model.setFilter(.needsConfirmation)
@@ -187,9 +195,7 @@ private struct NavigationRail: View {
             Spacer()
 
             HStack(spacing: 8) {
-                Circle()
-                    .fill(Color.oarAmber)
-                    .frame(width: 7, height: 7)
+                OARSymbolDot(color: Color.oarAmber)
                 Text("原型模式")
                     .font(.codexBody(12, weight: .semibold))
                 Spacer()
@@ -390,6 +396,7 @@ private struct WorkspaceToolbar: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.codexMuted)
+            .accessibilityLabel(showAgent ? "隐藏右侧 Agent 栏" : "显示右侧 Agent 栏")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 18)
@@ -468,13 +475,16 @@ private struct RiskStrip: View {
         ScrollView(.horizontal) {
             HStack(spacing: 10) {
                 ForEach(model.sortedItems) { item in
-                    RiskPillCard(
-                        item: item,
-                        selected: model.selectedItem?.id == item.id
-                    )
-                    .onTapGesture {
+                    Button {
                         model.select(item)
+                    } label: {
+                        RiskPillCard(
+                            item: item,
+                            selected: model.selectedItem?.id == item.id
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(item.riskLevel.rawValue)风险：\(item.keyResultTitle)")
                 }
             }
         }
@@ -490,9 +500,7 @@ private struct RiskPillCard: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
                 HStack(spacing: 7) {
-                    Circle()
-                        .fill(item.riskLevel.color)
-                        .frame(width: 7, height: 7)
+                    OARSymbolDot(color: item.riskLevel.color)
                     Text(item.riskLevel.rawValue)
                         .font(.codexBody(11, weight: .semibold))
                         .foregroundStyle(item.riskLevel.color)
@@ -698,6 +706,7 @@ private struct PrimaryActionPanel: View {
         case .pending: .codexMuted
         case .approved: .oarMoss
         case .rejected: .oarSignal
+        case .draft, .superseded, .withdrawn: .codexMuted
         }
     }
 }
@@ -771,9 +780,7 @@ private struct AuditRail: View {
         HStack(spacing: 9) {
             ForEach(Array(events.enumerated()), id: \.offset) { index, event in
                 HStack(spacing: 7) {
-                    Circle()
-                        .fill(color(for: event.stageStatus))
-                        .frame(width: 8, height: 8)
+                    OARSymbolDot(color: color(for: event.stageStatus), size: 8)
                     Text(event.stage.rawValue)
                         .font(.codexBody(11, weight: .semibold))
                         .foregroundStyle(event.stageStatus == .pending ? Color.codexMuted : Color.codexInk)

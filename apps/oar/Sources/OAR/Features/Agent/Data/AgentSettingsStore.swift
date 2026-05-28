@@ -117,7 +117,7 @@ struct AgentSettingsStore {
     func save(baseURLString: String, model: String, apiKey: String?) throws -> AgentSettings {
         let trimmedBaseURL = baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let baseURL = URL(string: trimmedBaseURL),
-              baseURL.scheme == "https" || baseURL.host == "127.0.0.1" || baseURL.host == "localhost" else {
+              baseURL.isAllowedAgentBaseURL else {
             throw AgentSettingsError.invalidBaseURL
         }
 
@@ -141,5 +141,23 @@ struct AgentSettingsStore {
 
     func clearAPIKey() throws {
         try secretStore.deleteAPIKey()
+    }
+}
+
+private extension URL {
+    var isAllowedAgentBaseURL: Bool {
+        guard let scheme = scheme?.lowercased(),
+              let host = host?.lowercased() else {
+            return false
+        }
+
+        switch scheme {
+        case "https":
+            return true
+        case "http":
+            return host == "localhost" || host == "127.0.0.1" || host == "::1"
+        default:
+            return false
+        }
     }
 }

@@ -66,6 +66,9 @@ enum ReviewInboxGateState: String {
     case pending = "待处理"
     case approved = "已确认"
     case rejected = "已拒绝"
+    case draft = "草稿"
+    case superseded = "已替代"
+    case withdrawn = "已撤回"
 }
 
 enum ReviewInboxTimelineStage: String, CaseIterable {

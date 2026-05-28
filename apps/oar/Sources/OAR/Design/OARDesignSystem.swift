@@ -60,6 +60,18 @@ struct OARButtonStyle: ButtonStyle {
     }
 }
 
+struct OARSymbolDot: View {
+    let color: Color
+    var size: CGFloat = 7
+
+    var body: some View {
+        Image(systemName: "circle.fill")
+            .font(.system(size: size, weight: .regular))
+            .foregroundStyle(color)
+            .frame(width: size, height: size)
+    }
+}
+
 struct SeverityPill: View {
     let level: ReviewInboxRiskLevel
 

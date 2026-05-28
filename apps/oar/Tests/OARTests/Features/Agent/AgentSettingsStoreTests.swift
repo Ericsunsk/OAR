@@ -66,6 +66,40 @@ final class AgentSettingsStoreTests: XCTestCase {
             XCTAssertEqual(error as? AgentSettingsError, .invalidBaseURL)
         }
     }
+
+    func testSaveRejectsFileSchemeEvenWithLocalhostHost() {
+        let store = AgentSettingsStore(userDefaults: userDefaults, secretStore: secretStore)
+
+        XCTAssertThrowsError(
+            try store.save(baseURLString: "file://localhost/tmp/model", model: "model", apiKey: "sk")
+        ) { error in
+            XCTAssertEqual(error as? AgentSettingsError, .invalidBaseURL)
+        }
+    }
+
+    func testSaveAllowsHTTPForLocalhost() throws {
+        let store = AgentSettingsStore(userDefaults: userDefaults, secretStore: secretStore)
+
+        let settings = try store.save(
+            baseURLString: "http://localhost:8080/v1",
+            model: "oar-model",
+            apiKey: "sk-test"
+        )
+
+        XCTAssertEqual(settings.baseURL.absoluteString, "http://localhost:8080/v1")
+    }
+
+    func testSaveAllowsHTTPSForRemoteHost() throws {
+        let store = AgentSettingsStore(userDefaults: userDefaults, secretStore: secretStore)
+
+        let settings = try store.save(
+            baseURLString: "https://api.example.com/v1",
+            model: "oar-model",
+            apiKey: "sk-test"
+        )
+
+        XCTAssertEqual(settings.baseURL.absoluteString, "https://api.example.com/v1")
+    }
 }
 
 private final class InMemoryAgentSecretStore: AgentSecretStoring {

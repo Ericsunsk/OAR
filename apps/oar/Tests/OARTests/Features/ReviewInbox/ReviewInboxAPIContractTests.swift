@@ -89,4 +89,82 @@ final class ReviewInboxAPIContractTests: XCTestCase {
         XCTAssertEqual(display.evidence.first?.sourceType, .okr)
         XCTAssertEqual(display.ledgerEvents.first?.stage, .confirmedAction)
     }
+
+    func testDecisionlessDraftSupersededAndWithdrawnActionsDoNotMapToRejectedOrPending() throws {
+        let json = """
+        {
+          "contract_version": 1,
+          "generated_at": "2026-05-28T10:00:00Z",
+          "items": [],
+          "proposed_actions": [
+            {
+              "id": "pa_draft",
+              "review_item_id": "ri_1",
+              "tenant_id": "t_1",
+              "actor_user_id": "u_1",
+              "target_user_id": null,
+              "owner_user_id": "u_owner",
+              "version": 1,
+              "status": "draft",
+              "kind": "update_kr_progress",
+              "risk_severity": "high",
+              "evidence_ids": [],
+              "rationale": "草稿动作",
+              "expected_impact": "待发布",
+              "dry_run_result_summary": "dry-run",
+              "estimated_write_targets_count": 0,
+              "decision": null
+            },
+            {
+              "id": "pa_superseded",
+              "review_item_id": "ri_2",
+              "tenant_id": "t_1",
+              "actor_user_id": "u_1",
+              "target_user_id": null,
+              "owner_user_id": "u_owner",
+              "version": 1,
+              "status": "superseded",
+              "kind": "update_kr_progress",
+              "risk_severity": "high",
+              "evidence_ids": [],
+              "rationale": "已替代动作",
+              "expected_impact": "不再执行",
+              "dry_run_result_summary": "dry-run",
+              "estimated_write_targets_count": 0,
+              "decision": null
+            },
+            {
+              "id": "pa_withdrawn",
+              "review_item_id": "ri_3",
+              "tenant_id": "t_1",
+              "actor_user_id": "u_1",
+              "target_user_id": null,
+              "owner_user_id": "u_owner",
+              "version": 1,
+              "status": "withdrawn",
+              "kind": "update_kr_progress",
+              "risk_severity": "high",
+              "evidence_ids": [],
+              "rationale": "已撤回动作",
+              "expected_impact": "不再执行",
+              "dry_run_result_summary": "dry-run",
+              "estimated_write_targets_count": 0,
+              "decision": null
+            }
+          ],
+          "evidence": [],
+          "ledger_events": []
+        }
+        """
+
+        let snapshot = try JSONDecoder().decode(ReviewInboxAPISnapshot.self, from: Data(json.utf8))
+        let actions = snapshot.toDisplaySnapshot().actions
+
+        XCTAssertEqual(actions.first { $0.id == "pa_draft" }?.gateState, .draft)
+        XCTAssertEqual(actions.first { $0.id == "pa_superseded" }?.gateState, .superseded)
+        XCTAssertEqual(actions.first { $0.id == "pa_withdrawn" }?.gateState, .withdrawn)
+        XCTAssertNotEqual(actions.first { $0.id == "pa_draft" }?.gateState, .rejected)
+        XCTAssertNotEqual(actions.first { $0.id == "pa_superseded" }?.gateState, .rejected)
+        XCTAssertNotEqual(actions.first { $0.id == "pa_withdrawn" }?.gateState, .pending)
+    }
 }

@@ -16,9 +16,15 @@ final class ReviewInboxViewModel {
     var lastErrorMessage: String?
 
     private let provider: ReviewInboxDataProviding
+    private let onSessionInvalidated: @MainActor (String) -> Void
+    private var latestLoadRequestID: UInt64 = 0
 
-    init(provider: ReviewInboxDataProviding) {
+    init(
+        provider: ReviewInboxDataProviding,
+        onSessionInvalidated: @escaping @MainActor (String) -> Void = { _ in }
+    ) {
         self.provider = provider
+        self.onSessionInvalidated = onSessionInvalidated
     }
 
     var visibleItemCount: Int {
@@ -100,12 +106,16 @@ final class ReviewInboxViewModel {
         }
     }
 
+    var highRiskCount: Int {
+        items.filter { $0.riskLevel == .critical || $0.riskLevel == .high }.count
+    }
+
     var criticalCount: Int {
         items.filter { $0.riskLevel == .critical }.count
     }
 
-    var pendingGateCount: Int {
-        actions.filter { $0.gateState == .pending }.count
+    var needsConfirmationCount: Int {
+        items.filter { $0.status == .needsConfirmation || $0.status == .new }.count
     }
 
     var executedCount: Int {
@@ -132,13 +142,22 @@ final class ReviewInboxViewModel {
 
     func load(force: Bool = false) async {
         guard force || loadState != .loading else { return }
+        latestLoadRequestID += 1
+        let requestID = latestLoadRequestID
         loadState = .loading
         lastErrorMessage = nil
 
         do {
-            applySnapshot(try await provider.loadSnapshot())
+            let snapshot = try await provider.loadSnapshot()
+            guard requestID == latestLoadRequestID else { return }
+            applySnapshot(snapshot)
             loadState = .ready
         } catch {
+            guard requestID == latestLoadRequestID else { return }
+            if let providerError = error as? ReviewInboxDataProviderError,
+               case .unauthorized = providerError {
+                onSessionInvalidated(providerError.errorDescription ?? "登录会话已失效，请重新扫码登录。")
+            }
             let message = "复盘收件箱加载失败：\(error.localizedDescription)"
             lastErrorMessage = message
             loadState = .failed(message)
@@ -215,6 +234,10 @@ final class ReviewInboxViewModel {
             applySnapshot(updated)
             confirmationNote = ""
         } catch {
+            if let providerError = error as? ReviewInboxDataProviderError,
+               case .unauthorized = providerError {
+                onSessionInvalidated(providerError.errorDescription ?? "登录会话已失效，请重新扫码登录。")
+            }
             lastErrorMessage = "决策提交失败：\(error.localizedDescription)"
         }
 

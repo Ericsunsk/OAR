@@ -197,8 +197,6 @@ private enum QRCodeRenderer {
 
 private struct BoundaryDot: View {
     var body: some View {
-        Circle()
-            .fill(Color.oarMoss)
-            .frame(width: 7, height: 7)
+        OARSymbolDot(color: Color.oarMoss)
     }
 }

@@ -82,12 +82,68 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
         await assertLoadSnapshot(statusCode: 422, mapsTo: .unsupportedAction)
     }
 
+    func testValidationErrorReasonReviewDecisionNotWiredMapsToDecisionPathNotWired() async {
+        let payload = Data(
+            """
+            {
+              "error": "review_decision_not_wired",
+              "safe_message": "decision path not wired"
+            }
+            """.utf8
+        )
+        await assertLoadSnapshot(statusCode: 422, responseData: payload, mapsTo: .decisionPathNotWired)
+    }
+
+    func testValidationErrorSafeMessageMapsToRemoteRejected() async {
+        let payload = Data(
+            """
+            {
+              "reason": "validation_failed",
+              "safe_message": "该动作已被其他审批覆盖，请刷新后重试。"
+            }
+            """.utf8
+        )
+
+        TestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 422,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                payload
+            )
+        }
+
+        let provider = RemoteReviewInboxDataProvider(
+            baseURL: URL(string: "https://oar.example.test")!,
+            appSession: Self.appSession,
+            urlSession: Self.urlSession
+        )
+
+        do {
+            _ = try await provider.loadSnapshot()
+            XCTFail("Expected remoteRejected error")
+        } catch let error as ReviewInboxDataProviderError {
+            guard case let .remoteRejected(message) = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+            XCTAssertEqual(message, "该动作已被其他审批覆盖，请刷新后重试。")
+            XCTAssertEqual(error.localizedDescription, "该动作已被其他审批覆盖，请刷新后重试。")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testServerErrorMapsToServerUnavailable() async {
         await assertLoadSnapshot(statusCode: 503, mapsTo: .serverUnavailable)
     }
 
     private func assertLoadSnapshot(
         statusCode: Int,
+        responseData: Data = Data(),
         mapsTo expectedError: ReviewInboxDataProviderError,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -100,7 +156,7 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
                     httpVersion: nil,
                     headerFields: nil
                 )!,
-                Data()
+                responseData
             )
         }
 
