@@ -20,7 +20,6 @@ use crate::oauth::{
 };
 #[cfg(feature = "postgres")]
 use crate::postgres::PostgresFeishuGrantMaterialStore;
-#[cfg(feature = "postgres")]
 use crate::redaction::SecretString;
 
 pub type FeishuAuthRefreshAdapter<P, E, H> =
@@ -43,6 +42,117 @@ pub type PostgresFeishuAuthRefreshAdapter<H> = FeishuAuthRefreshAdapter<
 #[cfg(feature = "postgres")]
 pub type PostgresAsyncFeishuAuthRefreshAdapter =
     PostgresFeishuAuthRefreshAdapter<ReqwestAsyncHttpClient>;
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct PostgresFeishuAuthRefreshEnvConfig {
+    pub app_id: String,
+    pub app_secret: SecretString,
+    pub grant_key_id: String,
+    pub grant_key_material: [u8; 32],
+}
+
+impl fmt::Debug for PostgresFeishuAuthRefreshEnvConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PostgresFeishuAuthRefreshEnvConfig")
+            .field("app_id", &self.app_id)
+            .field("app_secret", &"[REDACTED]")
+            .field("grant_key_id", &"[REDACTED]")
+            .field("grant_key_material", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PostgresFeishuAuthRefreshEnvConfigError {
+    MissingAppId,
+    MissingAppSecret,
+    MissingGrantKeyId,
+    MissingGrantKeyHex,
+    InvalidGrantKeyHex,
+}
+
+impl fmt::Debug for PostgresFeishuAuthRefreshEnvConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingAppId => write!(
+                f,
+                "PostgresFeishuAuthRefreshEnvConfigError(missing_oar_feishu_app_id)"
+            ),
+            Self::MissingAppSecret => write!(
+                f,
+                "PostgresFeishuAuthRefreshEnvConfigError(missing_oar_feishu_app_secret)"
+            ),
+            Self::MissingGrantKeyId => write!(
+                f,
+                "PostgresFeishuAuthRefreshEnvConfigError(missing_oar_grant_key_id)"
+            ),
+            Self::MissingGrantKeyHex => write!(
+                f,
+                "PostgresFeishuAuthRefreshEnvConfigError(missing_oar_grant_key_hex)"
+            ),
+            Self::InvalidGrantKeyHex => write!(
+                f,
+                "PostgresFeishuAuthRefreshEnvConfigError(invalid_oar_grant_key_hex)"
+            ),
+        }
+    }
+}
+
+impl fmt::Display for PostgresFeishuAuthRefreshEnvConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingAppId => write!(f, "oar feishu app id is required"),
+            Self::MissingAppSecret => write!(f, "oar feishu app secret is required"),
+            Self::MissingGrantKeyId => write!(f, "oar grant key id is required"),
+            Self::MissingGrantKeyHex => write!(f, "oar grant key hex is required"),
+            Self::InvalidGrantKeyHex => {
+                write!(f, "oar grant key hex must decode to exactly 32 bytes")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PostgresFeishuAuthRefreshEnvConfigError {}
+
+impl PostgresFeishuAuthRefreshEnvConfig {
+    pub fn from_env_map(
+        env: &impl Fn(&str) -> Option<String>,
+    ) -> Result<Self, PostgresFeishuAuthRefreshEnvConfigError> {
+        let app_id = required_env(
+            env,
+            "OAR_FEISHU_APP_ID",
+            PostgresFeishuAuthRefreshEnvConfigError::MissingAppId,
+        )?;
+        let app_secret = required_env(
+            env,
+            "OAR_FEISHU_APP_SECRET",
+            PostgresFeishuAuthRefreshEnvConfigError::MissingAppSecret,
+        )?;
+        let grant_key_id = required_env(
+            env,
+            "OAR_GRANT_KEY_ID",
+            PostgresFeishuAuthRefreshEnvConfigError::MissingGrantKeyId,
+        )?;
+        let grant_key_hex = required_env(
+            env,
+            "OAR_GRANT_KEY_HEX",
+            PostgresFeishuAuthRefreshEnvConfigError::MissingGrantKeyHex,
+        )?;
+
+        let decoded = hex::decode(grant_key_hex)
+            .map_err(|_| PostgresFeishuAuthRefreshEnvConfigError::InvalidGrantKeyHex)?;
+        let grant_key_material: [u8; 32] = decoded
+            .try_into()
+            .map_err(|_| PostgresFeishuAuthRefreshEnvConfigError::InvalidGrantKeyHex)?;
+
+        Ok(Self {
+            app_id,
+            app_secret: SecretString::new(app_secret),
+            grant_key_id,
+            grant_key_material,
+        })
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FeishuAuthRefreshAdapterBuildError {
@@ -252,6 +362,20 @@ impl AesGcmKeyResolver for StaticAesGcmKeyResolver {
             Err(StaticAesGcmKeyResolverError)
         }
     }
+}
+
+fn required_env(
+    env: &impl Fn(&str) -> Option<String>,
+    key: &str,
+    error: PostgresFeishuAuthRefreshEnvConfigError,
+) -> Result<String, PostgresFeishuAuthRefreshEnvConfigError> {
+    let Some(value) = env(key) else {
+        return Err(error);
+    };
+    if value.trim().is_empty() {
+        return Err(error);
+    }
+    Ok(value)
 }
 
 #[cfg(test)]

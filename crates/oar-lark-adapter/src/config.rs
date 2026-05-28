@@ -77,6 +77,37 @@ impl fmt::Debug for FeishuOpenApiConfig {
 }
 
 impl FeishuOpenApiConfig {
+    pub fn from_env_map(
+        env: &impl Fn(&str) -> Option<String>,
+    ) -> Result<Self, FeishuOpenApiConfigError> {
+        let mut config = Self::default();
+
+        if let Some(base_url) = env("OAR_FEISHU_BASE_URL") {
+            config.base_url = base_url;
+        }
+        if let Some(max_response_bytes) = env("OAR_FEISHU_MAX_RESPONSE_BYTES") {
+            config.max_response_bytes = parse_positive_usize(
+                &max_response_bytes,
+                FeishuOpenApiConfigError::InvalidMaxResponseBytes,
+            )?;
+        }
+        if let Some(request_timeout_ms) = env("OAR_FEISHU_REQUEST_TIMEOUT_MS") {
+            config.request_timeout_ms = parse_positive_u64(
+                &request_timeout_ms,
+                FeishuOpenApiConfigError::InvalidRequestTimeoutMs,
+            )?;
+        }
+        if let Some(connect_timeout_ms) = env("OAR_FEISHU_CONNECT_TIMEOUT_MS") {
+            config.connect_timeout_ms = parse_positive_u64(
+                &connect_timeout_ms,
+                FeishuOpenApiConfigError::InvalidConnectTimeoutMs,
+            )?;
+        }
+
+        config.validate()?;
+        Ok(config)
+    }
+
     pub fn validate(&self) -> Result<(), FeishuOpenApiConfigError> {
         if self.base_url.trim().is_empty() {
             return Err(FeishuOpenApiConfigError::EmptyBaseUrl);
@@ -91,5 +122,85 @@ impl FeishuOpenApiConfig {
             return Err(FeishuOpenApiConfigError::InvalidConnectTimeoutMs);
         }
         Ok(())
+    }
+}
+
+fn parse_positive_usize(
+    value: &str,
+    error: FeishuOpenApiConfigError,
+) -> Result<usize, FeishuOpenApiConfigError> {
+    let parsed = value.parse::<usize>().map_err(|_| error)?;
+    if parsed == 0 {
+        return Err(error);
+    }
+    Ok(parsed)
+}
+
+fn parse_positive_u64(
+    value: &str,
+    error: FeishuOpenApiConfigError,
+) -> Result<u64, FeishuOpenApiConfigError> {
+    let parsed = value.parse::<u64>().map_err(|_| error)?;
+    if parsed == 0 {
+        return Err(error);
+    }
+    Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_env_map_uses_defaults_when_env_is_absent() {
+        let config = FeishuOpenApiConfig::from_env_map(&|_| None).expect("default env config");
+        assert_eq!(config, FeishuOpenApiConfig::default());
+    }
+
+    #[test]
+    fn from_env_map_applies_overrides() {
+        let config = FeishuOpenApiConfig::from_env_map(&|key| match key {
+            "OAR_FEISHU_BASE_URL" => Some("https://open.feishu.cn".to_string()),
+            "OAR_FEISHU_MAX_RESPONSE_BYTES" => Some("2048".to_string()),
+            "OAR_FEISHU_REQUEST_TIMEOUT_MS" => Some("45000".to_string()),
+            "OAR_FEISHU_CONNECT_TIMEOUT_MS" => Some("2500".to_string()),
+            _ => None,
+        })
+        .expect("env overrides should parse");
+
+        assert_eq!(
+            config,
+            FeishuOpenApiConfig {
+                base_url: "https://open.feishu.cn".to_string(),
+                max_response_bytes: 2048,
+                request_timeout_ms: 45_000,
+                connect_timeout_ms: 2_500,
+            }
+        );
+    }
+
+    #[test]
+    fn from_env_map_rejects_invalid_or_zero_numeric_values_without_echoing_raw_value() {
+        let invalid_number = FeishuOpenApiConfig::from_env_map(&|key| match key {
+            "OAR_FEISHU_MAX_RESPONSE_BYTES" => Some("bad-number-secret".to_string()),
+            _ => None,
+        })
+        .expect_err("invalid max bytes should fail");
+        assert_eq!(
+            invalid_number,
+            FeishuOpenApiConfigError::InvalidMaxResponseBytes
+        );
+        let rendered = invalid_number.to_string();
+        assert!(!rendered.contains("bad-number-secret"));
+
+        let zero_timeout = FeishuOpenApiConfig::from_env_map(&|key| match key {
+            "OAR_FEISHU_REQUEST_TIMEOUT_MS" => Some("0".to_string()),
+            _ => None,
+        })
+        .expect_err("zero request timeout should fail");
+        assert_eq!(
+            zero_timeout,
+            FeishuOpenApiConfigError::InvalidRequestTimeoutMs
+        );
     }
 }

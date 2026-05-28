@@ -219,12 +219,13 @@ OAR_HTTP_BIND_ADDR=0.0.0.0:8080 cargo run -p oar-http-facade
 最小 Docker 打包入口：
 
 ```bash
-docker build -t oar-http-facade .
-docker run --rm -p 8080:8080 oar-http-facade
+docker build -f docker/backend.Dockerfile -t oar-backend .
+docker run --rm -p 8080:8080 oar-backend
+docker compose -f docker/compose.yml up --build
 ```
 
-后端 env 模板见 [`.env.example`](.env.example)，当前只声明真实生效的
-`OAR_HTTP_BIND_ADDR`。飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入模板。
+后端 env 模板见 [`.env.example`](.env.example)。`docker/compose.yml`
+会从 shell 或本地 `.env` 读取可选配置并提供容器默认值。飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入 Dockerfile。
 
 ## 文档地图
 
