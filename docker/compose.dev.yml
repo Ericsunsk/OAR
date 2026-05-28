@@ -1,0 +1,39 @@
+name: oar
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    image: oar-backend:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      OAR_HTTP_BIND_ADDR: ${OAR_HTTP_BIND_ADDR:-0.0.0.0:8080}
+      DATABASE_URL: ${DATABASE_URL:-postgres://oar:oar@postgres:5432/oar}
+      OAR_FEISHU_BASE_URL: ${OAR_FEISHU_BASE_URL:-https://open.feishu.cn}
+      OAR_FEISHU_MAX_RESPONSE_BYTES: ${OAR_FEISHU_MAX_RESPONSE_BYTES:-65536}
+      OAR_FEISHU_REQUEST_TIMEOUT_MS: ${OAR_FEISHU_REQUEST_TIMEOUT_MS:-30000}
+      OAR_FEISHU_CONNECT_TIMEOUT_MS: ${OAR_FEISHU_CONNECT_TIMEOUT_MS:-5000}
+    ports:
+      - "8080:8080"
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: oar
+      POSTGRES_USER: oar
+      POSTGRES_PASSWORD: oar
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:

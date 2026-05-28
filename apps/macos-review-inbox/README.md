@@ -63,7 +63,7 @@ settings are introduced.
 ```bash
 docker build -f ../../docker/backend.Dockerfile -t oar-backend ../..
 docker run --rm -p 8080:8080 oar-backend
-docker compose -f ../../docker/compose.yml up --build
+docker compose -f ../../docker/compose.dev.yml up --build
 ```
 
 Mock fallbacks remain test-only injection paths and should not be exposed for

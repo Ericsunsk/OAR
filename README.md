@@ -221,11 +221,13 @@ OAR_HTTP_BIND_ADDR=0.0.0.0:8080 cargo run -p oar-http-facade
 ```bash
 docker build -f docker/backend.Dockerfile -t oar-backend .
 docker run --rm -p 8080:8080 oar-backend
-docker compose -f docker/compose.yml up --build
+docker compose -f docker/compose.dev.yml up --build
 ```
 
-后端 env 模板见 [`.env.example`](.env.example)。`docker/compose.yml`
-会从 shell 或本地 `.env` 读取可选配置并提供容器默认值。飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入 Dockerfile。
+后端 env 模板见 [`.env.example`](.env.example)。`docker/compose.dev.yml`
+会从 shell 或本地 `.env` 读取可选配置，并在未提供 `DATABASE_URL` 时启动本地 Postgres volume。
+生产/云端部署使用默认 `docker/compose.yml`，必须显式注入 `DATABASE_URL`，不会静默降级成本地存储。
+飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入 Dockerfile。
 
 ## 文档地图
 
