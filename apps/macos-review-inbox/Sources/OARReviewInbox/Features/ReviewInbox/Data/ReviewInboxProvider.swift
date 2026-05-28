@@ -29,6 +29,9 @@ enum ReviewInboxDataProviderError: Error {
     case actionVersionMismatch
     case staleSyncCursor
     case unsupportedAction
+    case missingBackendConfiguration
+    case unauthorized
+    case serverUnavailable
     case remoteProviderNotConfigured
 }
 
@@ -137,17 +140,20 @@ final class MockReviewInboxDataProvider: ReviewInboxDataProviding {
 
 struct RemoteReviewInboxDataProvider: ReviewInboxDataProviding {
     let baseURL: URL
+    let appSession: AppSession
     let urlSession: URLSession
     let decoder: JSONDecoder
     let encoder: JSONEncoder
 
     init(
         baseURL: URL,
+        appSession: AppSession,
         urlSession: URLSession = .shared,
         decoder: JSONDecoder = JSONDecoder(),
         encoder: JSONEncoder = JSONEncoder()
     ) {
         self.baseURL = baseURL
+        self.appSession = appSession
         self.urlSession = urlSession
         self.decoder = decoder
         self.encoder = encoder
@@ -155,7 +161,7 @@ struct RemoteReviewInboxDataProvider: ReviewInboxDataProviding {
 
     func loadSnapshot() async throws -> ReviewInboxDisplaySnapshot {
         let endpoint = baseURL.appendingPathComponent("review-inbox/snapshot")
-        let data = try await performRequest(endpoint)
+        let data = try await performRequest(URLRequest(url: endpoint))
         return try decoder.decode(ReviewInboxAPISnapshot.self, from: data).toDisplaySnapshot()
     }
 
@@ -198,17 +204,30 @@ struct RemoteReviewInboxDataProvider: ReviewInboxDataProviding {
         return try decoder.decode(ReviewInboxAPISnapshot.self, from: data).toDisplaySnapshot()
     }
 
-    private func performRequest(_ url: URL) async throws -> Data {
-        try await performRequest(URLRequest(url: url))
-    }
-
     private func performRequest(_ request: URLRequest) async throws -> Data {
+        var request = request
+        request.setValue("Bearer \(appSession.sessionID)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
         let (data, response) = try await urlSession.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              200..<300 ~= httpResponse.statusCode else {
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw ReviewInboxDataProviderError.remoteProviderNotConfigured
         }
-        return data
+
+        switch httpResponse.statusCode {
+        case 200..<300:
+            return data
+        case 401, 403:
+            throw ReviewInboxDataProviderError.unauthorized
+        case 409:
+            throw ReviewInboxDataProviderError.staleSyncCursor
+        case 422:
+            throw ReviewInboxDataProviderError.unsupportedAction
+        case 500..<600:
+            throw ReviewInboxDataProviderError.serverUnavailable
+        default:
+            throw ReviewInboxDataProviderError.remoteProviderNotConfigured
+        }
     }
 }
 
@@ -223,6 +242,12 @@ extension ReviewInboxDataProviderError: LocalizedError {
             return "复盘项已被其他端更新，请重新同步。"
         case .unsupportedAction:
             return "当前动作不在生产执行白名单内。"
+        case .missingBackendConfiguration:
+            return "请配置 OAR 后端地址后再同步真实复盘数据。"
+        case .unauthorized:
+            return "登录会话已失效，请重新扫码登录。"
+        case .serverUnavailable:
+            return "OAR 后端暂时不可用，请稍后重试。"
         case .remoteProviderNotConfigured:
             return "远端复盘收件箱服务尚未配置或返回异常。"
         }

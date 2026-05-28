@@ -5,7 +5,7 @@ import XCTest
 final class AuthViewModelTests: XCTestCase {
     func testStartFeishuLoginCreatesWaitingSession() async {
         let sessionStore = AppSessionStore()
-        let model = AuthViewModel(sessionStore: sessionStore)
+        let model = AuthViewModel(provider: MockAuthProvider(), sessionStore: sessionStore)
 
         await model.startFeishuLogin()
 
@@ -14,9 +14,24 @@ final class AuthViewModelTests: XCTestCase {
         XCTAssertFalse(sessionStore.isAuthenticated)
     }
 
+    func testMissingBackendKeepsLoginSignedOut() async {
+        let sessionStore = AppSessionStore()
+        let model = AuthViewModel(provider: MissingBackendAuthProvider(), sessionStore: sessionStore)
+
+        await model.startFeishuLogin()
+
+        XCTAssertNil(model.qrSession)
+        XCTAssertEqual(model.statusText, "等待开始")
+        XCTAssertFalse(sessionStore.isAuthenticated)
+        XCTAssertEqual(
+            model.errorMessage,
+            "创建飞书登录会话失败：\(AuthProviderError.missingBackendConfiguration.localizedDescription)"
+        )
+    }
+
     func testPollingMockSessionAuthorizesAppSession() async {
         let sessionStore = AppSessionStore()
-        let model = AuthViewModel(sessionStore: sessionStore)
+        let model = AuthViewModel(provider: MockAuthProvider(), sessionStore: sessionStore)
 
         await model.startFeishuLogin()
         await model.pollOnce()
@@ -32,7 +47,7 @@ final class AuthViewModelTests: XCTestCase {
 
     func testSSEMockSessionAuthorizesAppSession() async {
         let sessionStore = AppSessionStore()
-        let model = AuthViewModel(sessionStore: sessionStore)
+        let model = AuthViewModel(provider: MockAuthProvider(), sessionStore: sessionStore)
 
         await model.startFeishuLogin()
 
@@ -57,7 +72,7 @@ final class AuthViewModelTests: XCTestCase {
 
     func testCancelLoginReturnsToSignedOut() async {
         let sessionStore = AppSessionStore()
-        let model = AuthViewModel(sessionStore: sessionStore)
+        let model = AuthViewModel(provider: MockAuthProvider(), sessionStore: sessionStore)
 
         await model.startFeishuLogin()
         model.cancelLogin()

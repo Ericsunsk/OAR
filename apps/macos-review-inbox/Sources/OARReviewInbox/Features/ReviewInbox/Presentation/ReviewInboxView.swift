@@ -1,8 +1,12 @@
 import SwiftUI
 
 struct ReviewInboxRootView: View {
-    @State private var model = ReviewInboxViewModel()
+    @State private var model: ReviewInboxViewModel
     @State private var showAgent = true
+
+    init(provider: ReviewInboxDataProviding) {
+        _model = State(initialValue: ReviewInboxViewModel(provider: provider))
+    }
 
     var body: some View {
         ZStack {

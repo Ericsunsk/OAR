@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class ReviewInboxViewModelTests: XCTestCase {
     func testLoadSelectsFirstSortedItem() async {
-        let model = ReviewInboxViewModel()
+        let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
 
         await model.load()
 
@@ -15,7 +15,7 @@ final class ReviewInboxViewModelTests: XCTestCase {
     }
 
     func testApproveProgressActionUpdatesGateAndLedger() async {
-        let model = ReviewInboxViewModel()
+        let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
         await model.load()
 
         model.confirmationNote = "已核对 dry-run。"
@@ -28,7 +28,7 @@ final class ReviewInboxViewModelTests: XCTestCase {
     }
 
     func testFilterChangeReconcilesSelectionToVisibleItem() async {
-        let model = ReviewInboxViewModel()
+        let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
         await model.load()
 
         guard let executedItem = model.items.first(where: { $0.id == "review-004" }) else {
@@ -45,7 +45,7 @@ final class ReviewInboxViewModelTests: XCTestCase {
     }
 
     func testPreviousAndNextSelectionFollowSortedVisibleItems() async {
-        let model = ReviewInboxViewModel()
+        let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
         await model.load()
 
         XCTAssertFalse(model.canMoveToPreviousItem)
@@ -62,7 +62,7 @@ final class ReviewInboxViewModelTests: XCTestCase {
     }
 
     func testApproveNonExecutableActionShowsBoundaryMessage() async {
-        let model = ReviewInboxViewModel()
+        let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
         await model.load()
 
         guard let draftAction = model.actions.first(where: { $0.id == "act-002" }) else {
@@ -81,7 +81,7 @@ final class ReviewInboxViewModelTests: XCTestCase {
     }
 
     func testRejectNonExecutableActionIsAllowed() async {
-        let model = ReviewInboxViewModel()
+        let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
         await model.load()
 
         guard let draftAction = model.actions.first(where: { $0.id == "act-003" }),

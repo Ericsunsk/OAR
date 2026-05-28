@@ -8,6 +8,7 @@ protocol AuthProviding {
 }
 
 enum AuthProviderError: LocalizedError {
+    case missingBackendConfiguration
     case sessionNotFound
     case loginDenied
     case invalidResponse
@@ -15,6 +16,8 @@ enum AuthProviderError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .missingBackendConfiguration:
+            return "请配置 OAR 后端地址后再使用飞书扫码登录。"
         case .sessionNotFound:
             return "登录会话不存在或已过期。"
         case .loginDenied:
@@ -93,6 +96,25 @@ final class MockAuthProvider: AuthProviding {
 
     func signOut() async throws {
         pollCountBySessionID.removeAll()
+    }
+}
+
+struct MissingBackendAuthProvider: AuthProviding {
+    func createFeishuQRCodeSession() async throws -> FeishuQRCodeAuthSession {
+        throw AuthProviderError.missingBackendConfiguration
+    }
+
+    func pollFeishuQRCodeSession(_ sessionID: String) async throws -> AuthSessionState {
+        throw AuthProviderError.missingBackendConfiguration
+    }
+
+    func subscribeFeishuQRCodeSession(_ sessionID: String) -> AsyncThrowingStream<AuthLoginEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish(throwing: AuthProviderError.missingBackendConfiguration)
+        }
+    }
+
+    func signOut() async throws {
     }
 }
 

@@ -2,13 +2,13 @@
 
 SwiftUI macOS client for the OAR review inbox.
 
-This app is currently a production-facing shell, not a production writeback client. The default provider is still `MockReviewInboxDataProvider`, and every real platform write must remain server-side.
+This app is a production-facing review client, not a production writeback client. By default it requires an OAR backend and never falls back to mock review data or a mock login session unless an explicit local-development flag is enabled.
 
 ## Current Shape
 
 - Three-column macOS layout: navigation, review workspace, OAR Agent sidecar.
 - Glass visual treatment with native toolbar placement.
-- Async `ReviewInboxDataProviding` boundary for mock or remote data.
+- Async `ReviewInboxDataProviding` boundary for OAR backend data.
 - API DTO contract in `ReviewInboxAPIContract.swift`, mapped into display models.
 - View model tests for load, approve, reject, and capability boundary behavior.
 
@@ -20,13 +20,34 @@ Sources/OARReviewInbox/
   Design/                      Shared colors, fonts, and small design primitives
   Features/ReviewInbox/
     Domain/                    Client-side display models and filter enums
-    Data/                      API DTOs, providers, and mock fixtures
+    Data/                      API DTOs, providers, and local-only mock fixtures
     Presentation/              SwiftUI views and view models
 Tests/OARReviewInboxTests/
   Features/ReviewInbox/        Feature-level contract and view-model tests
 ```
 
 Naming rule: API payload types keep the `DTO` suffix and mirror backend contracts; client display models use the `ReviewInboxDisplay*` prefix; data entry points use `ReviewInboxData*`.
+
+## Runtime Configuration
+
+Set `OAR_BACKEND_BASE_URL` to the OAR backend origin before using the app with real data:
+
+```bash
+OAR_BACKEND_BASE_URL=https://oar.example.test swift run
+```
+
+The frontend calls only OAR backend endpoints:
+
+- `POST /auth/feishu/qr-sessions`
+- `GET /auth/feishu/qr-sessions/{session_id}`
+- `GET /auth/feishu/qr-sessions/{session_id}/events`
+- `GET /review-inbox/snapshot`
+- `POST /review-inbox/decisions`
+
+Local mock fallbacks are opt-in and should not be enabled for production validation:
+
+- `OAR_ALLOW_MOCK_AUTH=1`
+- `OAR_ALLOW_MOCK_REVIEW_INBOX=1`
 
 ## Production Boundary
 

@@ -17,7 +17,7 @@ final class ReviewInboxViewModel {
 
     private let provider: ReviewInboxDataProviding
 
-    init(provider: ReviewInboxDataProviding = MockReviewInboxDataProvider()) {
+    init(provider: ReviewInboxDataProviding) {
         self.provider = provider
     }
 

@@ -12,7 +12,7 @@ final class AuthViewModel {
     private let sessionStore: AppSessionStore
     private var eventTask: Task<Void, Never>?
 
-    init(provider: AuthProviding = MockAuthProvider(), sessionStore: AppSessionStore) {
+    init(provider: AuthProviding, sessionStore: AppSessionStore) {
         self.provider = provider
         self.sessionStore = sessionStore
     }
