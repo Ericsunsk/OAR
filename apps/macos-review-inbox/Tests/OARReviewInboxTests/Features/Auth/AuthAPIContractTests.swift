@@ -71,4 +71,35 @@ final class AuthAPIContractTests: XCTestCase {
 
         XCTAssertThrowsError(try dto.toDomainState())
     }
+
+    func testSSEAuthorizedEventMapsToLoginEvent() throws {
+        let json = """
+        {
+          "event": "authorized",
+          "session_id": "qr_123",
+          "qr_session": null,
+          "oar_session": {
+            "session_id": "oar_session_123"
+          },
+          "user": {
+            "id": "user_1",
+            "display_name": "陈敏",
+            "tenant_name": "OAR 测试租户"
+          },
+          "safe_message": null,
+          "event_id": "evt_1"
+        }
+        """
+
+        let dto = try JSONDecoder().decode(AuthLoginEventDTO.self, from: Data(json.utf8))
+        let event = try dto.toDomainEvent()
+
+        guard case let .authorized(sessionID, session) = event else {
+            XCTFail("Expected authorized event")
+            return
+        }
+
+        XCTAssertEqual(sessionID, "qr_123")
+        XCTAssertEqual(session.sessionID, "oar_session_123")
+    }
 }

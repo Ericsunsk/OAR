@@ -3,6 +3,7 @@ import Foundation
 protocol AuthProviding {
     func createFeishuQRCodeSession() async throws -> FeishuQRCodeAuthSession
     func pollFeishuQRCodeSession(_ sessionID: String) async throws -> AuthSessionState
+    func subscribeFeishuQRCodeSession(_ sessionID: String) -> AsyncThrowingStream<AuthLoginEvent, Error>
     func signOut() async throws
 }
 
@@ -69,6 +70,27 @@ final class MockAuthProvider: AuthProviding {
         )
     }
 
+    func subscribeFeishuQRCodeSession(_ sessionID: String) -> AsyncThrowingStream<AuthLoginEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let pendingState = try await pollFeishuQRCodeSession(sessionID)
+                    if case let .waitingForScan(qrSession) = pendingState {
+                        continuation.yield(.pending(sessionID: sessionID, qrSession: qrSession))
+                    }
+
+                    let authorizedState = try await pollFeishuQRCodeSession(sessionID)
+                    if case let .authorized(appSession) = authorizedState {
+                        continuation.yield(.authorized(sessionID: sessionID, appSession: appSession))
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     func signOut() async throws {
         pollCountBySessionID.removeAll()
     }
@@ -112,6 +134,43 @@ struct RemoteAuthProvider: AuthProviding {
         return try response.toDomainState(dateParser: dateParser)
     }
 
+    func subscribeFeishuQRCodeSession(_ sessionID: String) -> AsyncThrowingStream<AuthLoginEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let endpoint = baseURL
+                        .appendingPathComponent("auth/feishu/qr-sessions")
+                        .appendingPathComponent(sessionID)
+                        .appendingPathComponent("events")
+                    var request = URLRequest(url: endpoint)
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                    let (bytes, response) = try await urlSession.bytes(for: request)
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          200..<300 ~= httpResponse.statusCode else {
+                        throw AuthProviderError.remoteUnavailable
+                    }
+
+                    for try await line in bytes.lines {
+                        guard let event = try decodeServerSentEventLine(line) else { continue }
+                        continuation.yield(event)
+                        if event.isTerminalAuthEvent {
+                            break
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     func signOut() async throws {
         let endpoint = baseURL.appendingPathComponent("auth/logout")
         var request = URLRequest(url: endpoint)
@@ -134,6 +193,25 @@ struct RemoteAuthProvider: AuthProviding {
             throw AuthProviderError.loginDenied
         default:
             throw AuthProviderError.remoteUnavailable
+        }
+    }
+
+    private func decodeServerSentEventLine(_ line: String) throws -> AuthLoginEvent? {
+        guard line.hasPrefix("data:") else { return nil }
+        let json = line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
+        guard !json.isEmpty else { return nil }
+        let dto = try decoder.decode(AuthLoginEventDTO.self, from: Data(json.utf8))
+        return try dto.toDomainEvent(dateParser: dateParser)
+    }
+}
+
+private extension AuthLoginEvent {
+    var isTerminalAuthEvent: Bool {
+        switch self {
+        case .authorized, .denied, .expired:
+            return true
+        case .pending, .keepalive:
+            return false
         }
     }
 }

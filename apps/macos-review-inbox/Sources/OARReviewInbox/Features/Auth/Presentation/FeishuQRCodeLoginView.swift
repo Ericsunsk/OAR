@@ -71,7 +71,7 @@ private struct QRPanel: View {
                     .font(.codexBody(12, weight: .semibold))
                     .foregroundStyle(Color.codexMuted)
                 Spacer()
-                if model.isWorking {
+                if model.isWorking || model.transportState == .sseConnecting || model.transportState == .sseLive {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -104,7 +104,7 @@ private struct QRPanel: View {
                             await model.pollOnce()
                         }
                     } label: {
-                        Label("模拟已扫码", systemImage: "checkmark")
+                        Label("刷新状态", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(OARButtonStyle(prominent: true))
                     .disabled(model.isWorking)
