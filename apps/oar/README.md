@@ -57,11 +57,16 @@ Current repository status: `oar-http-facade` can create a real Feishu OAuth
 authorization URL when `OAR_FEISHU_APP_ID`, `OAR_FEISHU_APP_SECRET`, and
 `OAR_FEISHU_REDIRECT_URI` are configured. The callback exchanges the Feishu
 authorization code server-side and returns only an OAR session plus safe user
-display fields to the client. OAuth grant persistence and Review Inbox live
-data are still backend follow-up work, so the snapshot endpoint currently
-returns an empty Review Inbox contract and decision write paths remain disabled
-until the `ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent`
-execution chain is connected. For Docker, the backend may set
+display fields to the client. When the backend is configured with `DATABASE_URL`
+and a grant encryption key, the callback stores an encrypted per-user
+`TokenGrant`; Review Inbox live data is still backend follow-up work, so the
+snapshot endpoint currently returns an empty Review Inbox contract and decision
+write paths remain disabled until the
+`ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent` execution
+chain is connected. `OAR_FEISHU_APP_ID` / `OAR_FEISHU_APP_SECRET` identify the
+OAR Feishu application for this deployment, not a shared user or bot identity;
+each successful scan creates a grant bound to the Feishu tenant and user. For
+Docker, the backend may set
 `OAR_HTTP_BIND_ADDR=0.0.0.0:8080`; the macOS client remains hardwired to the
 local backend origin until in-app server settings are introduced.
 

@@ -138,6 +138,8 @@ flowchart TD
 - 如果需要 7x24 后台运行，需要申请 `offline_access`。
 - `refresh_token` 只在用户授予 `offline_access` 时返回。
 - 刷新成功后必须保存新的 refresh token，原 refresh token 可能失效。
+- `OAR_FEISHU_APP_ID` / `OAR_FEISHU_APP_SECRET` 标识 OAR 这个飞书应用或私有化部署，不是用户身份；
+  用户扫码后生成的 `TokenGrant` 才是按 `tenant_key + open_id` 绑定的 delegated identity。
 - 客户端只保存 OAR session，不长期保存飞书 refresh token。
 - `TokenGrant` repository 边界只接受/返回加密授权包，不暴露明文 OAuth token。
 

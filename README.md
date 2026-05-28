@@ -253,6 +253,18 @@ DATABASE_URL=postgres://... docker compose -f docker/compose.yml up --build
 本地开发可临时设置 `OAR_ALLOW_EPHEMERAL_GRANT_KEY=true` 让 auth refresh 配置自动生成一次性内存
 grant key；生产环境不要打开，必须注入稳定的 `OAR_GRANT_KEY_ID` / `OAR_GRANT_KEY_HEX`。
 
+飞书应用凭证模型：
+
+| 场景 | `OAR_FEISHU_APP_ID` / `OAR_FEISHU_APP_SECRET` 来源 | 用户扫码后的身份 |
+| --- | --- | --- |
+| OAR 官方 SaaS | OAR 官方在飞书开放平台创建并发布的应用 | 每个租户用户授权后生成自己的 `user_access_token` / `TokenGrant` |
+| 企业私有化部署 | 企业管理员在自己的飞书开发者后台创建自建应用 | 该企业内部用户授权后生成各自的 `TokenGrant` |
+| 本地开发 | 开发者在测试租户创建一个开发应用 | 测试用户授权后生成本地测试 `TokenGrant` |
+
+因此 `App ID` / `App Secret` 可以按部署固定，但不能硬编码到客户端，也不等于“所有用户共用一个机器人”。
+机器人/应用身份用于系统通知等 `bot_actor` 场景；用户扫码授权产生的是按 `tenant_key + open_id` 绑定的
+`user_delegated` grant，后续读写仍受飞书应用 scope、用户资源权限和 OAR allowlist 共同限制。
+
 ## 文档地图
 
 建议按这个顺序读：
