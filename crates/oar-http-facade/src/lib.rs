@@ -33,6 +33,37 @@ impl Default for OarHttpFacadeConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OarHttpFacadeConfigError {
+    InvalidBindAddr,
+}
+
+impl fmt::Display for OarHttpFacadeConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidBindAddr => {
+                write!(f, "oar_http_facade_config_invalid: invalid_bind_addr")
+            }
+        }
+    }
+}
+
+impl Error for OarHttpFacadeConfigError {}
+
+impl OarHttpFacadeConfig {
+    pub fn from_env_map(
+        env: &impl Fn(&str) -> Option<String>,
+    ) -> Result<Self, OarHttpFacadeConfigError> {
+        let Some(raw_bind_addr) = env("OAR_HTTP_BIND_ADDR") else {
+            return Ok(Self::default());
+        };
+        let bind_addr = raw_bind_addr
+            .parse::<SocketAddr>()
+            .map_err(|_| OarHttpFacadeConfigError::InvalidBindAddr)?;
+        Ok(Self { bind_addr })
+    }
+}
+
 #[derive(Debug)]
 pub enum OarHttpFacadeError {
     Bind(std::io::Error),
@@ -275,6 +306,38 @@ mod tests {
         assert_eq!(response.status, StatusCode::OK);
         assert_eq!(body["status"], "ok");
         assert!(!response.body.contains("token"));
+    }
+
+    #[test]
+    fn config_defaults_to_localhost_and_accepts_docker_bind_override() {
+        let default_config = OarHttpFacadeConfig::from_env_map(&|_| None).expect("default config");
+        let docker_config = OarHttpFacadeConfig::from_env_map(&|key| {
+            (key == "OAR_HTTP_BIND_ADDR").then(|| "0.0.0.0:8080".to_string())
+        })
+        .expect("docker config");
+
+        assert_eq!(
+            default_config.bind_addr,
+            "127.0.0.1:8080".parse::<SocketAddr>().expect("addr")
+        );
+        assert_eq!(
+            docker_config.bind_addr,
+            "0.0.0.0:8080".parse::<SocketAddr>().expect("addr")
+        );
+    }
+
+    #[test]
+    fn config_rejects_invalid_bind_override_without_echoing_in_display() {
+        let error = OarHttpFacadeConfig::from_env_map(&|key| {
+            (key == "OAR_HTTP_BIND_ADDR").then(|| "not an address".to_string())
+        })
+        .expect_err("invalid config");
+
+        assert_eq!(
+            error.to_string(),
+            "oar_http_facade_config_invalid: invalid_bind_addr"
+        );
+        assert!(!error.to_string().contains("not an address"));
     }
 
     #[test]

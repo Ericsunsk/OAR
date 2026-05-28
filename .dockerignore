@@ -1,0 +1,25 @@
+.git
+.gitignore
+.DS_Store
+
+# Rust build output
+target
+
+# Non-runtime project material
+apps
+docs
+.claude
+.codex
+
+# Swift / Xcode build output
+.build
+**/.build
+DerivedData
+**/DerivedData
+*.xcuserdata
+*.xcworkspace/xcuserdata
+
+# Local-only configuration
+.env
+.env.*
+!.env.example

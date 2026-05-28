@@ -56,6 +56,14 @@ Current repository status: `oar-http-facade` exposes a safe local backend shell
 for contract wiring. It returns an empty Review Inbox snapshot and rejects auth
 or decision write paths until real Feishu auth and the `ConfirmedAction ->
 OperationLedger -> PlatformAdapter -> AuditEvent` execution chain are connected.
+For Docker, the backend may set `OAR_HTTP_BIND_ADDR=0.0.0.0:8080`; the macOS
+client remains hardwired to the local backend origin until in-app server
+settings are introduced.
+
+```bash
+docker build -t oar-http-facade ../..
+docker run --rm -p 8080:8080 oar-http-facade
+```
 
 Mock fallbacks remain test-only injection paths and should not be exposed for
 production validation.

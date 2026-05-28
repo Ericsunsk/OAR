@@ -209,6 +209,23 @@ swift run
 auth / decision 写路径明确返回未配置或不支持。前端期望的 HTTP endpoint 记录在
 [`apps/macos-review-inbox/README.md`](apps/macos-review-inbox/README.md)。
 
+后端 Docker 运行时可以用环境变量覆盖监听地址。默认本地开发绑定
+`127.0.0.1:8080`，容器内运行绑定 `0.0.0.0:8080`：
+
+```bash
+OAR_HTTP_BIND_ADDR=0.0.0.0:8080 cargo run -p oar-http-facade
+```
+
+最小 Docker 打包入口：
+
+```bash
+docker build -t oar-http-facade .
+docker run --rm -p 8080:8080 oar-http-facade
+```
+
+后端 env 模板见 [`.env.example`](.env.example)，当前只声明真实生效的
+`OAR_HTTP_BIND_ADDR`。飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入模板。
+
 ## 文档地图
 
 建议按这个顺序读：
