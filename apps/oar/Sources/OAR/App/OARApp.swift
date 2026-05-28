@@ -1,12 +1,29 @@
+import AppKit
 import SwiftUI
 
 @main
 struct OARApp: App {
+    @NSApplicationDelegateAdaptor(OARAppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             RootWindowView()
         }
         .windowStyle(.hiddenTitleBar)
+    }
+}
+
+/// Ensures the SPM executable registers as a regular GUI app and claims
+/// keyboard focus on launch. Without this, the binary may display its
+/// window while keyboard events still go to Terminal / Xcode.
+final class OARAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
 

@@ -306,7 +306,15 @@ private struct AgentComposerTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView()
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = true
+        textContainer.lineFragmentPadding = 0
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = EditableTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 32), textContainer: textContainer)
         textView.delegate = context.coordinator
         textView.drawsBackground = false
         textView.isEditable = true
@@ -318,20 +326,18 @@ private struct AgentComposerTextView: NSViewRepresentable {
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
         textView.textContainerInset = NSSize(width: 0, height: 6)
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
         textView.minSize = NSSize(width: 0, height: 32)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
-        textView.frame = NSRect(x: 0, y: 0, width: 240, height: 32)
 
         let scrollView = NSScrollView()
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
+        scrollView.autoresizesSubviews = true
         scrollView.documentView = textView
         return scrollView
     }
@@ -341,13 +347,41 @@ private struct AgentComposerTextView: NSViewRepresentable {
         context.coordinator.submit = submit
 
         guard let textView = scrollView.documentView as? NSTextView else { return }
-        let contentSize = scrollView.contentSize
-        let targetSize = NSSize(width: contentSize.width, height: max(contentSize.height, 32))
-        if textView.frame.size != targetSize {
-            textView.frame = NSRect(origin: .zero, size: targetSize)
+
+        // Keep the text view width in sync with the clip view so the
+        // full area is clickable / editable.
+        let clipWidth = scrollView.contentSize.width
+        if clipWidth > 0, abs(textView.frame.width - clipWidth) > 0.5 {
+            textView.setFrameSize(NSSize(width: clipWidth, height: textView.frame.height))
         }
+
+        // Only sync text when it was changed externally (e.g. cleared after
+        // send). Preserve the insertion point so the cursor doesn't jump.
         if textView.string != text {
+            let selectedRanges = textView.selectedRanges
             textView.string = text
+            let textLength = (textView.string as NSString).length
+            let clampedRanges = selectedRanges.compactMap { value -> NSValue? in
+                let range = value.rangeValue
+                guard range.location != NSNotFound else { return nil }
+                let location = min(range.location, textLength)
+                let upperBound = min(NSMaxRange(range), textLength)
+                return NSValue(range: NSRange(location: location, length: max(0, upperBound - location)))
+            }
+            textView.selectedRanges = clampedRanges.isEmpty
+                ? [NSValue(range: NSRange(location: textLength, length: 0))]
+                : clampedRanges
+        }
+    }
+
+    /// Subclass that guarantees first-responder acceptance for keyboard input.
+    private final class EditableTextView: NSTextView {
+        override var acceptsFirstResponder: Bool { true }
+
+        override func becomeFirstResponder() -> Bool {
+            let result = super.becomeFirstResponder()
+            insertionPointColor = .labelColor
+            return result
         }
     }
 
