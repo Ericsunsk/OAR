@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct OARReviewInboxApp: App {
+struct OARApp: App {
     var body: some Scene {
         WindowGroup {
             RootWindowView()

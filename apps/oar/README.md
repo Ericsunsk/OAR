@@ -1,4 +1,4 @@
-# OAR macOS Review Inbox
+# OAR macOS
 
 SwiftUI macOS client for the OAR review inbox.
 
@@ -15,14 +15,14 @@ This app is a production-facing review client, not a production writeback client
 ## Source Layout
 
 ```text
-Sources/OARReviewInbox/
+Sources/OAR/
   App/                         App entry and window shell
   Design/                      Shared colors, fonts, and small design primitives
   Features/ReviewInbox/
     Domain/                    Client-side display models and filter enums
     Data/                      API DTOs, providers, and local-only mock fixtures
     Presentation/              SwiftUI views and view models
-Tests/OARReviewInboxTests/
+Tests/OARTests/
   Features/ReviewInbox/        Feature-level contract and view-model tests
 ```
 

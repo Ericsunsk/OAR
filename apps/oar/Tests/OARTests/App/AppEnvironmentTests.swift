@@ -1,5 +1,5 @@
 import XCTest
-@testable import OARReviewInbox
+@testable import OAR
 
 final class AppEnvironmentTests: XCTestCase {
     func testCurrentUsesDefaultBackendBaseURLAndMockFlagsOff() {

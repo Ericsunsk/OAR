@@ -1,5 +1,5 @@
 import XCTest
-@testable import OARReviewInbox
+@testable import OAR
 
 @MainActor
 final class ReviewInboxViewModelTests: XCTestCase {
