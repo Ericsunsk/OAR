@@ -1,3 +1,5 @@
+import AppKit
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 struct FeishuQRCodeLoginView: View {
@@ -77,7 +79,7 @@ private struct QRPanel: View {
                 }
             }
 
-            QRPlaceholder(active: model.qrSession != nil)
+            QRPlaceholder(session: model.qrSession)
                 .frame(maxWidth: .infinity)
 
             if let errorMessage = model.errorMessage {
@@ -114,6 +116,13 @@ private struct QRPanel: View {
                     }
                     .buttonStyle(OARButtonStyle(prominent: false))
                     .disabled(model.isWorking)
+
+                    if let qrSession = model.qrSession {
+                        Link(destination: qrSession.qrPageURL) {
+                            Label("打开授权页", systemImage: "arrow.up.right.square")
+                        }
+                        .buttonStyle(OARButtonStyle(prominent: false))
+                    }
                 }
             }
         }
@@ -121,7 +130,7 @@ private struct QRPanel: View {
 }
 
 private struct QRPlaceholder: View {
-    let active: Bool
+    let session: FeishuQRCodeAuthSession?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -130,29 +139,55 @@ private struct QRPlaceholder: View {
                     .fill(Color.white.opacity(0.54))
                     .frame(width: 184, height: 184)
 
-                Grid(horizontalSpacing: 8, verticalSpacing: 8) {
-                    ForEach(0..<5, id: \.self) { row in
-                        GridRow {
-                            ForEach(0..<5, id: \.self) { column in
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(tileColor(row: row, column: column))
-                                    .frame(width: 22, height: 22)
+                if let session, let image = QRCodeRenderer.image(for: session.qrPageURL.absoluteString) {
+                    Image(nsImage: image)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(14)
+                        .frame(width: 184, height: 184)
+                } else {
+                    Grid(horizontalSpacing: 8, verticalSpacing: 8) {
+                        ForEach(0..<5, id: \.self) { row in
+                            GridRow {
+                                ForEach(0..<5, id: \.self) { column in
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(tileColor(row: row, column: column))
+                                        .frame(width: 22, height: 22)
+                                }
                             }
                         }
                     }
                 }
             }
 
-            Text(active ? "请在飞书中确认授权" : "二维码将在这里显示")
+            Text(session == nil ? "二维码将在这里显示" : "请在飞书中确认授权")
                 .font(.codexBody(12, weight: .semibold))
                 .foregroundStyle(Color.codexMuted)
         }
     }
 
     private func tileColor(row: Int, column: Int) -> Color {
-        guard active else { return Color.codexMuted.opacity(0.16) }
+        guard session != nil else { return Color.codexMuted.opacity(0.16) }
         let filled = (row + column).isMultiple(of: 2) || row == 0 || column == 4
         return filled ? Color.codexInk.opacity(0.82) : Color.codexMuted.opacity(0.12)
+    }
+}
+
+private enum QRCodeRenderer {
+    private static let context = CIContext()
+
+    static func image(for text: String) -> NSImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: 184, height: 184))
     }
 }
 

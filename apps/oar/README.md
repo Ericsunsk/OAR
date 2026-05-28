@@ -47,18 +47,23 @@ than process environment variables.
 The frontend calls only OAR backend endpoints:
 
 - `POST /auth/feishu/qr-sessions`
+- `GET /auth/feishu/callback`
 - `GET /auth/feishu/qr-sessions/{session_id}`
 - `GET /auth/feishu/qr-sessions/{session_id}/events`
 - `GET /review-inbox/snapshot`
 - `POST /review-inbox/decisions`
 
-Current repository status: `oar-http-facade` exposes a safe local backend shell
-for contract wiring. It returns an empty Review Inbox snapshot and rejects auth
-or decision write paths until real Feishu auth and the `ConfirmedAction ->
-OperationLedger -> PlatformAdapter -> AuditEvent` execution chain are connected.
-For Docker, the backend may set `OAR_HTTP_BIND_ADDR=0.0.0.0:8080`; the macOS
-client remains hardwired to the local backend origin until in-app server
-settings are introduced.
+Current repository status: `oar-http-facade` can create a real Feishu OAuth
+authorization URL when `OAR_FEISHU_APP_ID`, `OAR_FEISHU_APP_SECRET`, and
+`OAR_FEISHU_REDIRECT_URI` are configured. The callback exchanges the Feishu
+authorization code server-side and returns only an OAR session plus safe user
+display fields to the client. OAuth grant persistence and Review Inbox live
+data are still backend follow-up work, so the snapshot endpoint currently
+returns an empty Review Inbox contract and decision write paths remain disabled
+until the `ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent`
+execution chain is connected. For Docker, the backend may set
+`OAR_HTTP_BIND_ADDR=0.0.0.0:8080`; the macOS client remains hardwired to the
+local backend origin until in-app server settings are introduced.
 
 ```bash
 docker build -f ../../docker/backend.Dockerfile -t oar-backend ../..

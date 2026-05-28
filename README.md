@@ -211,8 +211,10 @@ cd apps/oar
 swift run
 ```
 
-当前 `oar-http-facade` 只提供安全占位：`GET /review-inbox/snapshot` 返回空快照，
-auth / decision 写路径明确返回未配置或不支持。前端期望的 HTTP endpoint 记录在
+当前 `oar-http-facade` 已能在配置飞书 OAuth 凭证后创建真实授权 URL，并通过
+`GET /auth/feishu/callback` 在服务端用授权码换取用户凭证、读取安全用户信息，再
+返回 OAR 自己的会话字段。OAuth grant 持久化和真实 Review Inbox 数据仍是后续工作；
+`GET /review-inbox/snapshot` 目前返回空快照，decision 写路径明确返回不支持。前端期望的 HTTP endpoint 记录在
 [`apps/oar/README.md`](apps/oar/README.md)。
 
 后端 Docker 运行时可以用环境变量覆盖监听地址。默认本地开发绑定
@@ -244,7 +246,9 @@ DATABASE_URL=postgres://... docker compose -f docker/compose.yml up --build
 后端 env 模板见 [`.env.example`](.env.example)。`docker/compose.dev.yml`
 会从 shell 或本地 `.env` 读取可选配置，并在未提供 `DATABASE_URL` 时启动本地 Postgres volume。
 生产/云端部署使用默认 `docker/compose.yml`，必须显式注入 `DATABASE_URL`，不会静默降级成本地存储。
-飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入 Dockerfile。
+飞书扫码登录需要额外配置 `OAR_FEISHU_APP_ID`、`OAR_FEISHU_APP_SECRET` 和
+`OAR_FEISHU_REDIRECT_URI`；其中 redirect URI 必须在飞书开发者后台安全设置中登记，
+且移动端扫码时需要是手机可访问的公网地址。飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入 Dockerfile。
 
 ## 文档地图
 

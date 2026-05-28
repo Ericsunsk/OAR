@@ -49,10 +49,12 @@ pub use material::{
     FeishuStoredRefreshMaterialProviderError, StoredFeishuGrantMaterial,
 };
 pub use oauth::{
-    AsyncFeishuRefreshMaterialProvider, AsyncHttpClient, FeishuGrantEncryptionInput,
-    FeishuGrantEncryptor, FeishuGrantEnvelope, FeishuOAuthTransport, FeishuOAuthTransportError,
-    FeishuRefreshMaterial, FeishuRefreshMaterialProvider, HttpClient, HttpResponse,
-    ReqwestAsyncHttpClient, ReqwestBlockingHttpClient,
+    AsyncFeishuOAuthLogin, AsyncFeishuRefreshMaterialProvider, AsyncHttpClient,
+    FeishuGrantEncryptionInput, FeishuGrantEncryptor, FeishuGrantEnvelope, FeishuOAuthLogin,
+    FeishuOAuthLoginClient, FeishuOAuthLoginConfig, FeishuOAuthLoginConfigError,
+    FeishuOAuthLoginError, FeishuOAuthLoginToken, FeishuOAuthLoginUser, FeishuOAuthTransport,
+    FeishuOAuthTransportError, FeishuRefreshMaterial, FeishuRefreshMaterialProvider, HttpClient,
+    HttpResponse, ReqwestAsyncHttpClient, ReqwestBlockingHttpClient,
 };
 pub use okr::{
     build_batch_get_okr_request, build_progress_list_request, plan_okr_review_inbox_sync,

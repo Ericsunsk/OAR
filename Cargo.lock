@@ -1010,6 +1010,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "oar-lark-adapter",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
