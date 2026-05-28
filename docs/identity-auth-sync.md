@@ -30,7 +30,7 @@
 - user token 当前状态为 valid。
 - user 身份和 bot 身份均可被服务端验证。
 - `offline_access` 已授权。
-- `auth:user.id:read` 已授权。
+- `authen/v1/user_info` 基础身份读取不需要额外应用权限；当前 OAuth 登录默认只请求 `offline_access`。
 - access token 和 refresh token 均有明确到期时间。
 - CLI 未输出 access token 或 refresh token 明文。
 
@@ -80,7 +80,7 @@
 | --- | --- | --- | --- |
 | I0 | user / bot 身份验证 | 已通过 | `auth status --verify` 返回 user 和 bot verified |
 | I1 | `offline_access` scope | 已通过 | `auth check --scope "offline_access"` 返回 ok |
-| I2 | 用户身份读取 scope | 已通过 | `auth check --scope "auth:user.id:read"` 返回 ok |
+| I2 | 用户基础身份读取 | 已通过 | `authen/v1/user_info` 可返回 `open_id` 和 `tenant_key` |
 | I3 | token refresh 前置条件 | 部分通过 | refresh 到期时间存在，token 从 needs_refresh 变为 valid |
 | I4 | 后端 `TokenGrant` 存储 | 进行中 | token 加密存储，refresh rotation 原子更新且受 SQL guard 约束 |
 | I4a | identity repositories（`Tenant`/`WorkspaceUser`/`LarkIdentity`） | 部分通过 | Postgres live tests 已覆盖租户隔离、lookup、同 ID 跨租户冲突、同租户 external identity 绑定唯一性与 typed conflict；identity 变更审计字段 / trace 关联仍待补齐 |

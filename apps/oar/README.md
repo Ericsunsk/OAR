@@ -59,8 +59,9 @@ authorization URL when `OAR_FEISHU_APP_ID`, `OAR_FEISHU_APP_SECRET`, and
 authorization code server-side and returns only an OAR session plus safe user
 display fields to the client. When the backend is configured with `DATABASE_URL`
 and a grant encryption key, the callback stores an encrypted per-user
-`TokenGrant`; Review Inbox live data is still backend follow-up work, so the
-snapshot endpoint currently returns an empty Review Inbox contract and decision
+`TokenGrant`; the default Feishu login scope is `offline_access` so Feishu can
+return a refresh token. Review Inbox live data is still backend follow-up work,
+so the snapshot endpoint currently returns an empty Review Inbox contract and decision
 write paths remain disabled until the
 `ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent` execution
 chain is connected. `OAR_FEISHU_APP_ID` / `OAR_FEISHU_APP_SECRET` identify the

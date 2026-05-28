@@ -1007,6 +1007,7 @@ name = "oar-http-facade"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "dotenvy",
  "hex",
  "http-body-util",
  "hyper",

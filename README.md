@@ -244,12 +244,18 @@ docker compose -f docker/compose.dev.yml up --build
 DATABASE_URL=postgres://... docker compose -f docker/compose.yml up --build
 ```
 
-后端 env 模板见 [`.env.example`](.env.example)。`docker/compose.dev.yml`
+后端 env 模板见 [`.env.example`](.env.example)。本地 `cargo run -p oar-http-facade`
+会自动加载仓库根目录的 `.env`，可以用 `cp .env.example .env` 后填入真实飞书凭证；
+如果暂时只测扫码、不落库，可删除本地 `.env` 里的 `DATABASE_URL`；如果要用本机端口连接 compose Postgres，
+则把本地 `.env` 里的 `DATABASE_URL` 改成 `postgres://oar:oar@127.0.0.1:5432/oar`。
+`.env` 已在 `.gitignore` 中排除，不要提交真实 secret。`docker/compose.dev.yml`
 会从 shell 或本地 `.env` 读取可选配置，并在未提供 `DATABASE_URL` 时启动本地 Postgres volume。
 生产/云端部署使用默认 `docker/compose.yml`，必须显式注入 `DATABASE_URL`，不会静默降级成本地存储。
 飞书扫码登录需要额外配置 `OAR_FEISHU_APP_ID`、`OAR_FEISHU_APP_SECRET` 和
 `OAR_FEISHU_REDIRECT_URI`；其中 redirect URI 必须在飞书开发者后台安全设置中登记，
 且移动端扫码时需要是手机可访问的公网地址。飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入 Dockerfile。
+当前默认 `OAR_FEISHU_AUTH_SCOPE=offline_access`：`authen/v1/user_info` 获取基础身份不需要额外应用权限，
+`offline_access` 用于让飞书返回 refresh token，支持 OAR 加密落库 `TokenGrant` 并后续刷新。
 本地开发可临时设置 `OAR_ALLOW_EPHEMERAL_GRANT_KEY=true` 让 auth refresh 配置自动生成一次性内存
 grant key；生产环境不要打开，必须注入稳定的 `OAR_GRANT_KEY_ID` / `OAR_GRANT_KEY_HEX`。
 

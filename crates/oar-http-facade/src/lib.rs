@@ -196,7 +196,7 @@ impl OarHttpFacadeRuntime {
         let authorize_base_url = non_empty_env(env, "OAR_FEISHU_AUTHORIZE_BASE_URL")
             .unwrap_or_else(|| "https://open.feishu.cn".to_string());
         let scope = non_empty_env(env, "OAR_FEISHU_AUTH_SCOPE")
-            .or_else(|| Some("auth:user.id:read offline_access".to_string()));
+            .or_else(|| Some("offline_access".to_string()));
         let login_config = FeishuOAuthLoginConfig::new(
             open_api.clone(),
             authorize_base_url,
@@ -1343,6 +1343,14 @@ mod tests {
             .as_str()
             .expect("qr url")
             .contains("client_id=cli_test"));
+        assert!(body["qr_page_url"]
+            .as_str()
+            .expect("qr url")
+            .contains("scope=offline_access"));
+        assert!(!body["qr_page_url"]
+            .as_str()
+            .expect("qr url")
+            .contains("auth%3Auser.id%3Aread"));
         assert!(!response.body.contains("super-secret"));
     }
 

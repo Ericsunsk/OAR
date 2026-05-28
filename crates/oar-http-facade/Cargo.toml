@@ -8,6 +8,7 @@ bytes.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
+dotenvy = "0.15"
 hex = "0.4"
 oar-core = { path = "../oar-core", features = ["postgres"] }
 oar-lark-adapter = { path = "../oar-lark-adapter" }

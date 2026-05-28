@@ -5,6 +5,7 @@ use oar_http_facade::{run_with_runtime, OarHttpFacadeConfig, OarHttpFacadeRuntim
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let _ = dotenvy::dotenv();
     tracing_subscriber::fmt().init();
 
     let config = OarHttpFacadeConfig::from_env_map(&|key| env::var(key).ok())?;
