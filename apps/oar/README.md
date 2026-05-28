@@ -1,6 +1,6 @@
 # OAR macOS
 
-SwiftUI macOS client for the OAR review inbox.
+SwiftUI macOS client for OAR.
 
 This app is a production-facing review client, not a production writeback client. By default it requires an OAR backend and never falls back to mock review data or a mock login session unless an explicit local-development flag is enabled.
 
@@ -95,6 +95,7 @@ For MVP, only KR progress create/update should enter production execution. Other
 ## Local Verification
 
 ```bash
+swift run
 swift build
 swift test
 ```

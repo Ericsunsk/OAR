@@ -132,6 +132,7 @@ ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent
 | iOS companion | SwiftUI | 轻量查看、提醒、确认入口 |
 | Core / backend | Rust | domain、storage、execution、audit、sync contract |
 | Feishu integration | `crates/oar-lark-adapter` | Rust 原生 OpenAPI runtime adapter |
+| HTTP facade | `crates/oar-http-facade` | macOS client 的本地 HTTP contract 壳 |
 | Backend runtime | `crates/oar-runtime` | 周期触发 tenant maintenance one-shot tick，不下沉 daemon 到 core |
 | Storage | Postgres + pgvector | relational + vector，避免引入 graph DB |
 | CLI | `lark-okr` | 仅用于验证、fixtures 和 regression tests |
@@ -140,9 +141,12 @@ ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent
 
 ```text
 .
+├── apps/oar/                    # SwiftUI macOS client：OAR 复盘收件箱入口
 ├── crates/oar-core/             # Rust core：domain、storage、execution、audit
+├── crates/oar-http-facade/      # 本地 HTTP facade：前端合同与安全占位 route
 ├── crates/oar-lark-adapter/     # Rust 原生飞书 OpenAPI runtime adapter
 ├── crates/oar-runtime/          # 后台 runtime 壳：interval + cancellation
+├── docker/                      # Dockerfile 与 compose 编排
 ├── docs/project-overview.md     # 项目定位、路线图、核心决策
 ├── docs/review-inbox.md         # MVP PRD、复盘收件箱体验和工作流
 ├── docs/system-architecture.md  # Rust core、storage、LarkAdapter、scheduler 架构
@@ -152,6 +156,7 @@ ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent
 ├── docs/memory-evidence.md      # 证据链、三层记忆和检索设计
 ├── docs/validation-plan.md      # 总体验证计划、阶段门和停止标准
 ├── docs/reference/              # 外部参考、竞品、依赖雷达和技术资料
+├── .env.example                 # 后端运行时 env 模板
 ├── Cargo.toml                   # Rust workspace
 └── AGENTS.md                    # 项目级 AI agent 工作约束
 ```
@@ -172,7 +177,7 @@ ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent
 
 ## 开发验证
 
-当前 workspace 包含 `oar-core`、`oar-lark-adapter` 和 `oar-runtime`。`oar-core` 保持 core/storage/contracts 边界，不直接依赖 HTTP runtime、CLI 或 SDK；生产飞书集成固定收敛在 `oar-lark-adapter`，常驻调度语义收敛在 `oar-runtime`。
+当前 workspace 包含 `oar-core`、`oar-http-facade`、`oar-lark-adapter` 和 `oar-runtime`。`oar-core` 保持 core/storage/contracts 边界，不直接依赖 HTTP runtime、CLI 或 SDK；生产飞书集成固定收敛在 `oar-lark-adapter`，常驻调度语义收敛在 `oar-runtime`。
 
 常用检查：
 
@@ -180,6 +185,7 @@ ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent
 cargo fmt --check
 cargo check --workspace --tests
 cargo test -p oar-core
+cargo test -p oar-http-facade
 cargo test -p oar-lark-adapter
 cargo test -p oar-runtime
 cargo test -p oar-core --features postgres
@@ -221,7 +227,18 @@ OAR_HTTP_BIND_ADDR=0.0.0.0:8080 cargo run -p oar-http-facade
 ```bash
 docker build -f docker/backend.Dockerfile -t oar-backend .
 docker run --rm -p 8080:8080 oar-backend
+```
+
+本地开发 compose 会启动 backend 和本地 Postgres volume：
+
+```bash
 docker compose -f docker/compose.dev.yml up --build
+```
+
+生产 / 云端 compose 只启动 backend，必须显式提供外部 `DATABASE_URL`：
+
+```bash
+DATABASE_URL=postgres://... docker compose -f docker/compose.yml up --build
 ```
 
 后端 env 模板见 [`.env.example`](.env.example)。`docker/compose.dev.yml`
