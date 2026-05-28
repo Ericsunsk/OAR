@@ -34,9 +34,27 @@ struct ReviewInboxRootView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 HStack(spacing: 24) {
-                    ToolbarIconButton(systemName: "sidebar.left", accessibilityLabel: "侧边栏")
-                    ToolbarIconButton(systemName: "chevron.left", accessibilityLabel: "返回")
-                    ToolbarIconButton(systemName: "chevron.right", accessibilityLabel: "前进", isMuted: true)
+                    ToolbarIconButton(
+                        systemName: "arrow.clockwise",
+                        accessibilityLabel: "刷新",
+                        isMuted: model.loadState == .loading
+                    ) {
+                        Task {
+                            await model.reload()
+                        }
+                    }
+                    ToolbarIconButton(
+                        systemName: "chevron.left",
+                        accessibilityLabel: "上一条",
+                        isMuted: !model.canMoveToPreviousItem,
+                        action: model.selectPreviousItem
+                    )
+                    ToolbarIconButton(
+                        systemName: "chevron.right",
+                        accessibilityLabel: "下一条",
+                        isMuted: !model.canMoveToNextItem,
+                        action: model.selectNextItem
+                    )
                 }
             }
         }
@@ -47,16 +65,17 @@ private struct ToolbarIconButton: View {
     let systemName: String
     let accessibilityLabel: String
     var isMuted = false
+    let action: () -> Void
 
     var body: some View {
-        Button {
-        } label: {
+        Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.codexMuted.opacity(isMuted ? 0.42 : 0.66))
                 .frame(width: 22, height: 22)
         }
         .buttonStyle(.plain)
+        .disabled(isMuted)
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -107,10 +126,38 @@ private struct NavigationRail: View {
             .padding(.horizontal, 22)
 
             VStack(spacing: 8) {
-                NavRow(icon: "tray.full", title: "待处理", count: model.pendingGateCount, selected: true)
-                NavRow(icon: "scope", title: "证据链", count: model.evidence.count)
-                NavRow(icon: "checkmark.seal", title: "已确认", count: model.executedCount)
-                NavRow(icon: "clock.arrow.circlepath", title: "审计账本")
+                NavRow(
+                    icon: "tray.full",
+                    title: "全部",
+                    count: model.items.count,
+                    selected: model.filter == .all
+                ) {
+                    model.setFilter(.all)
+                }
+                NavRow(
+                    icon: "exclamationmark.triangle",
+                    title: "高风险",
+                    count: model.criticalCount,
+                    selected: model.filter == .highRisk
+                ) {
+                    model.setFilter(.highRisk)
+                }
+                NavRow(
+                    icon: "hand.raised",
+                    title: "待确认",
+                    count: model.pendingGateCount,
+                    selected: model.filter == .needsConfirmation
+                ) {
+                    model.setFilter(.needsConfirmation)
+                }
+                NavRow(
+                    icon: "checkmark.seal",
+                    title: "已执行",
+                    count: model.executedCount,
+                    selected: model.filter == .executed
+                ) {
+                    model.setFilter(.executed)
+                }
             }
             .padding(.top, 26)
             .padding(.horizontal, 14)
@@ -154,25 +201,30 @@ private struct NavRow: View {
     let title: String
     var count: Int? = nil
     var selected = false
+    let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 18)
-            Text(title)
-                .font(.codexBody(13, weight: .semibold))
-            Spacer()
-            if let count {
-                Text("\(count)")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .padding(.horizontal, 6)
-                    .frame(height: 18)
-                    .background(selected ? Color.oarMoss : Color.white.opacity(0.45))
-                    .foregroundStyle(selected ? Color.white : Color.codexMuted)
-                    .clipShape(Capsule())
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 18)
+                Text(title)
+                    .font(.codexBody(13, weight: .semibold))
+                Spacer()
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .frame(height: 18)
+                        .background(selected ? Color.oarMoss : Color.white.opacity(0.45))
+                        .foregroundStyle(selected ? Color.white : Color.codexMuted)
+                        .clipShape(Capsule())
+                }
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 10)
         .frame(height: 36)
         .background(selected ? Color.white.opacity(0.46) : Color.clear)
@@ -228,6 +280,10 @@ private struct ReviewWorkspace: View {
 
                         RiskStrip(model: model)
                         DetailHeader(item: item)
+
+                        if model.actionsForSelectedItem.count > 1 {
+                            ActionChooser(model: model)
+                        }
 
                         if let action = model.selectedAction {
                             PrimaryActionPanel(action: action)
@@ -287,18 +343,21 @@ private struct WorkspaceToolbar: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("本周风险")
                         .font(.codexDisplay(20, weight: .semibold))
-                    Text("10 分钟清空待确认动作")
+                    Text("\(model.filter.rawValue) · \(model.selectedItemPositionText)")
                         .font(.codexBody(12, weight: .semibold))
                         .foregroundStyle(Color.codexMuted)
                 }
                 Spacer()
-                Text("\(model.sortedItems.count)")
+                Text("\(model.visibleItemCount)")
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.codexMuted)
             }
             .frame(minWidth: 150, maxWidth: 210, alignment: .leading)
 
-            Picker("筛选", selection: $model.filter) {
+            Picker("筛选", selection: Binding(
+                get: { model.filter },
+                set: { model.setFilter($0) }
+            )) {
                 ForEach(ReviewInboxFilter.allCases) { filter in
                     Text(filter.rawValue).tag(filter)
                 }
@@ -349,6 +408,47 @@ private struct WorkspaceToolbar: View {
         case .loading: "arrow.clockwise"
         case .ready: "checkmark"
         case .failed: "exclamationmark.triangle"
+        }
+    }
+}
+
+private struct ActionChooser: View {
+    @Bindable var model: ReviewInboxViewModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(model.actionsForSelectedItem) { action in
+                Button {
+                    model.selectAction(action)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: icon(for: action.actionType))
+                        Text(action.actionType.rawValue)
+                        Text(action.gateState.rawValue)
+                            .foregroundStyle(isSelected(action) ? Color.white.opacity(0.64) : Color.codexMuted)
+                    }
+                    .font(.codexBody(11, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .background(isSelected(action) ? Color.codexInk.opacity(0.88) : Color.white.opacity(0.36))
+                    .foregroundStyle(isSelected(action) ? Color.white : Color.codexInk)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func isSelected(_ action: ReviewInboxSuggestedAction) -> Bool {
+        model.selectedAction?.id == action.id
+    }
+
+    private func icon(for actionType: ReviewInboxActionType) -> String {
+        switch actionType {
+        case .updateProgress: "pencil.line"
+        case .pingOwner: "bell"
+        case .createTask: "checkmark.square"
+        case .scheduleReview: "calendar.badge.clock"
         }
     }
 }

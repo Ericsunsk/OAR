@@ -21,6 +21,18 @@ final class ReviewInboxViewModel {
         self.provider = provider
     }
 
+    var visibleItemCount: Int {
+        sortedItems.count
+    }
+
+    var selectedItemPositionText: String {
+        guard let selectedItem,
+              let index = sortedItems.firstIndex(where: { $0.id == selectedItem.id }) else {
+            return "0/0"
+        }
+        return "\(index + 1)/\(sortedItems.count)"
+    }
+
     var sortedItems: [ReviewInboxDisplayItem] {
         items
             .filter { item in
@@ -45,7 +57,10 @@ final class ReviewInboxViewModel {
 
     var selectedItem: ReviewInboxDisplayItem? {
         guard let selectedItemID else { return sortedItems.first }
-        return items.first { $0.id == selectedItemID }
+        if let item = sortedItems.first(where: { $0.id == selectedItemID }) {
+            return item
+        }
+        return sortedItems.first
     }
 
     var evidenceForSelectedItem: [ReviewInboxDisplayEvidence] {
@@ -106,8 +121,17 @@ final class ReviewInboxViewModel {
         return selectedAction.gateState == .pending && selectedAction.canEnterProductionExecution && !isSubmittingDecision
     }
 
-    func load() async {
-        guard loadState != .loading else { return }
+    var canMoveToPreviousItem: Bool {
+        selectedSortedItemIndex.map { $0 > sortedItems.startIndex } ?? false
+    }
+
+    var canMoveToNextItem: Bool {
+        guard !sortedItems.isEmpty else { return false }
+        return selectedSortedItemIndex.map { $0 < sortedItems.index(before: sortedItems.endIndex) } ?? false
+    }
+
+    func load(force: Bool = false) async {
+        guard force || loadState != .loading else { return }
         loadState = .loading
         lastErrorMessage = nil
 
@@ -130,6 +154,27 @@ final class ReviewInboxViewModel {
     func selectAction(_ action: ReviewInboxSuggestedAction) {
         selectedActionID = action.id
         confirmationNote = ""
+    }
+
+    func setFilter(_ nextFilter: ReviewInboxFilter) {
+        filter = nextFilter
+        reconcileSelectionWithCurrentFilter()
+    }
+
+    func reload() async {
+        await load(force: true)
+    }
+
+    func selectPreviousItem() {
+        guard canMoveToPreviousItem,
+              let index = selectedSortedItemIndex else { return }
+        select(sortedItems[sortedItems.index(before: index)])
+    }
+
+    func selectNextItem() {
+        guard canMoveToNextItem,
+              let index = selectedSortedItemIndex else { return }
+        select(sortedItems[sortedItems.index(after: index)])
     }
 
     func approveSelectedAction() async {
@@ -182,12 +227,24 @@ final class ReviewInboxViewModel {
         actions = snapshot.actions
         ledgerEvents = snapshot.ledgerEvents
 
-        if selectedItemID == nil || !items.contains(where: { $0.id == selectedItemID }) {
+        reconcileSelectionWithCurrentFilter()
+    }
+
+    private var selectedSortedItemIndex: [ReviewInboxDisplayItem].Index? {
+        guard let selectedItem else { return nil }
+        return sortedItems.firstIndex(where: { $0.id == selectedItem.id })
+    }
+
+    private func reconcileSelectionWithCurrentFilter() {
+        if selectedItemID == nil || !sortedItems.contains(where: { $0.id == selectedItemID }) {
             selectedItemID = sortedItems.first?.id
         }
 
-        if selectedActionID == nil || !actions.contains(where: { $0.id == selectedActionID }) {
+        let selectedItemActionIDs = Set(actionsForSelectedItem.map(\.id))
+        if selectedActionID == nil || !selectedItemActionIDs.contains(selectedActionID ?? "") {
             selectedActionID = actionsForSelectedItem.first?.id
         }
+
+        confirmationNote = ""
     }
 }

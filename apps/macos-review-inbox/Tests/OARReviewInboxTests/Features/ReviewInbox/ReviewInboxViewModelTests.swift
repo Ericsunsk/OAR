@@ -27,6 +27,40 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertEqual(model.ledgerEvents.filter { $0.actionId == "act-001" }.count, 4)
     }
 
+    func testFilterChangeReconcilesSelectionToVisibleItem() async {
+        let model = ReviewInboxViewModel()
+        await model.load()
+
+        guard let executedItem = model.items.first(where: { $0.id == "review-004" }) else {
+            XCTFail("Expected mock executed item")
+            return
+        }
+
+        model.select(executedItem)
+        model.setFilter(.highRisk)
+
+        XCTAssertEqual(model.filter, .highRisk)
+        XCTAssertEqual(model.selectedItem?.id, "review-001")
+        XCTAssertEqual(model.selectedItemPositionText, "1/2")
+    }
+
+    func testPreviousAndNextSelectionFollowSortedVisibleItems() async {
+        let model = ReviewInboxViewModel()
+        await model.load()
+
+        XCTAssertFalse(model.canMoveToPreviousItem)
+        XCTAssertTrue(model.canMoveToNextItem)
+
+        model.selectNextItem()
+
+        XCTAssertEqual(model.selectedItem?.id, "review-002")
+        XCTAssertTrue(model.canMoveToPreviousItem)
+
+        model.selectPreviousItem()
+
+        XCTAssertEqual(model.selectedItem?.id, "review-001")
+    }
+
     func testApproveNonExecutableActionShowsBoundaryMessage() async {
         let model = ReviewInboxViewModel()
         await model.load()
