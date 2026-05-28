@@ -55,6 +55,17 @@ impl PostgresDeviceSessionRepository {
         row.as_ref().map(stored_device_session_from_row).transpose()
     }
 
+    pub async fn get_by_session_id_for_authentication(
+        &self,
+        session_id: &str,
+    ) -> PgRepositoryResult<Option<StoredDeviceSession>> {
+        let row = sqlx::query(GET_DEVICE_SESSION_BY_SESSION_ID)
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(stored_device_session_from_row).transpose()
+    }
+
     pub async fn advance_cursor_cas(
         &self,
         tenant_id: &str,

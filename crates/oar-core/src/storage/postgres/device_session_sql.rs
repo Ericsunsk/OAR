@@ -102,6 +102,25 @@ WHERE tenant_id = $1
 LIMIT 1
 "#;
 
+pub const GET_DEVICE_SESSION_BY_SESSION_ID: &str = r#"
+SELECT
+    id,
+    tenant_id,
+    user_id,
+    entry_point,
+    state,
+    sync_stream,
+    sync_cursor_value,
+    floor(extract(epoch from sync_cursor_updated_at) * 1000)::bigint AS sync_cursor_updated_at_ms,
+    session_identity_hash,
+    floor(extract(epoch from last_seen_at) * 1000)::bigint AS last_seen_at_ms,
+    floor(extract(epoch from revoked_at) * 1000)::bigint AS revoked_at_ms,
+    floor(extract(epoch from expired_at) * 1000)::bigint AS expired_at_ms
+FROM device_sessions
+WHERE id = $1
+LIMIT 1
+"#;
+
 pub const ADVANCE_DEVICE_SESSION_CURSOR_CAS: &str = r#"
 UPDATE device_sessions
 SET sync_cursor_value = $3,

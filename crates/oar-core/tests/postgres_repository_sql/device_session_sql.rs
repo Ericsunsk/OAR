@@ -1,6 +1,6 @@
 use oar_core::storage::postgres::device_session_sql::{
     ADVANCE_DEVICE_SESSION_CURSOR_CAS, EXPIRE_DEVICE_SESSION, GET_DEVICE_SESSION_BY_ID,
-    REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
+    GET_DEVICE_SESSION_BY_SESSION_ID, REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
 };
 
 use crate::compact;
@@ -52,4 +52,14 @@ fn device_session_sql_is_tenant_scoped_and_state_guarded() {
     assert!(expire.contains("and id = $2"));
     assert!(expire.contains("and state = 'active'"));
     assert!(expire.contains("and revoked_at is null"));
+}
+
+#[test]
+fn device_session_auth_lookup_is_session_id_only() {
+    let get = compact(GET_DEVICE_SESSION_BY_SESSION_ID);
+
+    assert!(get.contains("from device_sessions"));
+    assert!(get.contains("where id = $1"));
+    assert!(get.contains("limit 1"));
+    assert!(!get.contains("tenant_id = $"));
 }

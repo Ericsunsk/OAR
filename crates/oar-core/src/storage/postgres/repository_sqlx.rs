@@ -31,7 +31,7 @@ use crate::storage::postgres::audit_sql::{
 };
 use crate::storage::postgres::device_session_sql::{
     ADVANCE_DEVICE_SESSION_CURSOR_CAS, EXPIRE_DEVICE_SESSION, GET_DEVICE_SESSION_BY_ID,
-    REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
+    GET_DEVICE_SESSION_BY_SESSION_ID, REVOKE_DEVICE_SESSION, UPSERT_DEVICE_SESSION,
 };
 use crate::storage::postgres::identity_sql::{
     GET_LARK_IDENTITY_BY_ACTOR_EXTERNAL, GET_LARK_IDENTITY_BY_ID, GET_TENANT_BY_ID,

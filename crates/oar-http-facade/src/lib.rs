@@ -20,7 +20,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
-use oar_core::domain::device_sync::{DeviceEntryPoint, DeviceSession};
+use oar_core::domain::device_sync::{DeviceEntryPoint, DeviceSession, SessionState};
 use oar_core::domain::identity::{
     ActorKind, DeviceSessionId, LarkIdentity, LarkIdentityId, ScopeBoundary, Tenant, TenantId,
     TenantStatus, TokenGrantState, WorkspaceUser, WorkspaceUserId, WorkspaceUserStatus,
@@ -28,6 +28,7 @@ use oar_core::domain::identity::{
 use oar_core::storage::postgres::{
     EncryptedTokenGrantRecord, PostgresDeviceSessionRepository, PostgresLarkIdentityRepository,
     PostgresTenantRepository, PostgresTokenGrantRepository, PostgresWorkspaceUserRepository,
+    StoredDeviceSession,
 };
 use oar_lark_adapter::material::compose_encrypted_grant_blob;
 use oar_lark_adapter::{
@@ -347,6 +348,20 @@ pub struct FacadeResponse {
     pub body: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuthenticatedContext {
+    session_id: String,
+    tenant_id: String,
+    user_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum OarSessionAuthError {
+    MissingBearer,
+    InvalidSession,
+    StoreUnavailable,
+}
+
 pub async fn run(config: OarHttpFacadeConfig) -> Result<(), OarHttpFacadeError> {
     run_with_runtime(config, OarHttpFacadeRuntime::disabled()).await
 }
@@ -473,6 +488,20 @@ pub async fn dispatch_request_with_runtime(
             };
             return feishu_login_session_event(runtime.feishu_login.as_deref(), session_id);
         }
+        (&Method::GET, "/review-inbox/snapshot") => {
+            let auth_context = match authenticate_oar_session(&runtime, authorization).await {
+                Ok(context) => context,
+                Err(error) => return oar_session_auth_error_response(error),
+            };
+            return review_inbox_snapshot_for_context(&auth_context);
+        }
+        (&Method::POST, "/review-inbox/decisions") => {
+            let auth_context = match authenticate_oar_session(&runtime, authorization).await {
+                Ok(context) => context,
+                Err(error) => return oar_session_auth_error_response(error),
+            };
+            return review_decision_not_wired_for_context(&auth_context);
+        }
         _ => {}
     }
 
@@ -501,24 +530,14 @@ pub fn dispatch_request(
             "auth_logout_not_wired",
             "Logout is not wired until real session storage is connected.",
         ),
-        (&Method::GET, "/review-inbox/snapshot") => {
-            if !has_oar_session(authorization) {
-                return unauthorized();
-            }
-            json_facade_response(StatusCode::OK, empty_review_inbox_snapshot())
-        }
-        (&Method::POST, "/review-inbox/decisions") => {
-            if !has_oar_session(authorization) {
-                return unauthorized();
-            }
-            json_facade_response(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                json!({
-                    "error": "review_decision_not_wired",
-                    "safe_message": "Review decisions are disabled until the ConfirmedAction ledger path is connected."
-                }),
-            )
-        }
+        (&Method::GET, "/review-inbox/snapshot") => protected_route_requires_session_store(
+            authorization,
+            "Review inbox requires verified OAR session storage.",
+        ),
+        (&Method::POST, "/review-inbox/decisions") => protected_route_requires_session_store(
+            authorization,
+            "Review decisions require verified OAR session storage.",
+        ),
         _ if is_auth_session_status_route(method, path) => service_unavailable(
             "feishu_auth_not_configured",
             "Feishu QR login is not configured in this backend facade.",
@@ -645,6 +664,16 @@ fn unauthorized() -> FacadeResponse {
     )
 }
 
+fn invalid_oar_session() -> FacadeResponse {
+    json_facade_response(
+        StatusCode::UNAUTHORIZED,
+        json!({
+            "error": "invalid_oar_session",
+            "safe_message": "The OAR session is invalid or expired."
+        }),
+    )
+}
+
 fn not_found() -> FacadeResponse {
     json_facade_response(
         StatusCode::NOT_FOUND,
@@ -655,11 +684,87 @@ fn not_found() -> FacadeResponse {
     )
 }
 
-fn has_oar_session(authorization: Option<&str>) -> bool {
-    authorization
+fn protected_route_requires_session_store(
+    authorization: Option<&str>,
+    safe_message: &'static str,
+) -> FacadeResponse {
+    match bearer_session_id(authorization) {
+        Ok(_) => service_unavailable("oar_session_verification_unavailable", safe_message),
+        Err(error) => oar_session_auth_error_response(error),
+    }
+}
+
+async fn authenticate_oar_session(
+    runtime: &OarHttpFacadeRuntime,
+    authorization: Option<&str>,
+) -> Result<AuthenticatedContext, OarSessionAuthError> {
+    let session_id = bearer_session_id(authorization)?;
+    let persistence = runtime
+        .feishu_login
+        .as_ref()
+        .and_then(|login| login.grant_persistence.as_ref())
+        .ok_or(OarSessionAuthError::StoreUnavailable)?;
+    let session = PostgresDeviceSessionRepository::new(persistence.pool.clone())
+        .get_by_session_id_for_authentication(session_id)
+        .await
+        .map_err(|_| OarSessionAuthError::StoreUnavailable)?
+        .ok_or(OarSessionAuthError::InvalidSession)?;
+    authenticated_context_from_session(&session)
+}
+
+fn authenticated_context_from_session(
+    session: &StoredDeviceSession,
+) -> Result<AuthenticatedContext, OarSessionAuthError> {
+    if session.state != SessionState::Active
+        || session.revoked_at.is_some()
+        || session.expired_at.is_some()
+    {
+        return Err(OarSessionAuthError::InvalidSession);
+    }
+    Ok(AuthenticatedContext {
+        session_id: session.id.clone(),
+        tenant_id: session.tenant_id.clone(),
+        user_id: session.user_id.clone(),
+    })
+}
+
+fn bearer_session_id(authorization: Option<&str>) -> Result<&str, OarSessionAuthError> {
+    let session_id = authorization
         .and_then(|value| value.strip_prefix("Bearer "))
-        .map(|session_id| !session_id.trim().is_empty())
-        .unwrap_or(false)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(OarSessionAuthError::MissingBearer)?;
+    if !session_id.starts_with("oar_session_") {
+        return Err(OarSessionAuthError::InvalidSession);
+    }
+    Ok(session_id)
+}
+
+fn oar_session_auth_error_response(error: OarSessionAuthError) -> FacadeResponse {
+    match error {
+        OarSessionAuthError::MissingBearer => unauthorized(),
+        OarSessionAuthError::InvalidSession => invalid_oar_session(),
+        OarSessionAuthError::StoreUnavailable => service_unavailable(
+            "oar_session_verification_unavailable",
+            "OAR session verification is temporarily unavailable.",
+        ),
+    }
+}
+
+fn review_inbox_snapshot_for_context(context: &AuthenticatedContext) -> FacadeResponse {
+    let _ = (&context.session_id, &context.tenant_id, &context.user_id);
+    json_facade_response(StatusCode::OK, empty_review_inbox_snapshot())
+}
+
+fn review_decision_not_wired_for_context(context: &AuthenticatedContext) -> FacadeResponse {
+    let _ = (&context.session_id, &context.tenant_id, &context.user_id);
+    json_facade_response(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        json!({
+            "error": "review_decision_not_wired",
+            "safe_message": "Review decisions are disabled until the ConfirmedAction ledger path is connected."
+        }),
+    )
 }
 
 fn create_feishu_login_session(runtime: Option<&FeishuLoginRuntime>) -> FacadeResponse {
@@ -1770,7 +1875,45 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_requires_oar_session_and_returns_empty_contract() {
+    fn bearer_session_id_requires_oar_session_prefix() {
+        assert_eq!(
+            bearer_session_id(Some("Bearer oar_session_abc")).expect("session"),
+            "oar_session_abc"
+        );
+        assert_eq!(
+            bearer_session_id(Some("Bearer other_token")).expect_err("invalid"),
+            OarSessionAuthError::InvalidSession
+        );
+        assert_eq!(
+            bearer_session_id(None).expect_err("missing"),
+            OarSessionAuthError::MissingBearer
+        );
+    }
+
+    #[test]
+    fn authenticated_context_requires_active_device_session() {
+        let active = stored_device_session(SessionState::Active, None, None);
+        let context = authenticated_context_from_session(&active).expect("active context");
+
+        assert_eq!(context.session_id, "oar_session_test");
+        assert_eq!(context.tenant_id, "tenant_1");
+        assert_eq!(context.user_id, "user_1");
+
+        let revoked = stored_device_session(SessionState::Revoked, Some(UNIX_EPOCH), None);
+        assert_eq!(
+            authenticated_context_from_session(&revoked).expect_err("revoked"),
+            OarSessionAuthError::InvalidSession
+        );
+
+        let expired = stored_device_session(SessionState::Expired, None, Some(UNIX_EPOCH));
+        assert_eq!(
+            authenticated_context_from_session(&expired).expect_err("expired"),
+            OarSessionAuthError::InvalidSession
+        );
+    }
+
+    #[test]
+    fn snapshot_requires_verified_oar_session_store() {
         let unauthorized = dispatch_request(&Method::GET, "/review-inbox/snapshot", None, None);
         assert_eq!(unauthorized.status, StatusCode::UNAUTHORIZED);
 
@@ -1782,17 +1925,12 @@ mod tests {
         );
         let body: Value = serde_json::from_str(&response.body).expect("json");
 
-        assert_eq!(response.status, StatusCode::OK);
-        assert_eq!(body["contract_version"], 1);
-        assert!(body["items"].as_array().expect("items").is_empty());
-        assert!(body["proposed_actions"]
-            .as_array()
-            .expect("proposed_actions")
-            .is_empty());
+        assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["error"], "oar_session_verification_unavailable");
     }
 
     #[test]
-    fn decisions_are_rejected_until_ledger_path_is_wired() {
+    fn decisions_require_verified_oar_session_store() {
         let response = dispatch_request(
             &Method::POST,
             "/review-inbox/decisions",
@@ -1801,8 +1939,8 @@ mod tests {
         );
         let body: Value = serde_json::from_str(&response.body).expect("json");
 
-        assert_eq!(response.status, StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(body["error"], "review_decision_not_wired");
+        assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["error"], "oar_session_verification_unavailable");
     }
 
     #[test]
@@ -1857,6 +1995,27 @@ mod tests {
             tenant_name: "tenant_1".to_string(),
         };
         notify_session_changed(session);
+    }
+
+    fn stored_device_session(
+        state: SessionState,
+        revoked_at: Option<SystemTime>,
+        expired_at: Option<SystemTime>,
+    ) -> StoredDeviceSession {
+        StoredDeviceSession {
+            id: "oar_session_test".to_string(),
+            tenant_id: "tenant_1".to_string(),
+            user_id: "user_1".to_string(),
+            entry_point: DeviceEntryPoint::MacOs,
+            state,
+            sync_stream: "review_inbox".to_string(),
+            sync_cursor_value: 0,
+            sync_cursor_updated_at: UNIX_EPOCH,
+            session_identity_hash: "hash".to_string(),
+            last_seen_at: UNIX_EPOCH,
+            revoked_at,
+            expired_at,
+        }
     }
 
     fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
