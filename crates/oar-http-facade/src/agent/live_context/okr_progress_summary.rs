@@ -7,7 +7,7 @@ use oar_lark_adapter::{
     OkrReadProgressPage, OkrReadProgressRecord, OkrUserIdType, SecretString,
 };
 
-use super::okr_topology::OkrTopologyRead;
+use super::okr_topology::{OkrTopologyRead, OkrTopologySnapshot};
 use super::summary::{compact_text, finalize_summary, truncate_chars};
 
 const TOOL_LABEL: &str = "工具 feishu.okr.summarize_my_progress";
@@ -43,6 +43,38 @@ where
         return Ok(build_okr_progress_live_summary(&aggregation));
     }
 
+    let targets = discover_progress_targets(snapshot, &mut aggregation);
+
+    for target in targets {
+        let progress_response = okr_client
+            .list_progress(FeishuOkrProgressListRequest {
+                user_access_token: access_token.clone(),
+                user_id_type: OkrUserIdType::OpenId,
+                target: target.to_adapter_target(),
+                page_size: Some(PROGRESS_PAGE_SIZE),
+                page_token: None,
+                department_id_type: OkrDepartmentIdType::OpenDepartmentId,
+            })
+            .await?;
+        let page = progress_response
+            .data
+            .as_ref()
+            .map(OkrReadProgressPage::from_progress_list_data)
+            .unwrap_or_else(|| OkrReadProgressPage {
+                progress_records: vec![],
+                next_page_token: None,
+                has_more: false,
+            });
+        aggregation.add_progress_page(&target, &page);
+    }
+
+    Ok(build_okr_progress_live_summary(&aggregation))
+}
+
+fn discover_progress_targets(
+    snapshot: &OkrTopologySnapshot,
+    aggregation: &mut OkrProgressAggregation,
+) -> Vec<ProgressTarget> {
     let mut targets = Vec::new();
     let mut seen_target_keys = BTreeSet::new();
     let mut objective_discovery_count = 0_usize;
@@ -78,7 +110,7 @@ where
                 objective_target.clone(),
                 &mut targets,
                 &mut seen_target_keys,
-                &mut aggregation,
+                aggregation,
             );
 
             let Some(krs_page) = topology_cycle.key_results_for_objective(&objective_target.id)
@@ -98,40 +130,12 @@ where
                     aggregation.skipped_missing_ids += 1;
                     continue;
                 };
-                push_progress_target(
-                    kr_target,
-                    &mut targets,
-                    &mut seen_target_keys,
-                    &mut aggregation,
-                );
+                push_progress_target(kr_target, &mut targets, &mut seen_target_keys, aggregation);
             }
         }
     }
 
-    for target in targets {
-        let progress_response = okr_client
-            .list_progress(FeishuOkrProgressListRequest {
-                user_access_token: access_token.clone(),
-                user_id_type: OkrUserIdType::OpenId,
-                target: target.to_adapter_target(),
-                page_size: Some(PROGRESS_PAGE_SIZE),
-                page_token: None,
-                department_id_type: OkrDepartmentIdType::OpenDepartmentId,
-            })
-            .await?;
-        let page = progress_response
-            .data
-            .as_ref()
-            .map(OkrReadProgressPage::from_progress_list_data)
-            .unwrap_or_else(|| OkrReadProgressPage {
-                progress_records: vec![],
-                next_page_token: None,
-                has_more: false,
-            });
-        aggregation.add_progress_page(&target, &page);
-    }
-
-    Ok(build_okr_progress_live_summary(&aggregation))
+    targets
 }
 
 fn push_progress_target(
