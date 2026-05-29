@@ -10,8 +10,9 @@ use tracing::warn;
 
 use crate::agent::{
     decode_agent_model_catalog_request, decode_agent_settings_update_request,
-    decode_agent_stream_request, AgentModelCatalogRequest, AgentModelSettingsError,
-    AgentRequestError, AgentRuntime, AgentSettingsUpdateRequest, AgentStreamError,
+    decode_agent_stream_request, inject_live_feishu_context, AgentModelCatalogRequest,
+    AgentModelSettingsError, AgentRequestError, AgentRuntime, AgentSettingsUpdateRequest,
+    AgentStreamError,
 };
 use crate::response::{
     json_facade_response, not_found, service_unavailable, FacadeResponse, ResponseBody,
@@ -110,10 +111,11 @@ async fn stream_response(
             .into_hyper_response();
         }
     };
-    let request = match decode_agent_stream_request(&body) {
+    let mut request = match decode_agent_stream_request(&body) {
         Ok(request) => request,
         Err(error) => return agent_request_error_response(error).into_hyper_response(),
     };
+    inject_live_feishu_context(&runtime, &auth_context, &mut request).await;
 
     let user_agent_runtime = user_agent_runtime(&runtime, &auth_context).await;
     let stream = match (&user_agent_runtime, runtime.agent.as_deref()) {

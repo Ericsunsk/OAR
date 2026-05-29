@@ -12,7 +12,7 @@ hyper-util = { workspace = true, features = ["tokio"] }
 dotenvy = "0.15"
 hex = "0.4"
 oar-core = { path = "../oar-core", features = ["postgres"] }
-oar-lark-adapter = { path = "../oar-lark-adapter" }
+oar-lark-adapter = { path = "../oar-lark-adapter", features = ["postgres"] }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

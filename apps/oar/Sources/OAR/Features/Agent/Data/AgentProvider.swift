@@ -182,6 +182,7 @@ private struct RemoteAgentContextDTO: Encodable {
     let riskReason: String
     let actionSummary: String
     let evidenceSummaries: [String]
+    let evidenceRefs: [RemoteAgentEvidenceRefDTO]
     let workspaceSummary: String
     let workspaceSignals: [String]
     let pendingActionSummaries: [String]
@@ -191,6 +192,7 @@ private struct RemoteAgentContextDTO: Encodable {
         case riskReason = "risk_reason"
         case actionSummary = "action_summary"
         case evidenceSummaries = "evidence_summaries"
+        case evidenceRefs = "evidence_refs"
         case workspaceSummary = "workspace_summary"
         case workspaceSignals = "workspace_signals"
         case pendingActionSummaries = "pending_action_summaries"
@@ -201,9 +203,28 @@ private struct RemoteAgentContextDTO: Encodable {
         riskReason = context.riskReason
         actionSummary = context.actionSummary
         evidenceSummaries = context.evidenceSummaries
+        evidenceRefs = context.evidenceRefs.map(RemoteAgentEvidenceRefDTO.init(ref:))
         workspaceSummary = context.workspaceSummary
         workspaceSignals = context.workspaceSignals
         pendingActionSummaries = context.pendingActionSummaries
+    }
+}
+
+private struct RemoteAgentEvidenceRefDTO: Encodable {
+    let sourceType: String
+    let sourceRef: String
+    let summary: String
+
+    enum CodingKeys: String, CodingKey {
+        case sourceType = "source_type"
+        case sourceRef = "source_ref"
+        case summary
+    }
+
+    init(ref: AgentEvidenceRef) {
+        sourceType = ref.sourceType
+        sourceRef = ref.sourceRef
+        summary = ref.summary
     }
 }
 

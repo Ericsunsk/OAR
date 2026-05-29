@@ -11,6 +11,7 @@ pub(crate) fn decode_agent_stream_request(
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AgentStreamRequest {
     pub(super) messages: Vec<AgentMessageDTO>,
     pub(super) context: AgentConversationContextDTO,
@@ -27,20 +28,33 @@ impl AgentStreamRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct AgentMessageDTO {
     pub(super) role: String,
     pub(super) text: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct AgentConversationContextDTO {
     pub(super) title: String,
     pub(super) risk_reason: String,
     pub(super) action_summary: String,
     pub(super) evidence_summaries: Vec<String>,
+    pub(super) evidence_refs: Vec<AgentEvidenceRefDTO>,
     pub(super) workspace_summary: String,
     pub(super) workspace_signals: Vec<String>,
     pub(super) pending_action_summaries: Vec<String>,
+    #[serde(skip)]
+    pub(super) live_feishu_read_summaries: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AgentEvidenceRefDTO {
+    pub(super) source_type: String,
+    pub(super) source_ref: String,
+    pub(super) summary: String,
 }
 
 #[cfg(test)]
@@ -56,6 +70,13 @@ mod tests {
                     "risk_reason": "连续延期",
                     "action_summary": "更新进展",
                     "evidence_summaries": ["连续两周延期"],
+                    "evidence_refs": [
+                        {
+                            "source_type": "okr",
+                            "source_ref": "okr://okr_demo/objectives/obj_demo/krs/kr_demo",
+                            "summary": "KR 最新进展"
+                        }
+                    ],
                     "workspace_summary": "工作区摘要：共 2 个风险。",
                     "workspace_signals": ["严重｜KR 风险"],
                     "pending_action_summaries": ["KR 风险｜更新进展｜gate：待处理"]
@@ -63,11 +84,38 @@ mod tests {
             }"#;
         let request = decode_agent_stream_request(body.as_bytes()).expect("request");
 
-        assert_eq!(request.context.workspace_summary, "工作区摘要：共 2 个风险。");
+        assert_eq!(
+            request.context.workspace_summary,
+            "工作区摘要：共 2 个风险。"
+        );
         assert_eq!(request.context.workspace_signals, vec!["严重｜KR 风险"]);
         assert_eq!(
             request.context.pending_action_summaries,
             vec!["KR 风险｜更新进展｜gate：待处理"]
         );
+        assert_eq!(request.context.evidence_refs.len(), 1);
+        assert_eq!(request.context.evidence_refs[0].source_type, "okr");
+        assert_eq!(
+            request.context.evidence_refs[0].source_ref,
+            "okr://okr_demo/objectives/obj_demo/krs/kr_demo"
+        );
+    }
+
+    #[test]
+    fn decode_agent_stream_request_requires_evidence_refs_field() {
+        let body = r#"{
+                "messages": [{"role": "user", "text": "解释风险"}],
+                "context": {
+                    "title": "KR 风险",
+                    "risk_reason": "连续延期",
+                    "action_summary": "更新进展",
+                    "evidence_summaries": [],
+                    "workspace_summary": "摘要",
+                    "workspace_signals": [],
+                    "pending_action_summaries": []
+                }
+            }"#;
+        let error = decode_agent_stream_request(body.as_bytes()).expect_err("invalid");
+        assert_eq!(error, AgentRequestError::InvalidJson);
     }
 }

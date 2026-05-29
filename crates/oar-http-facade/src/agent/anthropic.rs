@@ -307,9 +307,11 @@ mod tests {
                 risk_reason: "风险".to_string(),
                 action_summary: "动作".to_string(),
                 evidence_summaries: vec![],
+                evidence_refs: vec![],
                 workspace_summary: "工作区摘要".to_string(),
                 workspace_signals: vec![],
                 pending_action_summaries: vec![],
+                live_feishu_read_summaries: vec![],
             },
         };
 

@@ -2,6 +2,7 @@ use super::request::AgentConversationContextDTO;
 
 const EVIDENCE_SUMMARY_LIMIT: usize = 4;
 const WORKSPACE_SECTION_LIMIT: usize = 5;
+const LIVE_FEISHU_SECTION_LIMIT: usize = 4;
 
 #[derive(Default)]
 pub(super) struct AgentSystemPromptBuilder;
@@ -27,6 +28,11 @@ impl AgentSystemPromptBuilder {
             &context.pending_action_summaries,
             WORKSPACE_SECTION_LIMIT,
             "暂无待处理动作摘要。",
+        );
+        let live_feishu = numbered_section(
+            &context.live_feishu_read_summaries,
+            LIVE_FEISHU_SECTION_LIMIT,
+            "暂无实时 Feishu 读取结果。",
         );
 
         format!(
@@ -60,8 +66,12 @@ Top 工作区信号：
 待处理动作摘要：
 {pending_actions}
 
+实时 Feishu 读取结果（由后端基于 evidence refs 实时读取）：
+{live_feishu}
+
 回答要求：
 - 用中文，简洁、可执行。
+- 明确区分“前端/既有摘要”和“后端实时读取结果”。
 - 明确区分“证据支持”和“仍需确认”。
 - 如果用户要求写确认、拒绝或执行理由，只输出可供用户复制的草稿，不要说已经执行。"#,
             title = context.title,
@@ -70,7 +80,8 @@ Top 工作区信号：
             evidence = evidence,
             workspace_summary = workspace_summary,
             workspace_signals = workspace_signals,
-            pending_actions = pending_actions
+            pending_actions = pending_actions,
+            live_feishu = live_feishu
         )
     }
 }
@@ -106,6 +117,7 @@ mod tests {
                 "证据 4".to_string(),
                 "证据 5".to_string(),
             ],
+            evidence_refs: vec![],
             workspace_summary: "工作区摘要：共 6 个风险，严重/高 4 个。".to_string(),
             workspace_signals: vec![
                 "信号 1".to_string(),
@@ -122,6 +134,13 @@ mod tests {
                 "动作 4".to_string(),
                 "动作 5".to_string(),
                 "动作 6".to_string(),
+            ],
+            live_feishu_read_summaries: vec![
+                "实时 1".to_string(),
+                "实时 2".to_string(),
+                "实时 3".to_string(),
+                "实时 4".to_string(),
+                "实时 5".to_string(),
             ],
         });
 
@@ -145,5 +164,10 @@ mod tests {
         assert!(prompt.contains("1. 动作 1"));
         assert!(prompt.contains("5. 动作 5"));
         assert!(!prompt.contains("动作 6"));
+        assert!(prompt.contains("实时 Feishu 读取结果"));
+        assert!(prompt.contains("1. 实时 1"));
+        assert!(prompt.contains("4. 实时 4"));
+        assert!(!prompt.contains("实时 5"));
+        assert!(prompt.contains("明确区分“前端/既有摘要”和“后端实时读取结果”"));
     }
 }

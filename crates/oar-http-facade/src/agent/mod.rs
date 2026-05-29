@@ -1,4 +1,5 @@
 mod anthropic;
+mod live_context;
 mod openai;
 mod prompt;
 mod request;
@@ -11,6 +12,7 @@ use std::time::Duration;
 use reqwest::Url;
 
 use anthropic::AnthropicAgentProvider;
+pub(crate) use live_context::inject_live_feishu_context;
 use openai::OpenAICompatibleAgentProvider;
 pub(crate) use request::{decode_agent_stream_request, AgentStreamRequest};
 pub(crate) use settings::{

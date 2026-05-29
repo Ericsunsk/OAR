@@ -22,6 +22,14 @@ final class RemoteAgentProviderTests: XCTestCase {
             XCTAssertEqual(messages.last?["role"] as? String, "user")
             XCTAssertEqual(messages.last?["text"] as? String, "解释风险")
             let context = try XCTUnwrap(json["context"] as? [String: Any])
+            let evidenceRefs = try XCTUnwrap(context["evidence_refs"] as? [[String: Any]])
+            XCTAssertEqual(evidenceRefs.count, 2)
+            XCTAssertEqual(evidenceRefs[0]["source_type"] as? String, "OKR")
+            XCTAssertEqual(evidenceRefs[0]["source_ref"] as? String, "okr://cycle/2026q2/objective/ent-growth")
+            XCTAssertEqual(evidenceRefs[0]["summary"] as? String, "连续两周延期")
+            XCTAssertEqual(evidenceRefs[1]["source_type"] as? String, "会议")
+            XCTAssertEqual(evidenceRefs[1]["source_ref"] as? String, "minutes://enterprise-weekly-sync")
+            XCTAssertEqual(evidenceRefs[1]["summary"] as? String, "会议纪要显示两个试点需要周五前决策")
             XCTAssertEqual(context["workspace_summary"] as? String, "工作区摘要：共 2 个风险，严重/高 1 个。")
             XCTAssertEqual(context["workspace_signals"] as? [String], ["严重｜KR 风险｜owner：陈敏｜置信 91%"])
             XCTAssertEqual(
@@ -68,6 +76,18 @@ final class RemoteAgentProviderTests: XCTestCase {
                     riskReason: "连续延期",
                     actionSummary: "更新进度",
                     evidenceSummaries: ["连续两周延期"],
+                    evidenceRefs: [
+                        AgentEvidenceRef(
+                            sourceType: "OKR",
+                            sourceRef: "okr://cycle/2026q2/objective/ent-growth",
+                            summary: "连续两周延期"
+                        ),
+                        AgentEvidenceRef(
+                            sourceType: "会议",
+                            sourceRef: "minutes://enterprise-weekly-sync",
+                            summary: "会议纪要显示两个试点需要周五前决策"
+                        )
+                    ],
                     workspaceSummary: "工作区摘要：共 2 个风险，严重/高 1 个。",
                     workspaceSignals: ["严重｜KR 风险｜owner：陈敏｜置信 91%"],
                     pendingActionSummaries: ["KR 风险｜更新进展｜gate：待处理｜dry-run：将更新 1 条 KR 进展。"]

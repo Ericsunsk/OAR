@@ -93,6 +93,18 @@ impl FeishuLoginRuntime {
     pub(crate) fn grant_persistence(&self) -> Option<&FeishuGrantPersistenceRuntime> {
         self.grant_persistence.as_ref()
     }
+
+    pub(crate) fn open_api_config(&self) -> FeishuOpenApiConfig {
+        self.config.open_api.clone()
+    }
+
+    pub(crate) fn client_id(&self) -> &str {
+        &self.config.client_id
+    }
+
+    pub(crate) fn client_secret(&self) -> oar_lark_adapter::SecretString {
+        self.config.client_secret.clone()
+    }
 }
 
 impl FeishuGrantPersistenceRuntime {

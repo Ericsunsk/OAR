@@ -31,11 +31,24 @@ enum AgentStreamEvent: Equatable {
     case completed
 }
 
+struct AgentEvidenceRef: Equatable {
+    var sourceType: String
+    var sourceRef: String
+    var summary: String
+
+    init(sourceType: String, sourceRef: String, summary: String) {
+        self.sourceType = sourceType
+        self.sourceRef = sourceRef
+        self.summary = summary
+    }
+}
+
 struct AgentConversationContext: Equatable {
     var title: String
     var riskReason: String
     var actionSummary: String
     var evidenceSummaries: [String]
+    var evidenceRefs: [AgentEvidenceRef]
     var workspaceSummary: String
     var workspaceSignals: [String]
     var pendingActionSummaries: [String]
@@ -45,6 +58,7 @@ struct AgentConversationContext: Equatable {
         riskReason: String,
         actionSummary: String,
         evidenceSummaries: [String],
+        evidenceRefs: [AgentEvidenceRef],
         workspaceSummary: String,
         workspaceSignals: [String],
         pendingActionSummaries: [String]
@@ -53,6 +67,7 @@ struct AgentConversationContext: Equatable {
         self.riskReason = riskReason
         self.actionSummary = actionSummary
         self.evidenceSummaries = evidenceSummaries
+        self.evidenceRefs = evidenceRefs
         self.workspaceSummary = workspaceSummary
         self.workspaceSignals = workspaceSignals
         self.pendingActionSummaries = pendingActionSummaries
@@ -63,6 +78,7 @@ struct AgentConversationContext: Equatable {
         riskReason: "暂无风险说明。",
         actionSummary: "暂无建议动作。",
         evidenceSummaries: [],
+        evidenceRefs: [],
         workspaceSummary: "暂无工作区摘要。",
         workspaceSignals: [],
         pendingActionSummaries: []

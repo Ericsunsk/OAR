@@ -96,17 +96,27 @@ final class ReviewInboxViewModel {
                 riskReason: AgentConversationContext.empty.riskReason,
                 actionSummary: AgentConversationContext.empty.actionSummary,
                 evidenceSummaries: [],
+                evidenceRefs: [],
                 workspaceSummary: agentWorkspaceSummary,
                 workspaceSignals: agentWorkspaceSignals,
                 pendingActionSummaries: agentPendingActionSummaries
             )
         }
 
+        let selectedEvidence = evidenceForSelectedItem
+        let selectedEvidenceSummaries = selectedEvidence.map { safeAgentSummary($0.summary) }
         return AgentConversationContext(
             title: selectedItem.keyResultTitle,
             riskReason: selectedItem.riskReason,
             actionSummary: agentSelectedActionSummary,
-            evidenceSummaries: evidenceForSelectedItem.map { safeAgentSummary($0.summary) },
+            evidenceSummaries: selectedEvidenceSummaries,
+            evidenceRefs: zip(selectedEvidence, selectedEvidenceSummaries).map { evidence, summary in
+                AgentEvidenceRef(
+                    sourceType: evidence.sourceType.rawValue,
+                    sourceRef: evidence.sourceRef,
+                    summary: summary
+                )
+            },
             workspaceSummary: agentWorkspaceSummary,
             workspaceSignals: agentWorkspaceSignals,
             pendingActionSummaries: agentPendingActionSummaries

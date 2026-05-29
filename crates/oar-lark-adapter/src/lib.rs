@@ -13,6 +13,7 @@ pub mod okr;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod redaction;
+pub mod task;
 
 #[cfg(feature = "postgres")]
 pub use audit_outbox::{
@@ -67,3 +68,8 @@ pub use okr::{
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresFeishuGrantMaterialStore, PostgresFeishuGrantMaterialStoreError};
 pub use redaction::SecretString;
+pub use task::{
+    build_get_task_request, parse_task_source_ref, AsyncFeishuTaskRead, FeishuTaskGetRequest,
+    FeishuTaskReadClient, FeishuTaskReadError, TaskReadDue, TaskReadOwner, TaskReadSummary,
+    TaskSourceRef, TaskUserIdType,
+};
