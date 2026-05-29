@@ -2,9 +2,9 @@ use super::builtin::{feishu_calendar, feishu_okr, feishu_task};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentSkill {
-    FeishuCalendar,
-    FeishuOkr,
-    FeishuTask,
+    Calendar,
+    Okr,
+    Task,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +26,7 @@ pub(in crate::agent) struct AgentSkillToolSpec {
 impl AgentSkill {
     pub(in crate::agent) const fn spec(self) -> AgentSkillSpec {
         match self {
-            Self::FeishuCalendar => AgentSkillSpec {
+            Self::Calendar => AgentSkillSpec {
                 id: feishu_calendar::ID,
                 display_name: feishu_calendar::DISPLAY_NAME,
                 purpose: feishu_calendar::PURPOSE,
@@ -34,7 +34,7 @@ impl AgentSkill {
                 safety: feishu_calendar::SAFETY,
                 manifest_markdown: feishu_calendar::MANIFEST_MARKDOWN,
             },
-            Self::FeishuOkr => AgentSkillSpec {
+            Self::Okr => AgentSkillSpec {
                 id: feishu_okr::ID,
                 display_name: feishu_okr::DISPLAY_NAME,
                 purpose: feishu_okr::PURPOSE,
@@ -42,7 +42,7 @@ impl AgentSkill {
                 safety: feishu_okr::SAFETY,
                 manifest_markdown: feishu_okr::MANIFEST_MARKDOWN,
             },
-            Self::FeishuTask => AgentSkillSpec {
+            Self::Task => AgentSkillSpec {
                 id: feishu_task::ID,
                 display_name: feishu_task::DISPLAY_NAME,
                 purpose: feishu_task::PURPOSE,
@@ -74,9 +74,9 @@ mod tests {
 
     #[test]
     fn builtin_skill_specs_expose_expected_manifests_and_tools() {
-        assert_feishu_okr_spec(AgentSkill::FeishuOkr.spec());
-        assert_feishu_task_spec(AgentSkill::FeishuTask.spec());
-        assert_feishu_calendar_spec(AgentSkill::FeishuCalendar.spec());
+        assert_feishu_okr_spec(AgentSkill::Okr.spec());
+        assert_feishu_task_spec(AgentSkill::Task.spec());
+        assert_feishu_calendar_spec(AgentSkill::Calendar.spec());
     }
 
     fn assert_feishu_okr_spec(spec: AgentSkillSpec) {

@@ -5,10 +5,10 @@ use oar_core::action::capability::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentReadTool {
-    FeishuCalendarSummarizeMyFreeBusy,
-    FeishuOkrSummarizeMyOkr,
-    FeishuOkrSummarizeMyProgress,
-    FeishuTaskSummarizeMyTasks,
+    CalendarFreeBusy,
+    OkrSummary,
+    OkrProgress,
+    TaskSummary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,25 +41,25 @@ const FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES: &[CapabilityActionTyp
 impl AgentReadTool {
     pub(in crate::agent) const fn spec(self) -> AgentToolSpec {
         match self {
-            Self::FeishuCalendarSummarizeMyFreeBusy => AgentToolSpec {
+            Self::CalendarFreeBusy => AgentToolSpec {
                 name: "feishu.calendar.summarize_my_free_busy",
                 description: "只读汇总当前用户未来 7 天的 Feishu 主日历忙闲时段。",
                 required_action_types: FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES,
                 effect: AgentToolEffect::Read,
             },
-            Self::FeishuOkrSummarizeMyOkr => AgentToolSpec {
+            Self::OkrSummary => AgentToolSpec {
                 name: "feishu.okr.summarize_my_okr",
                 description: "只读汇总当前用户的 Feishu OKR 周期、Objective 和 KR 数量。",
                 required_action_types: FEISHU_OKR_SUMMARIZE_MY_OKR_ACTION_TYPES,
                 effect: AgentToolEffect::Read,
             },
-            Self::FeishuOkrSummarizeMyProgress => AgentToolSpec {
+            Self::OkrProgress => AgentToolSpec {
                 name: "feishu.okr.summarize_my_progress",
                 description: "只读汇总当前用户的 Feishu OKR 进展、最近更新、延期和风险信号。",
                 required_action_types: FEISHU_OKR_SUMMARIZE_MY_PROGRESS_ACTION_TYPES,
                 effect: AgentToolEffect::Read,
             },
-            Self::FeishuTaskSummarizeMyTasks => AgentToolSpec {
+            Self::TaskSummary => AgentToolSpec {
                 name: "feishu.task.summarize_my_tasks",
                 description: "只读汇总当前用户在 Feishu 中我负责的任务数量、状态和示例标题。",
                 required_action_types: FEISHU_TASK_SUMMARIZE_MY_TASKS_ACTION_TYPES,
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn read_tool_manifest_derives_feishu_scopes_from_core_capability_matrix() {
-        let spec = AgentReadTool::FeishuOkrSummarizeMyOkr.spec();
+        let spec = AgentReadTool::OkrSummary.spec();
 
         assert_eq!(
             spec.required_action_types,
@@ -118,7 +118,7 @@ mod tests {
             vec![FeishuScope::OkrPeriodRead, FeishuScope::OkrContentRead]
         );
 
-        let spec = AgentReadTool::FeishuOkrSummarizeMyProgress.spec();
+        let spec = AgentReadTool::OkrProgress.spec();
         assert_eq!(
             spec.required_action_types,
             &[
@@ -136,7 +136,7 @@ mod tests {
             ]
         );
 
-        let spec = AgentReadTool::FeishuTaskSummarizeMyTasks.spec();
+        let spec = AgentReadTool::TaskSummary.spec();
         assert_eq!(
             spec.required_action_types,
             &[CapabilityActionType::TaskRead]
@@ -146,7 +146,7 @@ mod tests {
             vec![FeishuScope::TaskRead]
         );
 
-        let spec = AgentReadTool::FeishuCalendarSummarizeMyFreeBusy.spec();
+        let spec = AgentReadTool::CalendarFreeBusy.spec();
         assert_eq!(
             spec.required_action_types,
             &[CapabilityActionType::CalendarFreeBusyRead]

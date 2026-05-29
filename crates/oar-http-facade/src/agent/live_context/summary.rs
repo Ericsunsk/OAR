@@ -39,21 +39,21 @@ pub(super) fn build_live_summary(
     let kr_content = kr
         .content
         .as_deref()
-        .or_else(|| objective.content.as_deref())
+        .or(objective.content.as_deref())
         .map(compact_text)
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "未命名 KR".to_string());
     let progress = kr
         .progress
         .as_deref()
-        .or_else(|| objective.progress.as_deref())
+        .or(objective.progress.as_deref())
         .map(compact_text)
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "未知".to_string());
     let status = kr
         .status
         .as_deref()
-        .or_else(|| objective.status.as_deref())
+        .or(objective.status.as_deref())
         .map(compact_text)
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "未知".to_string());

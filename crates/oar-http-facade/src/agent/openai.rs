@@ -156,7 +156,7 @@ struct OpenAIChatCompletionDeltaDTO {
 fn request_messages(request: &AgentStreamRequest) -> Vec<OpenAIChatMessageDTO> {
     let mut messages = vec![OpenAIChatMessageDTO {
         role: "system".to_string(),
-        content: AgentSystemPromptBuilder::default().make_prompt(&request.context),
+        content: AgentSystemPromptBuilder::make_prompt(&request.context),
     }];
     messages.extend(request.recent_messages().filter_map(|message| {
         let role = match message.role.as_str() {

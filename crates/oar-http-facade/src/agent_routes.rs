@@ -33,10 +33,7 @@ pub(crate) fn is_body_route(method: &Method, path: &str) -> bool {
 }
 
 pub(crate) fn is_facade_route(method: &Method, path: &str) -> bool {
-    matches!(
-        (method, path),
-        (&Method::GET, "/agent/settings") | (&Method::DELETE, "/agent/settings")
-    )
+    path == "/agent/settings" && (*method == Method::GET || *method == Method::DELETE)
 }
 
 pub(crate) async fn body_route_response(
@@ -70,15 +67,15 @@ pub(crate) async fn facade_route_response(
     path: &str,
     authorization: Option<&str>,
 ) -> FacadeResponse {
-    match (method, path) {
-        (&Method::GET, "/agent/settings") => {
+    match path {
+        "/agent/settings" if *method == Method::GET => {
             let auth_context = match authenticate_oar_session(runtime, authorization).await {
                 Ok(context) => context,
                 Err(error) => return oar_session_auth_error_response(error),
             };
             settings_snapshot_response(runtime, &auth_context).await
         }
-        (&Method::DELETE, "/agent/settings") => {
+        "/agent/settings" if *method == Method::DELETE => {
             let auth_context = match authenticate_oar_session(runtime, authorization).await {
                 Ok(context) => context,
                 Err(error) => return oar_session_auth_error_response(error),
@@ -168,22 +165,20 @@ async fn settings_body_response(
         }
     };
 
-    match method {
-        &Method::POST => {
-            let request = match decode_agent_model_catalog_request(&body) {
-                Ok(request) => request,
-                Err(error) => return agent_model_settings_error_response(error),
-            };
-            model_catalog_preview_response(&runtime, &auth_context, request).await
-        }
-        &Method::PUT => {
-            let request = match decode_agent_settings_update_request(&body) {
-                Ok(request) => request,
-                Err(error) => return agent_model_settings_error_response(error),
-            };
-            save_settings_response(&runtime, &auth_context, request).await
-        }
-        _ => not_found(),
+    if *method == Method::POST {
+        let request = match decode_agent_model_catalog_request(&body) {
+            Ok(request) => request,
+            Err(error) => return agent_model_settings_error_response(error),
+        };
+        model_catalog_preview_response(&runtime, &auth_context, request).await
+    } else if *method == Method::PUT {
+        let request = match decode_agent_settings_update_request(&body) {
+            Ok(request) => request,
+            Err(error) => return agent_model_settings_error_response(error),
+        };
+        save_settings_response(&runtime, &auth_context, request).await
+    } else {
+        not_found()
     }
 }
 
@@ -302,15 +297,12 @@ async fn user_agent_runtime(
     runtime: &OarHttpFacadeRuntime,
     auth_context: &AuthenticatedContext,
 ) -> Option<AgentRuntime> {
-    let Some(settings) = runtime.agent_settings.as_deref() else {
-        return None;
-    };
+    let settings = runtime.agent_settings.as_deref()?;
     let config = match settings
         .provider_config_for_user(&auth_context.tenant_id, &auth_context.user_id)
         .await
     {
-        Ok(None) => return None,
-        Ok(Some(config)) => config,
+        Ok(config) => config?,
         Err(error) => {
             warn!(
                 ?error,

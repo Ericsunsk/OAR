@@ -91,12 +91,10 @@ async fn assemble_live_feishu_summaries(
     };
 
     let mut live_summaries = Vec::new();
-    let should_read_okr_tool = read_tools.contains(&AgentReadTool::FeishuOkrSummarizeMyOkr);
-    let should_read_okr_progress_tool =
-        read_tools.contains(&AgentReadTool::FeishuOkrSummarizeMyProgress);
-    let should_read_task_tool = read_tools.contains(&AgentReadTool::FeishuTaskSummarizeMyTasks);
-    let should_read_calendar_tool =
-        read_tools.contains(&AgentReadTool::FeishuCalendarSummarizeMyFreeBusy);
+    let should_read_okr_tool = read_tools.contains(&AgentReadTool::OkrSummary);
+    let should_read_okr_progress_tool = read_tools.contains(&AgentReadTool::OkrProgress);
+    let should_read_task_tool = read_tools.contains(&AgentReadTool::TaskSummary);
+    let should_read_calendar_tool = read_tools.contains(&AgentReadTool::CalendarFreeBusy);
     let lark_open_id_for_tool_reads =
         if should_read_okr_tool || should_read_okr_progress_tool || should_read_calendar_tool {
             Some(session.resolve_lark_open_id(auth_context).await)

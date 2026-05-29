@@ -9,7 +9,7 @@ const ACTIVATED_SKILL_SECTION_LIMIT: usize = 4;
 pub(super) struct AgentSystemPromptBuilder;
 
 impl AgentSystemPromptBuilder {
-    pub(super) fn make_prompt(&self, context: &AgentConversationContextDTO) -> String {
+    pub(super) fn make_prompt(context: &AgentConversationContextDTO) -> String {
         let evidence = numbered_section(
             &context.evidence_summaries,
             EVIDENCE_SUMMARY_LIMIT,
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn prompt_builder_uses_backend_boundary_and_limits_evidence() {
-        let prompt = AgentSystemPromptBuilder.make_prompt(&AgentConversationContextDTO {
+        let prompt = AgentSystemPromptBuilder::make_prompt(&AgentConversationContextDTO {
             title: "KR 风险".to_string(),
             risk_reason: "连续延期".to_string(),
             action_summary: "更新进度".to_string(),
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn prompt_builder_includes_backend_tool_result_summary() {
-        let prompt = AgentSystemPromptBuilder.make_prompt(&AgentConversationContextDTO {
+        let prompt = AgentSystemPromptBuilder::make_prompt(&AgentConversationContextDTO {
             title: "OKR 查询".to_string(),
             risk_reason: "无".to_string(),
             action_summary: "无".to_string(),

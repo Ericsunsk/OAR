@@ -116,7 +116,7 @@ impl AnthropicAgentProvider {
         let upstream_request = AnthropicMessagesRequestDTO {
             model: &self.model,
             max_tokens: self.max_tokens,
-            system: AgentSystemPromptBuilder::default().make_prompt(&request.context),
+            system: AgentSystemPromptBuilder::make_prompt(&request.context),
             messages: anthropic_messages(&request),
             temperature: 0.2,
             stream: true,

@@ -9,7 +9,7 @@ fn selects_feishu_okr_for_explicit_user_okr_read() {
         select_feishu_okr_read_intents(&request),
         vec![FeishuOkrReadIntent::Summary]
     );
-    assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
+    assert_eq!(select_skills(&request), vec![AgentSkill::Okr]);
 }
 
 #[test]
@@ -17,7 +17,7 @@ fn selects_feishu_task_for_explicit_user_task_read() {
     let request = request_with_latest_user_text("查下我的飞书任务有几条");
 
     assert!(task::latest_user_requests_feishu_task_summary(&request));
-    assert_eq!(select_skills(&request), vec![AgentSkill::FeishuTask]);
+    assert_eq!(select_skills(&request), vec![AgentSkill::Task]);
 }
 
 #[test]
@@ -27,24 +27,24 @@ fn selects_feishu_calendar_for_explicit_user_free_busy_read() {
     assert!(calendar::latest_user_requests_feishu_calendar_free_busy(
         &request
     ));
-    assert_eq!(select_skills(&request), vec![AgentSkill::FeishuCalendar]);
+    assert_eq!(select_skills(&request), vec![AgentSkill::Calendar]);
 }
 
 #[test]
 fn selects_feishu_calendar_for_availability_variants() {
     assert_eq!(
         select_skills(&request_with_latest_user_text("看下我的日历忙闲")),
-        vec![AgentSkill::FeishuCalendar]
+        vec![AgentSkill::Calendar]
     );
     assert_eq!(
         select_skills(&request_with_latest_user_text(
             "show my Feishu availability"
         )),
-        vec![AgentSkill::FeishuCalendar]
+        vec![AgentSkill::Calendar]
     );
     assert_eq!(
         select_skills(&request_with_latest_user_text("查我的飞书今天能不能开会")),
-        vec![AgentSkill::FeishuCalendar]
+        vec![AgentSkill::Calendar]
     );
 }
 
@@ -52,11 +52,11 @@ fn selects_feishu_calendar_for_availability_variants() {
 fn selects_feishu_task_for_todo_read_variants() {
     assert_eq!(
         select_skills(&request_with_latest_user_text("看下我的待办")),
-        vec![AgentSkill::FeishuTask]
+        vec![AgentSkill::Task]
     );
     assert_eq!(
         select_skills(&request_with_latest_user_text("show my tasks")),
-        vec![AgentSkill::FeishuTask]
+        vec![AgentSkill::Task]
     );
 }
 
@@ -64,7 +64,7 @@ fn selects_feishu_task_for_todo_read_variants() {
 fn selects_feishu_okr_for_compact_self_okr_read() {
     assert_eq!(
         select_skills(&request_with_latest_user_text("查我 OKR 当前有几条")),
-        vec![AgentSkill::FeishuOkr]
+        vec![AgentSkill::Okr]
     );
 }
 
@@ -72,7 +72,7 @@ fn selects_feishu_okr_for_compact_self_okr_read() {
 fn selects_feishu_okr_for_independent_kr_token() {
     assert_eq!(
         select_skills(&request_with_latest_user_text("show my KR count")),
-        vec![AgentSkill::FeishuOkr]
+        vec![AgentSkill::Okr]
     );
 }
 
@@ -98,11 +98,7 @@ fn selects_feishu_okr_progress_intent_for_self_progress_variants() {
             vec![FeishuOkrReadIntent::Progress],
             "{text}"
         );
-        assert_eq!(
-            select_skills(&request),
-            vec![AgentSkill::FeishuOkr],
-            "{text}"
-        );
+        assert_eq!(select_skills(&request), vec![AgentSkill::Okr], "{text}");
     }
 }
 
@@ -114,7 +110,7 @@ fn selects_both_okr_intents_when_latest_request_asks_count_and_progress() {
         select_feishu_okr_read_intents(&request),
         vec![FeishuOkrReadIntent::Summary, FeishuOkrReadIntent::Progress]
     );
-    assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
+    assert_eq!(select_skills(&request), vec![AgentSkill::Okr]);
 }
 
 #[test]
@@ -127,11 +123,7 @@ fn selects_only_progress_for_target_progress_phrasing() {
             vec![FeishuOkrReadIntent::Progress],
             "{text}"
         );
-        assert_eq!(
-            select_skills(&request),
-            vec![AgentSkill::FeishuOkr],
-            "{text}"
-        );
+        assert_eq!(select_skills(&request), vec![AgentSkill::Okr], "{text}");
     }
 }
 
@@ -150,7 +142,7 @@ fn selects_feishu_okr_for_contextual_feishu_count_after_okr_topic() {
         select_feishu_okr_read_intents(&request),
         vec![FeishuOkrReadIntent::Summary]
     );
-    assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
+    assert_eq!(select_skills(&request), vec![AgentSkill::Okr]);
 }
 
 #[test]

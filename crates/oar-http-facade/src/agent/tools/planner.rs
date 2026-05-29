@@ -14,19 +14,19 @@ fn plan_read_tools_for_selected_intents(
     okr_intents: &[FeishuOkrReadIntent],
 ) -> Vec<AgentReadTool> {
     let mut tools = Vec::new();
-    if active_skills.contains(&AgentSkill::FeishuCalendar) {
-        tools.push(AgentReadTool::FeishuCalendarSummarizeMyFreeBusy);
+    if active_skills.contains(&AgentSkill::Calendar) {
+        tools.push(AgentReadTool::CalendarFreeBusy);
     }
-    if active_skills.contains(&AgentSkill::FeishuOkr) {
+    if active_skills.contains(&AgentSkill::Okr) {
         if okr_intents.contains(&FeishuOkrReadIntent::Summary) {
-            tools.push(AgentReadTool::FeishuOkrSummarizeMyOkr);
+            tools.push(AgentReadTool::OkrSummary);
         }
         if okr_intents.contains(&FeishuOkrReadIntent::Progress) {
-            tools.push(AgentReadTool::FeishuOkrSummarizeMyProgress);
+            tools.push(AgentReadTool::OkrProgress);
         }
     }
-    if active_skills.contains(&AgentSkill::FeishuTask) {
-        tools.push(AgentReadTool::FeishuTaskSummarizeMyTasks);
+    if active_skills.contains(&AgentSkill::Task) {
+        tools.push(AgentReadTool::TaskSummary);
     }
 
     tools
@@ -44,12 +44,9 @@ mod tests {
     fn planner_requests_my_okr_summary_for_explicit_user_okr_read() {
         let request = request_with_latest_user_text("查下我的飞书 OKR 有没有内容");
 
-        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
-        assert_eq!(
-            plan_read_tools(&request),
-            vec![AgentReadTool::FeishuOkrSummarizeMyOkr]
-        );
-        let spec = AgentReadTool::FeishuOkrSummarizeMyOkr.spec();
+        assert_eq!(select_skills(&request), vec![AgentSkill::Okr]);
+        assert_eq!(plan_read_tools(&request), vec![AgentReadTool::OkrSummary]);
+        let spec = AgentReadTool::OkrSummary.spec();
         assert_eq!(spec.name, "feishu.okr.summarize_my_okr");
         assert!(spec.description.contains("只读汇总"));
         assert_eq!(
@@ -70,12 +67,9 @@ mod tests {
     fn planner_requests_my_okr_progress_without_summary_for_progress_intent() {
         let request = request_with_latest_user_text("我的 OKR 最近更新和风险");
 
-        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
-        assert_eq!(
-            plan_read_tools(&request),
-            vec![AgentReadTool::FeishuOkrSummarizeMyProgress]
-        );
-        let spec = AgentReadTool::FeishuOkrSummarizeMyProgress.spec();
+        assert_eq!(select_skills(&request), vec![AgentSkill::Okr]);
+        assert_eq!(plan_read_tools(&request), vec![AgentReadTool::OkrProgress]);
+        let spec = AgentReadTool::OkrProgress.spec();
         assert_eq!(spec.name, "feishu.okr.summarize_my_progress");
         assert!(spec.description.contains("最近更新"));
         assert_eq!(
@@ -110,14 +104,10 @@ mod tests {
         for text in ["看我的 OKR 目标进展", "show my OKR objective progress"] {
             let request = request_with_latest_user_text(text);
 
-            assert_eq!(
-                select_skills(&request),
-                vec![AgentSkill::FeishuOkr],
-                "{text}"
-            );
+            assert_eq!(select_skills(&request), vec![AgentSkill::Okr], "{text}");
             assert_eq!(
                 plan_read_tools(&request),
-                vec![AgentReadTool::FeishuOkrSummarizeMyProgress],
+                vec![AgentReadTool::OkrProgress],
                 "{text}"
             );
         }
@@ -127,13 +117,10 @@ mod tests {
     fn planner_requests_both_okr_tools_for_count_and_progress_intent() {
         let request = request_with_latest_user_text("查我的 OKR 有几条，以及最近进展");
 
-        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
+        assert_eq!(select_skills(&request), vec![AgentSkill::Okr]);
         assert_eq!(
             plan_read_tools(&request),
-            vec![
-                AgentReadTool::FeishuOkrSummarizeMyOkr,
-                AgentReadTool::FeishuOkrSummarizeMyProgress
-            ]
+            vec![AgentReadTool::OkrSummary, AgentReadTool::OkrProgress]
         );
     }
 
@@ -141,12 +128,9 @@ mod tests {
     fn planner_requests_my_task_summary_for_explicit_user_task_read() {
         let request = request_with_latest_user_text("查下我的飞书任务有几条");
 
-        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuTask]);
-        assert_eq!(
-            plan_read_tools(&request),
-            vec![AgentReadTool::FeishuTaskSummarizeMyTasks]
-        );
-        let spec = AgentReadTool::FeishuTaskSummarizeMyTasks.spec();
+        assert_eq!(select_skills(&request), vec![AgentSkill::Task]);
+        assert_eq!(plan_read_tools(&request), vec![AgentReadTool::TaskSummary]);
+        let spec = AgentReadTool::TaskSummary.spec();
         assert_eq!(spec.name, "feishu.task.summarize_my_tasks");
         assert!(spec.description.contains("我负责的任务"));
         assert_eq!(
@@ -164,12 +148,12 @@ mod tests {
     fn planner_requests_my_calendar_free_busy_for_explicit_user_calendar_read() {
         let request = request_with_latest_user_text("查下我的飞书日历今天有没有空");
 
-        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuCalendar]);
+        assert_eq!(select_skills(&request), vec![AgentSkill::Calendar]);
         assert_eq!(
             plan_read_tools(&request),
-            vec![AgentReadTool::FeishuCalendarSummarizeMyFreeBusy]
+            vec![AgentReadTool::CalendarFreeBusy]
         );
-        let spec = AgentReadTool::FeishuCalendarSummarizeMyFreeBusy.spec();
+        let spec = AgentReadTool::CalendarFreeBusy.spec();
         assert_eq!(spec.name, "feishu.calendar.summarize_my_free_busy");
         assert!(spec.description.contains("未来 7 天"));
         assert_eq!(
@@ -205,11 +189,8 @@ mod tests {
             },
         );
 
-        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
-        assert_eq!(
-            plan_read_tools(&request),
-            vec![AgentReadTool::FeishuOkrSummarizeMyOkr]
-        );
+        assert_eq!(select_skills(&request), vec![AgentSkill::Okr]);
+        assert_eq!(plan_read_tools(&request), vec![AgentReadTool::OkrSummary]);
     }
 
     #[test]

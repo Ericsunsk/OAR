@@ -26,9 +26,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[test]
 fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
     let mut tools = vec![
-        AgentReadTool::FeishuOkrSummarizeMyOkr,
-        AgentReadTool::FeishuOkrSummarizeMyProgress,
-        AgentReadTool::FeishuCalendarSummarizeMyFreeBusy,
+        AgentReadTool::OkrSummary,
+        AgentReadTool::OkrProgress,
+        AgentReadTool::CalendarFreeBusy,
     ];
     let mut degraded = Vec::new();
 
@@ -42,10 +42,7 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
     assert!(degraded[1].contains("okr:okr.progress:readonly"));
     assert!(degraded[2].contains("calendar:calendar.free_busy:read"));
 
-    let mut tools = vec![
-        AgentReadTool::FeishuOkrSummarizeMyOkr,
-        AgentReadTool::FeishuOkrSummarizeMyProgress,
-    ];
+    let mut tools = vec![AgentReadTool::OkrSummary, AgentReadTool::OkrProgress];
     let mut degraded = Vec::new();
 
     gate_read_tools_by_scope(
@@ -57,15 +54,15 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
         &mut degraded,
     );
 
-    assert_eq!(tools, vec![AgentReadTool::FeishuOkrSummarizeMyOkr]);
+    assert_eq!(tools, vec![AgentReadTool::OkrSummary]);
     assert_eq!(degraded.len(), 1);
     assert!(degraded[0].contains("feishu.okr.summarize_my_progress"));
     assert!(degraded[0].contains("okr:okr.progress:readonly"));
 
     let mut tools = vec![
-        AgentReadTool::FeishuOkrSummarizeMyOkr,
-        AgentReadTool::FeishuOkrSummarizeMyProgress,
-        AgentReadTool::FeishuCalendarSummarizeMyFreeBusy,
+        AgentReadTool::OkrSummary,
+        AgentReadTool::OkrProgress,
+        AgentReadTool::CalendarFreeBusy,
     ];
     let mut degraded = Vec::new();
 
@@ -83,9 +80,9 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
     assert_eq!(
         tools,
         vec![
-            AgentReadTool::FeishuOkrSummarizeMyOkr,
-            AgentReadTool::FeishuOkrSummarizeMyProgress,
-            AgentReadTool::FeishuCalendarSummarizeMyFreeBusy
+            AgentReadTool::OkrSummary,
+            AgentReadTool::OkrProgress,
+            AgentReadTool::CalendarFreeBusy
         ]
     );
     assert!(degraded.is_empty());
