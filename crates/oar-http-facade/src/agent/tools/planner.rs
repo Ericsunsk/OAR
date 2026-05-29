@@ -26,7 +26,7 @@ mod tests {
     use crate::agent::request::{AgentConversationContextDTO, AgentMessageDTO};
     use crate::agent::skills::{select_skills, AgentSkill};
     use crate::agent::tools::registry::AgentToolEffect;
-    use oar_core::action::capability::FeishuScope;
+    use oar_core::action::capability::{CapabilityActionType, FeishuScope};
 
     #[test]
     fn planner_requests_my_okr_summary_for_explicit_user_okr_read() {
@@ -41,8 +41,15 @@ mod tests {
         assert_eq!(spec.name, "feishu.okr.summarize_my_okr");
         assert!(spec.description.contains("只读汇总"));
         assert_eq!(
-            spec.required_scopes,
-            &[FeishuScope::OkrPeriodRead, FeishuScope::OkrContentRead]
+            spec.required_action_types,
+            &[
+                CapabilityActionType::OkrPeriodRead,
+                CapabilityActionType::OkrContentRead
+            ]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![FeishuScope::OkrPeriodRead, FeishuScope::OkrContentRead]
         );
         assert_eq!(spec.effect, AgentToolEffect::Read);
     }

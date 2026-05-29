@@ -74,7 +74,7 @@ dry_run_delete_progress(request) -> ToolDryRun
 - 所有写方法必须接收 `confirmed_action_id`。
 - 所有写方法必须先有 dry-run 预览。
 - `delete_progress` 在 MVP 中只开放 dry-run，不开放真实执行。
-- CLI 输出必须经过 schema fixture 回归测试。
+- CLI 输出只用于本地验证和 schema fixture 回归测试；Agent live read / tool runtime 的生产路径必须走 Rust adapter / OpenAPI client 和 scope gate。
 - 解析器必须兼容 dry-run 前缀和 ContentBlock 字符串。
 - 不在日志中输出 token、完整 scope 或敏感原文。
 
@@ -105,3 +105,5 @@ MVP 默认不允许：
 - 设计 `TokenGrant` 加密存储与 refresh token rotation。
 - 设计 `OperationLedger`，保证同一 `ConfirmedAction` 只执行一次。
 - 将本次 CLI 输出固化为 `LarkAdapter` fixture。
+
+后续对齐项：以 core capability matrix 作为 OAR `action_type`、execution mode、Feishu scope 和 Agent tool manifest 的来源；默认 OAuth grant 只代表已授权 Feishu scopes，不等于生产写 allowlist。live read scope gate、adapter parser 和 safe summary 必须保留 fixture-driven 回归。

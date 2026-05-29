@@ -330,14 +330,27 @@ fn gate_read_tools_by_scope(
 ) {
     read_tools.retain(|tool| {
         let spec = tool.spec();
-        let missing = spec
-            .required_scopes
+        let required_scopes = match spec.required_feishu_scopes() {
+            Ok(scopes) => scopes,
+            Err(error) => {
+                degraded.push(format!(
+                    "工具 {}｜实时读取降级：{}。",
+                    spec.name,
+                    error.safe_reason()
+                ));
+                return false;
+            }
+        };
+        let missing = required_scopes
             .iter()
-            .filter(|required| {
+            .filter_map(|required| {
                 let required = required.as_str();
-                !scopes.iter().any(|scope| scope.trim() == required)
+                if scopes.iter().any(|scope| scope.trim() == required) {
+                    None
+                } else {
+                    Some(required)
+                }
             })
-            .map(|scope| scope.as_str())
             .collect::<Vec<_>>();
         if missing.is_empty() {
             return true;

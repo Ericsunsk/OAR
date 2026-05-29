@@ -138,6 +138,8 @@ impl FeishuScope {
     }
 }
 
+pub const FEISHU_OFFLINE_ACCESS_SCOPE: &str = "offline_access";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OarRequiredScope {
     OkrPeriodRead,
@@ -270,6 +272,48 @@ pub const CALENDAR_FREE_BUSY_READ_SCOPES: &[FeishuScope] = &[FeishuScope::Calend
 pub const TASK_READ_SCOPES: &[FeishuScope] = &[FeishuScope::TaskRead];
 pub const TASK_WRITE_SCOPES: &[FeishuScope] = &[FeishuScope::TaskWrite];
 pub const IM_MESSAGE_SEND_AS_BOT_SCOPES: &[FeishuScope] = &[FeishuScope::ImMessageSendAsBot];
+
+pub const DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES: &[CapabilityActionType] = &[
+    CapabilityActionType::OkrPeriodRead,
+    CapabilityActionType::OkrContentRead,
+    CapabilityActionType::OkrProgressRead,
+    CapabilityActionType::OkrProgressCreate,
+    CapabilityActionType::OkrProgressUpdate,
+    CapabilityActionType::OkrReviewRead,
+    CapabilityActionType::OkrSettingRead,
+    CapabilityActionType::CalendarFreeBusyRead,
+    CapabilityActionType::TaskRead,
+    CapabilityActionType::TaskCreate,
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeishuScopeBundle {
+    key: &'static str,
+    action_types: &'static [CapabilityActionType],
+}
+
+impl FeishuScopeBundle {
+    pub const fn key(self) -> &'static str {
+        self.key
+    }
+
+    pub const fn action_types(self) -> &'static [CapabilityActionType] {
+        self.action_types
+    }
+
+    pub fn feishu_scopes(self) -> Vec<FeishuScope> {
+        feishu_scopes_for_action_types(self.action_types)
+    }
+
+    pub fn oauth_scope_strings(self) -> Vec<&'static str> {
+        feishu_oauth_scope_strings_for_action_types(self.action_types)
+    }
+}
+
+pub const DEFAULT_AGENT_FEISHU_OAUTH_SCOPE_BUNDLE: FeishuScopeBundle = FeishuScopeBundle {
+    key: "default_agent_user_authorization",
+    action_types: DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES,
+};
 
 pub const CAPABILITY_MATRIX: &[CapabilitySpec] = &[
     CapabilitySpec {
@@ -415,6 +459,61 @@ pub fn find_by_action_type_str(action_type: &str) -> Option<&'static CapabilityS
     CAPABILITY_MATRIX
         .iter()
         .find(|spec| spec.action_type.as_str() == action_type)
+}
+
+pub const fn default_agent_feishu_oauth_scope_bundle() -> FeishuScopeBundle {
+    DEFAULT_AGENT_FEISHU_OAUTH_SCOPE_BUNDLE
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityScopeDerivationError {
+    CapabilityNotRegistered(CapabilityActionType),
+}
+
+pub fn try_feishu_scopes_for_action_types(
+    action_types: &[CapabilityActionType],
+) -> Result<Vec<FeishuScope>, CapabilityScopeDerivationError> {
+    let mut scopes = Vec::new();
+
+    for action_type in action_types {
+        let Some(spec) = find_by_action_type(*action_type) else {
+            return Err(CapabilityScopeDerivationError::CapabilityNotRegistered(
+                *action_type,
+            ));
+        };
+
+        for scope in spec.feishu_scopes {
+            if !scopes.contains(scope) {
+                scopes.push(*scope);
+            }
+        }
+    }
+
+    Ok(scopes)
+}
+
+pub fn feishu_scopes_for_action_types(action_types: &[CapabilityActionType]) -> Vec<FeishuScope> {
+    try_feishu_scopes_for_action_types(action_types)
+        .expect("all capability action types must be registered in CAPABILITY_MATRIX")
+}
+
+pub fn feishu_oauth_scope_strings_for_action_types(
+    action_types: &[CapabilityActionType],
+) -> Vec<&'static str> {
+    let mut scopes = vec![FEISHU_OFFLINE_ACCESS_SCOPE];
+
+    for scope in feishu_scopes_for_action_types(action_types) {
+        let scope = scope.as_str();
+        if !scopes.contains(&scope) {
+            scopes.push(scope);
+        }
+    }
+
+    scopes
+}
+
+pub fn default_agent_feishu_oauth_scope_strings() -> Vec<&'static str> {
+    default_agent_feishu_oauth_scope_bundle().oauth_scope_strings()
 }
 
 #[cfg(test)]
@@ -653,5 +752,96 @@ mod tests {
             message_send.execution_mode,
             CapabilityExecutionMode::DraftOnly
         );
+    }
+
+    #[test]
+    fn default_feishu_oauth_bundle_contains_expected_user_authorization_scopes() {
+        let scopes = default_agent_feishu_oauth_scope_strings();
+
+        assert_eq!(
+            scopes,
+            vec![
+                FEISHU_OFFLINE_ACCESS_SCOPE,
+                FeishuScope::OkrPeriodRead.as_str(),
+                FeishuScope::OkrContentRead.as_str(),
+                FeishuScope::OkrProgressRead.as_str(),
+                FeishuScope::OkrProgressWrite.as_str(),
+                FeishuScope::OkrReviewRead.as_str(),
+                FeishuScope::OkrSettingRead.as_str(),
+                FeishuScope::CalendarFreeBusyRead.as_str(),
+                FeishuScope::TaskRead.as_str(),
+                FeishuScope::TaskWrite.as_str(),
+            ]
+        );
+        assert!(!scopes.contains(&FeishuScope::ImMessageSendAsBot.as_str()));
+    }
+
+    #[test]
+    fn feishu_scope_derivation_is_stable_and_deduplicated() {
+        let scopes = feishu_scopes_for_action_types(&[
+            CapabilityActionType::OkrProgressCreate,
+            CapabilityActionType::OkrProgressUpdate,
+            CapabilityActionType::TaskCreate,
+            CapabilityActionType::TaskCreate,
+        ]);
+
+        assert_eq!(
+            scopes,
+            vec![FeishuScope::OkrProgressWrite, FeishuScope::TaskWrite]
+        );
+
+        let unique_len = default_agent_feishu_oauth_scope_strings()
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        assert_eq!(unique_len, default_agent_feishu_oauth_scope_strings().len());
+    }
+
+    #[test]
+    fn feishu_oauth_bundle_keeps_authorization_metadata_separate() {
+        let bundle = default_agent_feishu_oauth_scope_bundle();
+
+        assert_eq!(bundle.key(), "default_agent_user_authorization");
+        assert!(
+            bundle
+                .action_types()
+                .contains(&CapabilityActionType::OkrProgressCreate),
+            "default authorization should still request OKR progress write scope"
+        );
+        assert!(
+            bundle
+                .action_types()
+                .contains(&CapabilityActionType::TaskCreate),
+            "default authorization should still request task write scope"
+        );
+        assert_eq!(
+            bundle.feishu_scopes(),
+            feishu_scopes_for_action_types(bundle.action_types())
+        );
+    }
+
+    #[test]
+    fn capability_matrix_contains_no_coarse_or_delete_feishu_scopes() {
+        let forbidden = [
+            "okr:okr",
+            "okr:okr.content:writeonly",
+            "okr:okr.period:writeonly",
+            "okr:okr.progress:delete",
+            "task:task:write",
+            "calendar:calendar",
+            "im:message",
+        ];
+
+        for capability in all_capabilities() {
+            for scope in capability.feishu_scopes {
+                assert!(
+                    !forbidden.contains(&scope.as_str()),
+                    "{} must not use coarse or destructive Feishu scope {}",
+                    capability.action_type_str(),
+                    scope.as_str()
+                );
+            }
+        }
     }
 }

@@ -22,6 +22,7 @@ ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent
 | OAuth grant scope | 用户扫码授权后实际进入 OAR `TokenGrant.scopes` 的权限；后台新增 app scope 后，旧 grant 不会自动增权 |
 | OAR `required_scope` | OAR 内部策略键，可映射到一个或多个飞书 scope；例如 `okr.period.read`、`okr.content.read`、`okr.progress.write` |
 | Capability execution mode | core 能力矩阵中的执行姿态：`AutoRead` 可自动读取，`DraftOnly` 只生成建议/草稿，`ConfirmedWrite` 才能进入生产写执行 allowlist |
+| Agent tool manifest | 后端 Agent 工具声明，例如 `feishu.okr.summarize_my_okr`；只绑定 OAR `action_type` / capability，并由 core 矩阵派生 Feishu scopes，不直接授予平台权限 |
 
 飞书 app scope、用户 OAuth grant scope 和 OAR allowlist 是三层不同门禁。读 OKR 必须先在飞书应用后台开通对应 read scope，再由用户通过 OAR 重新扫码把这些 scope 写入 `TokenGrant`；写回还必须额外满足 OAR policy allowlist、dry-run 和人工确认。旧 `TokenGrant` 不会因为后台新增 scope 自动扩大授权。
 
@@ -69,6 +70,12 @@ Core 能力矩阵的执行姿态合同：
 | 创建会议草稿 / 日程 | 未来 `CalendarAdapter.create_event` | 未来 `calendar.event.create`；MVP 仅草稿 | 创建日程需要日历写权限；官方权限键示例包括 `calendar:calendar`，读取忙闲为 `calendar:calendar:readonly` | R3 | 必须展示参会人、时间、日历、会议室、通知设置 | 必须 | 记录 event target、attendee 摘要、idempotency key、结果；避免默认发送通知 |
 | 外部 A2A 提交建议 | A2A gateway -> OAR proposal service | 只能生成 `ProposedAction`，不能生成 `ConfirmedAction` | 不直接持有飞书 scope 或 token | R1-R3 | 平台写入前仍由 OAR adapter dry-run | 必须由 OAR 用户确认 | 记录外部 agent id、建议摘要、证据引用、后续用户决策 |
 
+Agent tool manifest 与 core capability 的当前对齐：
+
+| Agent tool | Required `action_type` | 派生 Feishu scope | Effect | 边界 |
+| --- | --- | --- | --- | --- |
+| `feishu.okr.summarize_my_okr` | `okr.period.read`、`okr.content.read` | `okr:okr.period:readonly`、`okr:okr.content:readonly` | Read | 只读汇总当前用户本人 OKR 周期、Objective 和 KR 数量；不读取团队/他人 OKR，不生成 `ProposedAction` 或 `ConfirmedAction` |
+
 ## 4. 生产执行规则
 
 生产写入必须按以下顺序执行：
@@ -86,7 +93,8 @@ Core 能力矩阵的执行姿态合同：
 ## 5. Scope 与 allowlist 管理
 
 - 未配置 `OAR_FEISHU_AUTH_SCOPE` 时，OAR 默认扫码登录请求已声明用户级能力所需的 Feishu scopes：`offline_access`、OKR 读写、OKR review/setting 读取、calendar free-busy、task 读写等。
-- 默认 OAuth grant scope 放宽不等于放宽执行边界；写操作仍必须经过 dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
+- 默认 OAuth scope 由 core capability scope bundle 派生；OAuth grant 保存和校验飞书 scope 名称，执行策略使用 OAR `required_scope` / `action_type`。
+- OAuth grant scope 不等于生产写执行 allowlist。只读 Agent tool runtime 使用 Feishu scope gate；写执行仍必须满足 `ExecutionPolicy` allowlist、dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
 - 飞书开发者后台开启或新增 scope 后，用户必须重新用 OAR 扫码授权；旧 `TokenGrant.scopes` 不会自动增加新 scope。
 - progress 创建/更新的 `okr:okr.progress:writeonly` 默认进入 OAuth grant，避免真实使用时反复补授权；生产执行仍只接受 `ConfirmedWrite` 能力、dry-run 和人工确认。
 - 新增 scope 只能先作为 `AutoRead`、`DraftOnly` 或明确的 `ConfirmedWrite` 合同进入 core 矩阵；`task.create` 和 `im.message.send` 当前不进入生产执行 allowlist。
@@ -117,6 +125,7 @@ Core 能力矩阵的执行姿态合同：
 当前 MVP 只允许：
 
 - 自动读取授权范围内的 OKR 周期、Objective、KR 和 progress。
+- Agent 已启用 `feishu.okr.summarize_my_okr` 只读工具，用于当前用户本人 OKR 安全摘要；边界见上方 manifest 对齐表。
 - 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy 和 task 摘要列为 `AutoRead`；adapter 实现另行接入，且这些读能力不进入写执行 allowlist。
 - 自动生成风险、证据摘要、周报和建议动作。
 - 将 task 创建和 bot 消息发送登记为 `DraftOnly`；当前只允许生成草稿或待评审项合同，不进入生产写执行 allowlist。

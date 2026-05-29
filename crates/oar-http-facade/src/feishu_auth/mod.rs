@@ -10,7 +10,7 @@ use hyper::body::Frame;
 use hyper::header::{CACHE_CONTROL, CONTENT_TYPE};
 use hyper::http::{HeaderValue, Method, StatusCode};
 use hyper::Response;
-use oar_core::action::capability::FeishuScope;
+use oar_core::action::capability::default_agent_feishu_oauth_scope_strings;
 use oar_lark_adapter::{
     AsyncFeishuOAuthLogin, FeishuOAuthLoginClient, FeishuOAuthLoginConfig, FeishuOpenApiConfig,
     ReqwestAsyncHttpClient,
@@ -37,19 +37,6 @@ use crate::response::{
 use crate::util::non_empty_env;
 
 const FEISHU_LOGIN_SSE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
-const DEFAULT_FEISHU_AUTH_SCOPES: &[&str] = &[
-    "offline_access",
-    FeishuScope::OkrPeriodRead.as_str(),
-    FeishuScope::OkrContentRead.as_str(),
-    FeishuScope::OkrProgressRead.as_str(),
-    FeishuScope::OkrProgressWrite.as_str(),
-    FeishuScope::OkrReviewRead.as_str(),
-    FeishuScope::OkrSettingRead.as_str(),
-    FeishuScope::CalendarFreeBusyRead.as_str(),
-    FeishuScope::TaskRead.as_str(),
-    FeishuScope::TaskWrite.as_str(),
-];
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum FeishuLoginRuntimeConfigError {
     PartialAuthConfig,
@@ -121,7 +108,7 @@ impl FeishuLoginRuntime {
 }
 
 fn default_feishu_auth_scope() -> String {
-    DEFAULT_FEISHU_AUTH_SCOPES.join(" ")
+    default_agent_feishu_oauth_scope_strings().join(" ")
 }
 
 impl FeishuGrantPersistenceRuntime {

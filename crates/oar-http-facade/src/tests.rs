@@ -175,6 +175,10 @@ fn configured_runtime_creates_pending_feishu_login_session_with_default_agent_sc
         .as_str()
         .expect("qr url")
         .contains("delete"));
+    assert!(!body["qr_page_url"]
+        .as_str()
+        .expect("qr url")
+        .contains("im%3Amessage"));
     assert!(!response.body.contains("super-secret"));
 }
 
