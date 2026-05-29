@@ -13,9 +13,10 @@ use super::stream::{
 use super::stream::{send_agent_stream_frames, AgentFrameSendError, AgentFrameSender};
 use super::{
     agent_http_client, ensure_successful_upstream_response, is_allowed_agent_base_url,
-    non_empty_env, AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError,
-    AgentStreamError, DEFAULT_ANTHROPIC_VERSION,
+    AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError, AgentStreamError,
+    DEFAULT_ANTHROPIC_VERSION,
 };
+use crate::util::non_empty_env;
 
 const ANTHROPIC_BASE_URL_ENV: &str = "OAR_AGENT_ANTHROPIC_BASE_URL";
 const ANTHROPIC_API_KEY_ENV: &str = "OAR_AGENT_ANTHROPIC_API_KEY";

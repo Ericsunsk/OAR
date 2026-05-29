@@ -11,9 +11,9 @@ use super::stream::{
 };
 use super::{
     agent_http_client, ensure_successful_upstream_response, is_allowed_agent_base_url,
-    non_empty_env, AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError,
-    AgentStreamError,
+    AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError, AgentStreamError,
 };
+use crate::util::non_empty_env;
 
 const OPENAI_COMPATIBLE_BASE_URL_ENV: &str = "OAR_AGENT_OPENAI_BASE_URL";
 const OPENAI_COMPATIBLE_API_KEY_ENV: &str = "OAR_AGENT_OPENAI_API_KEY";

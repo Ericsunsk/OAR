@@ -1,8 +1,21 @@
+use std::fmt;
+
 use serde::Deserialize;
 
-use super::AgentRequestError;
-
 const AGENT_CONTEXT_MESSAGE_LIMIT: usize = 12;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentRequestError {
+    InvalidJson,
+}
+
+impl fmt::Display for AgentRequestError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidJson => write!(f, "oar_agent_request_invalid_json"),
+        }
+    }
+}
 
 pub(crate) fn decode_agent_stream_request(
     body: &[u8],
