@@ -39,6 +39,17 @@ const FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES: &[CapabilityActionTyp
     &[CapabilityActionType::CalendarFreeBusyRead];
 
 impl AgentReadTool {
+    #[cfg(test)]
+    pub(in crate::agent) fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "feishu.calendar.summarize_my_free_busy" => Some(Self::CalendarFreeBusy),
+            "feishu.okr.summarize_my_okr" => Some(Self::OkrSummary),
+            "feishu.okr.summarize_my_progress" => Some(Self::OkrProgress),
+            "feishu.task.summarize_my_tasks" => Some(Self::TaskSummary),
+            _ => None,
+        }
+    }
+
     pub(in crate::agent) const fn spec(self) -> AgentToolSpec {
         match self {
             Self::CalendarFreeBusy => AgentToolSpec {
@@ -101,6 +112,9 @@ impl AgentToolSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oar_core::action::capability::{
+        find_by_action_type, CapabilityEffect, CapabilityExecutionMode,
+    };
 
     #[test]
     fn read_tool_manifest_derives_feishu_scopes_from_core_capability_matrix() {
@@ -155,5 +169,26 @@ mod tests {
             spec.required_feishu_scopes().expect("scopes"),
             vec![FeishuScope::CalendarFreeBusyRead]
         );
+    }
+
+    #[test]
+    fn read_tool_manifest_only_uses_auto_read_capabilities() {
+        for tool in [
+            AgentReadTool::CalendarFreeBusy,
+            AgentReadTool::OkrSummary,
+            AgentReadTool::OkrProgress,
+            AgentReadTool::TaskSummary,
+        ] {
+            let spec = tool.spec();
+            assert_eq!(spec.effect, AgentToolEffect::Read);
+            for action_type in spec.required_action_types {
+                let capability =
+                    find_by_action_type(*action_type).expect("read tool capability is registered");
+                assert_eq!(capability.effect, CapabilityEffect::Read);
+                assert_eq!(capability.execution_mode, CapabilityExecutionMode::AutoRead);
+                assert!(!capability.is_write());
+                assert!(!capability.enters_execution_allowlist());
+            }
+        }
     }
 }
