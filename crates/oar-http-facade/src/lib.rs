@@ -5,6 +5,7 @@ mod agent_routes;
 mod config;
 mod feishu_auth;
 mod response;
+mod session_auth;
 mod util;
 
 use std::convert::Infallible;
@@ -19,8 +20,6 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
-use oar_core::domain::device_sync::SessionState;
-use oar_core::storage::postgres::{PostgresDeviceSessionRepository, StoredDeviceSession};
 use oar_lark_adapter::PostgresFeishuAuthRefreshEnvConfig;
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
@@ -36,8 +35,15 @@ use feishu_auth::{
     FeishuLoginRuntime, FeishuLoginRuntimeConfigError,
 };
 use response::{
-    invalid_oar_session, json_facade_response, not_found, not_implemented, service_unavailable,
-    unauthorized, ResponseBody,
+    json_facade_response, not_found, not_implemented, service_unavailable, ResponseBody,
+};
+pub(crate) use session_auth::{
+    authenticate_oar_session, oar_session_auth_error_response,
+    protected_route_requires_session_store, AuthenticatedContext,
+};
+#[cfg(test)]
+pub(crate) use session_auth::{
+    authenticated_context_from_session, bearer_session_id, OarSessionAuthError,
 };
 use util::non_empty_env;
 
@@ -187,20 +193,6 @@ impl Error for OarHttpFacadeError {
             Self::Bind(error) | Self::Accept(error) => Some(error),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct AuthenticatedContext {
-    session_id: String,
-    tenant_id: String,
-    user_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum OarSessionAuthError {
-    MissingBearer,
-    InvalidSession,
-    StoreUnavailable,
 }
 
 pub async fn run(config: OarHttpFacadeConfig) -> Result<(), OarHttpFacadeError> {
@@ -427,73 +419,6 @@ fn empty_review_inbox_snapshot() -> Value {
         "evidence": [],
         "ledger_events": []
     })
-}
-
-fn protected_route_requires_session_store(
-    authorization: Option<&str>,
-    safe_message: &'static str,
-) -> FacadeResponse {
-    match bearer_session_id(authorization) {
-        Ok(_) => service_unavailable("oar_session_verification_unavailable", safe_message),
-        Err(error) => oar_session_auth_error_response(error),
-    }
-}
-
-async fn authenticate_oar_session(
-    runtime: &OarHttpFacadeRuntime,
-    authorization: Option<&str>,
-) -> Result<AuthenticatedContext, OarSessionAuthError> {
-    let session_id = bearer_session_id(authorization)?;
-    let persistence = runtime
-        .feishu_login
-        .as_ref()
-        .and_then(|login| login.grant_persistence())
-        .ok_or(OarSessionAuthError::StoreUnavailable)?;
-    let session = PostgresDeviceSessionRepository::new(persistence.pool())
-        .get_by_session_id_for_authentication(session_id)
-        .await
-        .map_err(|_| OarSessionAuthError::StoreUnavailable)?
-        .ok_or(OarSessionAuthError::InvalidSession)?;
-    authenticated_context_from_session(&session)
-}
-
-fn authenticated_context_from_session(
-    session: &StoredDeviceSession,
-) -> Result<AuthenticatedContext, OarSessionAuthError> {
-    if session.state != SessionState::Active
-        || session.revoked_at.is_some()
-        || session.expired_at.is_some()
-    {
-        return Err(OarSessionAuthError::InvalidSession);
-    }
-    Ok(AuthenticatedContext {
-        session_id: session.id.clone(),
-        tenant_id: session.tenant_id.clone(),
-        user_id: session.user_id.clone(),
-    })
-}
-
-fn bearer_session_id(authorization: Option<&str>) -> Result<&str, OarSessionAuthError> {
-    let session_id = authorization
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or(OarSessionAuthError::MissingBearer)?;
-    if !session_id.starts_with("oar_session_") {
-        return Err(OarSessionAuthError::InvalidSession);
-    }
-    Ok(session_id)
-}
-
-fn oar_session_auth_error_response(error: OarSessionAuthError) -> FacadeResponse {
-    match error {
-        OarSessionAuthError::MissingBearer => unauthorized(),
-        OarSessionAuthError::InvalidSession => invalid_oar_session(),
-        OarSessionAuthError::StoreUnavailable => service_unavailable(
-            "oar_session_verification_unavailable",
-            "OAR session verification is temporarily unavailable.",
-        ),
-    }
 }
 
 fn review_inbox_snapshot_for_context(context: &AuthenticatedContext) -> FacadeResponse {
