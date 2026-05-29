@@ -61,10 +61,10 @@ pub(super) fn gate_evidence_refs_by_scope(
     scopes: &[String],
     resolution: &mut LiveEvidenceResolution<'_>,
 ) {
-    if !resolution.okr_refs.is_empty() && !has_okr_content_read_scope(scopes) {
-        resolution
-            .degraded
-            .push("未读取到实时 Feishu OKR 证据：授权缺少 OKR 内容读取权限。".to_string());
+    if !resolution.okr_refs.is_empty() && !has_okr_evidence_read_scopes(scopes) {
+        resolution.degraded.push(
+            "未读取到实时 Feishu OKR 证据：授权缺少 OKR 内容或 progress 读取权限。".to_string(),
+        );
         resolution.okr_refs.clear();
     }
     if !resolution.task_refs.is_empty() && !has_task_read_scope(scopes) {
@@ -75,13 +75,17 @@ pub(super) fn gate_evidence_refs_by_scope(
     }
 }
 
-fn has_okr_content_read_scope(scopes: &[String]) -> bool {
-    let required = FeishuScope::OkrContentRead.as_str();
-    scopes.iter().any(|scope| scope.trim() == required)
+fn has_okr_evidence_read_scopes(scopes: &[String]) -> bool {
+    has_feishu_scope(scopes, FeishuScope::OkrContentRead)
+        && has_feishu_scope(scopes, FeishuScope::OkrProgressRead)
 }
 
 fn has_task_read_scope(scopes: &[String]) -> bool {
-    let required = FeishuScope::TaskRead.as_str();
+    has_feishu_scope(scopes, FeishuScope::TaskRead)
+}
+
+fn has_feishu_scope(scopes: &[String], required: FeishuScope) -> bool {
+    let required = required.as_str();
     scopes.iter().any(|scope| scope.trim() == required)
 }
 
@@ -98,6 +102,7 @@ fn is_task_source_type(source_type: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oar_core::action::capability::OarRequiredScope;
 
     #[test]
     fn resolves_mixed_evidence_refs_without_cross_parsing_sources() {
@@ -151,7 +156,10 @@ mod tests {
         let mut resolution = resolve_evidence_refs(&refs, 4);
 
         gate_evidence_refs_by_scope(
-            &[FeishuScope::OkrContentRead.as_str().to_string()],
+            &[
+                FeishuScope::OkrContentRead.as_str().to_string(),
+                FeishuScope::OkrProgressRead.as_str().to_string(),
+            ],
             &mut resolution,
         );
 
@@ -164,7 +172,10 @@ mod tests {
 
         let mut resolution = resolve_evidence_refs(&refs, 4);
         gate_evidence_refs_by_scope(
-            &[FeishuScope::TaskRead.as_str().to_string()],
+            &[
+                FeishuScope::OkrContentRead.as_str().to_string(),
+                FeishuScope::TaskRead.as_str().to_string(),
+            ],
             &mut resolution,
         );
 
@@ -173,7 +184,11 @@ mod tests {
         assert!(resolution
             .degraded
             .iter()
-            .any(|summary| summary.contains("授权缺少 OKR 内容读取权限")));
+            .any(|summary| summary.contains("授权缺少 OKR 内容或 progress 读取权限")));
+        assert!(!resolution
+            .degraded
+            .iter()
+            .any(|summary| summary.contains("OKR evidence") || summary.contains("okr_demo")));
     }
 
     #[test]
@@ -194,14 +209,24 @@ mod tests {
     }
 
     #[test]
-    fn okr_content_read_scope_accepts_only_feishu_scope_name() {
-        assert!(has_okr_content_read_scope(&[FeishuScope::OkrContentRead
-            .as_str()
-            .to_string()]));
-        assert!(!has_okr_content_read_scope(&[
-            "okr.content.read".to_string()
+    fn okr_evidence_read_scope_requires_content_and_progress_feishu_scope_names() {
+        assert!(has_okr_evidence_read_scopes(&[
+            FeishuScope::OkrContentRead.as_str().to_string(),
+            FeishuScope::OkrProgressRead.as_str().to_string(),
         ]));
-        assert!(!has_okr_content_read_scope(&["task:task:read".to_string()]));
+        assert!(!has_okr_evidence_read_scopes(&[
+            FeishuScope::OkrContentRead.as_str().to_string()
+        ]));
+        assert!(!has_okr_evidence_read_scopes(&[
+            FeishuScope::OkrProgressRead.as_str().to_string()
+        ]));
+        assert!(!has_okr_evidence_read_scopes(&[
+            OarRequiredScope::OkrContentRead.as_str().to_string(),
+            OarRequiredScope::OkrProgressRead.as_str().to_string(),
+        ]));
+        assert!(!has_okr_evidence_read_scopes(&[
+            "task:task:read".to_string()
+        ]));
     }
 
     #[test]

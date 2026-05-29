@@ -97,6 +97,7 @@ Agent tool manifest 与 core capability 的当前对齐：
 - 未配置 `OAR_FEISHU_AUTH_SCOPE` 时，OAR 默认扫码登录请求已声明用户级能力所需的 Feishu scopes：`offline_access`、OKR 读写、OKR review/setting 读取、calendar free-busy、task 读写等。
 - 默认 OAuth scope 由 core capability scope bundle 派生；OAuth grant 保存和校验飞书 scope 名称，执行策略使用 OAR `required_scope` / `action_type`。
 - OAuth grant scope 不等于生产写执行 allowlist。只读 Agent tool runtime 使用 Feishu scope gate；写执行仍必须满足 `ExecutionPolicy` allowlist、dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
+- OKR evidence ref 实时摘要会展示 KR progress/status，因此 scope gate 同时要求 `okr:okr.content:readonly` 和 `okr:okr.progress:readonly`；OAR action key 不能替代真实 Feishu scope。
 - 飞书开发者后台开启或新增 scope 后，用户必须重新用 OAR 扫码授权；旧 `TokenGrant.scopes` 不会自动增加新 scope。
 - progress 创建/更新的 `okr:okr.progress:writeonly` 默认进入 OAuth grant，避免真实使用时反复补授权；生产执行仍只接受 `ConfirmedWrite` 能力、dry-run 和人工确认。
 - 新增 scope 只能先作为 `AutoRead`、`DraftOnly` 或明确的 `ConfirmedWrite` 合同进入 core 矩阵；`task.create` 和 `im.message.send` 当前不进入生产执行 allowlist。
