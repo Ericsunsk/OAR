@@ -1,12 +1,8 @@
 use std::collections::BTreeSet;
-use std::time::SystemTime;
 
-use oar_core::storage::postgres::{EncryptedTokenGrantRecord, PostgresTokenGrantRepository};
-use oar_lark_adapter::material::read_access_token_from_encrypted_grant;
 use oar_lark_adapter::{
-    AsyncFeishuOkrRead, AsyncFeishuTaskRead, FeishuCalendarReadClient, FeishuOkrBatchGetRequest,
-    FeishuOkrReadClient, FeishuTaskGetRequest, FeishuTaskReadClient, OkrReadSnapshot,
-    OkrUserIdType, ReqwestAsyncHttpClient, TaskUserIdType,
+    AsyncFeishuOkrRead, AsyncFeishuTaskRead, FeishuOkrBatchGetRequest, FeishuTaskGetRequest,
+    OkrReadSnapshot, OkrUserIdType, TaskUserIdType,
 };
 
 use super::request::{AgentEvidenceRefDTO, AgentStreamRequest};
@@ -14,26 +10,25 @@ use super::skills::select_skills;
 use super::tools::{plan_read_tools, AgentReadTool};
 use crate::{AuthenticatedContext, OarHttpFacadeRuntime};
 
+mod authorization;
 mod calendar_summary;
 mod grant;
 mod okr_progress_summary;
 mod okr_summary;
 mod okr_topology;
 mod refs;
+mod session;
 mod source_registry;
 mod summary;
 mod task_summary;
 
+use authorization::gate_read_demand_by_scope;
 use calendar_summary::read_my_calendar_free_busy_summary;
-use grant::{
-    grant_requires_refresh_before_read, live_read_grant_denial_reason,
-    refresh_grant_before_live_read, resolve_grant_id_for_user, resolve_lark_open_id_for_grant,
-    system_time_to_ms,
-};
 use okr_progress_summary::read_my_okr_progress_summary_from_topology;
 use okr_summary::build_my_okr_summary_from_topology;
 use okr_topology::{read_my_okr_topology, OkrTopologyReadOptions};
-use source_registry::{gate_evidence_refs_by_scope, resolve_evidence_refs, LiveEvidenceResolution};
+use session::LiveFeishuReadSession;
+use source_registry::resolve_evidence_refs;
 use summary::{
     build_live_summary, build_task_live_summary, calendar_read_error_reason, degraded_summary,
     okr_read_error_reason, task_read_error_reason,
@@ -83,124 +78,18 @@ async fn assemble_live_feishu_summaries(
         return evidence_resolution.degraded;
     }
 
-    let Some(persistence) = runtime
-        .feishu_login
-        .as_ref()
-        .and_then(|login| login.grant_persistence())
-    else {
-        evidence_resolution
-            .degraded
-            .push("未读取到实时 Feishu 证据：后端未配置 Feishu 授权存储。".to_string());
-        return evidence_resolution.degraded;
-    };
-
-    let pool = persistence.pool();
-    let grant_id = match resolve_grant_id_for_user(&pool, auth_context).await {
-        Ok(grant_id) => grant_id,
-        Err(reason) => {
-            evidence_resolution
-                .degraded
-                .push(format!("未读取到实时 Feishu 证据：{}。", reason));
+    let session_result = LiveFeishuReadSession::open(runtime, auth_context, |scopes| {
+        gate_read_demand_by_scope(scopes, &mut evidence_resolution, &mut read_tools)
+    })
+    .await;
+    let session = match session_result {
+        Ok(session) => session,
+        Err(error) => {
+            error.push_degraded(&mut evidence_resolution.degraded);
             return evidence_resolution.degraded;
         }
     };
 
-    let token_grant = match PostgresTokenGrantRepository::new(pool.clone())
-        .get_by_id(&auth_context.tenant_id, &grant_id)
-        .await
-    {
-        Ok(Some(grant)) => grant,
-        Ok(None) => {
-            evidence_resolution
-                .degraded
-                .push("未读取到实时 Feishu 证据：未找到用户授权 grant。".to_string());
-            return evidence_resolution.degraded;
-        }
-        Err(_) => {
-            evidence_resolution
-                .degraded
-                .push("未读取到实时 Feishu 证据：读取授权 grant 失败。".to_string());
-            return evidence_resolution.degraded;
-        }
-    };
-
-    if !gate_grant_and_refs_for_live_read(
-        &token_grant,
-        persistence.grant_key_id(),
-        &mut evidence_resolution,
-        &mut read_tools,
-    ) {
-        return evidence_resolution.degraded;
-    }
-
-    let mut token_grant = token_grant;
-    let now = SystemTime::now();
-    let now_ms = system_time_to_ms(now);
-    if grant_requires_refresh_before_read(&token_grant, now_ms) {
-        let Some(login) = runtime.feishu_login.as_ref() else {
-            evidence_resolution
-                .degraded
-                .push("未读取到实时 Feishu 证据：后端未配置 Feishu 授权刷新。".to_string());
-            return evidence_resolution.degraded;
-        };
-        token_grant = match refresh_grant_before_live_read(
-            pool.clone(),
-            login,
-            persistence,
-            auth_context,
-            &token_grant,
-            now,
-            now_ms,
-        )
-        .await
-        {
-            Ok(grant) => grant,
-            Err(error) => {
-                evidence_resolution.degraded.push(format!(
-                    "未读取到实时 Feishu 证据：{}。",
-                    error.safe_reason()
-                ));
-                return evidence_resolution.degraded;
-            }
-        };
-    }
-
-    if !gate_grant_and_refs_for_live_read(
-        &token_grant,
-        persistence.grant_key_id(),
-        &mut evidence_resolution,
-        &mut read_tools,
-    ) {
-        return evidence_resolution.degraded;
-    }
-
-    let access_token = match read_access_token_from_encrypted_grant(
-        &token_grant.encrypted_oauth_grant,
-        persistence.grant_key_material(),
-    ) {
-        Ok(token) => token,
-        Err(_) => {
-            evidence_resolution
-                .degraded
-                .push("未读取到实时 Feishu 证据：授权令牌解密失败。".to_string());
-            return evidence_resolution.degraded;
-        }
-    };
-
-    let open_api_config = runtime
-        .feishu_login
-        .as_ref()
-        .map(|login| login.open_api_config())
-        .unwrap_or_default();
-    let http_client = match ReqwestAsyncHttpClient::with_config(&open_api_config) {
-        Ok(client) => client,
-        Err(_) => {
-            evidence_resolution
-                .degraded
-                .push("未读取到实时 Feishu 证据：Feishu HTTP 客户端初始化失败。".to_string());
-            return evidence_resolution.degraded;
-        }
-    };
     let mut live_summaries = Vec::new();
     let should_read_okr_tool = read_tools.contains(&AgentReadTool::FeishuOkrSummarizeMyOkr);
     let should_read_okr_progress_tool =
@@ -210,7 +99,7 @@ async fn assemble_live_feishu_summaries(
         read_tools.contains(&AgentReadTool::FeishuCalendarSummarizeMyFreeBusy);
     let lark_open_id_for_tool_reads =
         if should_read_okr_tool || should_read_okr_progress_tool || should_read_calendar_tool {
-            Some(resolve_lark_open_id_for_grant(&pool, auth_context, &token_grant).await)
+            Some(session.resolve_lark_open_id(auth_context).await)
         } else {
             None
         };
@@ -219,14 +108,14 @@ async fn assemble_live_feishu_summaries(
         || should_read_okr_tool
         || should_read_okr_progress_tool
     {
-        let mut okr_client = FeishuOkrReadClient::new(open_api_config.clone(), http_client.clone());
+        let mut okr_client = session.okr_client();
 
         if should_read_okr_tool || should_read_okr_progress_tool {
             match &lark_open_id_for_tool_reads {
                 Some(Ok(lark_open_id)) => {
                     let topology_result = read_my_okr_topology(
                         &mut okr_client,
-                        access_token.clone(),
+                        session.access_token(),
                         lark_open_id,
                         OkrTopologyReadOptions::for_requested_tools(
                             should_read_okr_tool,
@@ -242,7 +131,7 @@ async fn assemble_live_feishu_summaries(
                             if should_read_okr_progress_tool {
                                 match read_my_okr_progress_summary_from_topology(
                                     &mut okr_client,
-                                    access_token.clone(),
+                                    session.access_token(),
                                     &topology,
                                 )
                                 .await
@@ -295,7 +184,7 @@ async fn assemble_live_feishu_summaries(
 
             match okr_client
                 .batch_get_okrs(FeishuOkrBatchGetRequest {
-                    user_access_token: access_token.clone(),
+                    user_access_token: session.access_token(),
                     user_id_type: OkrUserIdType::OpenId,
                     okr_ids,
                     lang: None,
@@ -326,10 +215,9 @@ async fn assemble_live_feishu_summaries(
     }
 
     if !evidence_resolution.task_refs.is_empty() || should_read_task_tool {
-        let mut task_client =
-            FeishuTaskReadClient::new(open_api_config.clone(), http_client.clone());
+        let mut task_client = session.task_client();
         if should_read_task_tool {
-            match read_my_task_summary(&mut task_client, access_token.clone()).await {
+            match read_my_task_summary(&mut task_client, session.access_token()).await {
                 Ok(summary) => live_summaries.push(summary),
                 Err(error) => live_summaries.push(format!(
                     "工具 feishu.task.summarize_my_tasks｜实时读取降级：{}。",
@@ -341,7 +229,7 @@ async fn assemble_live_feishu_summaries(
         for (evidence_ref, parsed) in evidence_resolution.task_refs {
             match task_client
                 .get_task_summary(FeishuTaskGetRequest {
-                    user_access_token: access_token.clone(),
+                    user_access_token: session.access_token(),
                     source_ref: parsed.source_ref,
                     user_id_type: TaskUserIdType::OpenId,
                 })
@@ -361,14 +249,14 @@ async fn assemble_live_feishu_summaries(
     }
 
     if should_read_calendar_tool {
-        let mut calendar_client = FeishuCalendarReadClient::new(open_api_config, http_client);
+        let mut calendar_client = session.calendar_client();
         match &lark_open_id_for_tool_reads {
             Some(Ok(lark_open_id)) => {
                 match read_my_calendar_free_busy_summary(
                     &mut calendar_client,
-                    access_token.clone(),
+                    session.access_token(),
                     lark_open_id,
-                    now,
+                    session.now(),
                 )
                 .await
                 {
@@ -412,78 +300,6 @@ fn push_okr_tool_degraded_summaries(
             reason
         ));
     }
-}
-
-fn gate_read_tools_by_scope(
-    scopes: &[String],
-    read_tools: &mut Vec<AgentReadTool>,
-    degraded: &mut Vec<String>,
-) {
-    read_tools.retain(|tool| {
-        let spec = tool.spec();
-        let required_scopes = match spec.required_feishu_scopes() {
-            Ok(scopes) => scopes,
-            Err(error) => {
-                degraded.push(format!(
-                    "工具 {}｜实时读取降级：{}。",
-                    spec.name,
-                    error.safe_reason()
-                ));
-                return false;
-            }
-        };
-        let missing = required_scopes
-            .iter()
-            .filter_map(|required| {
-                let required = required.as_str();
-                if scopes.iter().any(|scope| scope.trim() == required) {
-                    None
-                } else {
-                    Some(required)
-                }
-            })
-            .collect::<Vec<_>>();
-        if missing.is_empty() {
-            return true;
-        }
-        degraded.push(format!(
-            "工具 {}｜实时读取降级：授权缺少 {}。",
-            spec.name,
-            missing.join("、")
-        ));
-        false
-    });
-}
-
-fn gate_grant_and_refs_for_live_read<'a>(
-    token_grant: &EncryptedTokenGrantRecord,
-    expected_grant_key_id: &str,
-    evidence_resolution: &mut LiveEvidenceResolution<'a>,
-    read_tools: &mut Vec<AgentReadTool>,
-) -> bool {
-    if let Some(reason) = live_read_grant_denial_reason(token_grant) {
-        evidence_resolution
-            .degraded
-            .push(format!("未读取到实时 Feishu 证据：{}。", reason));
-        return false;
-    }
-
-    if token_grant.oauth_grant_key_id != expected_grant_key_id {
-        evidence_resolution
-            .degraded
-            .push("未读取到实时 Feishu 证据：授权密钥版本不匹配。".to_string());
-        return false;
-    }
-
-    gate_evidence_refs_by_scope(&token_grant.scopes, evidence_resolution);
-    gate_read_tools_by_scope(
-        &token_grant.scopes,
-        read_tools,
-        &mut evidence_resolution.degraded,
-    );
-    !(evidence_resolution.okr_refs.is_empty()
-        && evidence_resolution.task_refs.is_empty()
-        && read_tools.is_empty())
 }
 
 #[cfg(test)]

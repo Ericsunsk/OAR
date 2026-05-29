@@ -1,5 +1,8 @@
+use super::authorization::gate_read_tools_by_scope;
 use super::grant::{
-    ensure_refresh_report_allows_read, token_refresh_snapshot_for_live_read, TOKEN_REFRESH_SKEW_MS,
+    ensure_refresh_report_allows_read, grant_requires_refresh_before_read,
+    live_read_grant_denial_reason, system_time_to_ms, token_refresh_snapshot_for_live_read,
+    TOKEN_REFRESH_SKEW_MS,
 };
 use super::*;
 use crate::agent::request::{AgentConversationContextDTO, AgentMessageDTO};
