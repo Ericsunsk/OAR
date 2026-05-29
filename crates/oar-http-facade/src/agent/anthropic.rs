@@ -14,7 +14,7 @@ use super::stream::{send_agent_stream_frames, AgentFrameSendError, AgentFrameSen
 use super::{
     agent_http_client, ensure_successful_upstream_response, is_allowed_agent_base_url,
     non_empty_env, AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError,
-    AgentStreamError,
+    AgentStreamError, DEFAULT_ANTHROPIC_VERSION,
 };
 
 const ANTHROPIC_BASE_URL_ENV: &str = "OAR_AGENT_ANTHROPIC_BASE_URL";
@@ -22,7 +22,6 @@ const ANTHROPIC_API_KEY_ENV: &str = "OAR_AGENT_ANTHROPIC_API_KEY";
 const ANTHROPIC_MODEL_ENV: &str = "OAR_AGENT_ANTHROPIC_MODEL";
 const ANTHROPIC_VERSION_ENV: &str = "OAR_AGENT_ANTHROPIC_VERSION";
 const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
-const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_ANTHROPIC_MAX_TOKENS: u32 = 1_024;
 
 #[derive(Clone)]

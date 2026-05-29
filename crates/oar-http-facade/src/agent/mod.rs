@@ -28,6 +28,7 @@ use crate::util::non_empty_env;
 
 const AGENT_PROVIDER_ENV: &str = "OAR_AGENT_PROVIDER";
 const AGENT_HTTP_TIMEOUT: Duration = Duration::from_secs(90);
+const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntime {
