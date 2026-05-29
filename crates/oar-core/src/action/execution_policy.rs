@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::action::capability::{CapabilityEffect, CapabilitySpec};
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::domain::identity::{ActorKind, LarkIdentityId, TokenGrant, TokenGrantState};
 
@@ -21,6 +22,20 @@ impl ExecutionPolicy {
                 .collect(),
             allowed_actor_kinds: allowed_actor_kinds.into_iter().collect(),
         }
+    }
+
+    /// Builds an execution write allowlist from capability specs.
+    pub fn from_capabilities<'a>(
+        capabilities: impl IntoIterator<Item = &'a CapabilitySpec>,
+        allowed_actor_kinds: impl IntoIterator<Item = ActorKind>,
+    ) -> Self {
+        Self::new(
+            capabilities
+                .into_iter()
+                .filter(|capability| capability.effect == CapabilityEffect::Write)
+                .map(|capability| capability.action_type_str()),
+            allowed_actor_kinds,
+        )
     }
 
     pub fn evaluate(

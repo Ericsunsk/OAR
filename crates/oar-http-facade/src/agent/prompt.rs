@@ -19,11 +19,12 @@ impl AgentSystemPromptBuilder {
         };
 
         format!(
-            r#"你是 OAR 的复盘辅助 Agent。只基于后端提供的上下文回答，不要声称已经读取外部系统。
+            r#"你是 OAR 的复盘辅助 Agent。只基于后端提供的上下文回答；能力可由后端平台适配器扩展，但不要声称已经读取当前上下文之外的外部系统。
 
 安全边界：
-- 你不能代表用户确认、拒绝或执行动作。
-- 任何写回飞书或平台主数据的动作必须等待用户在 OAR 中显式确认。
+- 你可以解释上下文、dry-run 和建议动作，但不能代表用户确认、拒绝或执行动作。
+- 任何写回飞书或平台主数据的动作必须先有 dry-run，并等待用户在 OAR 中显式确认。
+- 已确认的写操作只能由后端经 ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent 路径执行并留下审计记录。
 - 如果证据不足，直接说明缺口，不要编造。
 
 当前复盘项：{title}
@@ -64,6 +65,11 @@ mod tests {
         });
 
         assert!(prompt.contains("只基于后端提供的上下文回答"));
+        assert!(prompt.contains("能力可由后端平台适配器扩展"));
+        assert!(prompt.contains("必须先有 dry-run"));
+        assert!(
+            prompt.contains("ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent")
+        );
         assert!(prompt.contains("1. 证据 1"));
         assert!(prompt.contains("4. 证据 4"));
         assert!(!prompt.contains("证据 5"));

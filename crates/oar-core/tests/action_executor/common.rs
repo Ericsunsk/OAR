@@ -4,6 +4,7 @@ use std::time::SystemTime;
 
 use oar_core::action::audit_event::AuditStateSummary;
 use oar_core::action::audit_event::{AuditEvent, AuditEventType};
+use oar_core::action::capability::all_capabilities;
 use oar_core::action::confirmed_action::ConfirmedAction;
 use oar_core::action::execution_policy::{ActionActorBinding, ExecutionPolicy};
 use oar_core::action::executor::{ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution};
@@ -44,11 +45,8 @@ pub fn actor_binding(actor_user_id: &str) -> ActionActorBinding {
     ActionActorBinding::new(actor_user_id, LarkIdentityId("identity-1".to_string()))
 }
 
-pub fn progress_update_policy() -> ExecutionPolicy {
-    ExecutionPolicy::new(
-        ["okr.progress.update"],
-        [ActorKind::User, ActorKind::Service],
-    )
+pub fn okr_progress_write_policy() -> ExecutionPolicy {
+    ExecutionPolicy::from_capabilities(all_capabilities(), [ActorKind::User, ActorKind::Service])
 }
 
 pub fn assert_success_event_sequence(events: &[AuditEvent]) {

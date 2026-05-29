@@ -112,6 +112,11 @@ The client can request a decision, but real execution must be enforced by the ba
 
 For MVP, only KR progress create/update should enter production execution. Other suggested actions can be shown as drafts or rejected, but must not write to Feishu/Lark from the client.
 
+The capability and permission matrix is maintained in
+[`docs/agent-capabilities-feishu-permissions.md`](../../docs/agent-capabilities-feishu-permissions.md);
+the macOS client should treat that document as the backend contract for which
+actions may be displayed, confirmed, or kept as drafts.
+
 ## Local Verification
 
 ```bash

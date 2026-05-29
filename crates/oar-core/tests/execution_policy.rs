@@ -1,5 +1,6 @@
 use std::time::SystemTime;
 
+use oar_core::action::capability::all_capabilities;
 use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use oar_core::action::execution_policy::{ActionActorBinding, ExecutionDenied, ExecutionPolicy};
 use oar_core::domain::identity::{
@@ -36,10 +37,7 @@ fn token_grant(scopes: &[&str], state: TokenGrantState) -> TokenGrant {
 }
 
 fn policy() -> ExecutionPolicy {
-    ExecutionPolicy::new(
-        ["okr.progress.update"],
-        [ActorKind::User, ActorKind::Service],
-    )
+    ExecutionPolicy::from_capabilities(all_capabilities(), [ActorKind::User, ActorKind::Service])
 }
 
 fn actor_binding(actor_user_id: &str, identity_id: &str) -> ActionActorBinding {
@@ -67,6 +65,45 @@ fn allows_confirmed_allowlisted_action_with_required_scope_and_valid_grant() {
     );
 
     assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn allows_progress_create_from_capability_matrix_write_allowlist() {
+    let action = confirmed_action();
+    let grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
+
+    let binding = actor_binding("user-1", "identity-1");
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.create",
+        "okr.progress.write",
+        &grant,
+        &binding,
+    );
+
+    assert_eq!(result, Ok(()));
+}
+
+#[test]
+fn read_capabilities_are_not_added_to_write_execution_allowlist() {
+    let action = confirmed_action();
+    let grant = token_grant(&["okr.progress.read"], TokenGrantState::Valid);
+
+    let binding = actor_binding("user-1", "identity-1");
+    let result = policy().evaluate(
+        &action,
+        "okr.progress.read",
+        "okr.progress.read",
+        &grant,
+        &binding,
+    );
+
+    assert_eq!(
+        result,
+        Err(ExecutionDenied::ActionNotAllowlisted {
+            action_type: "okr.progress.read".to_string()
+        })
+    );
 }
 
 #[test]

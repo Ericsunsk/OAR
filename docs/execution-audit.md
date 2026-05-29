@@ -80,6 +80,8 @@ OAR 的默认安全原则：
 - 自动跨部门读取无权限数据。
 - 自动执行批量 OKR 变更。
 
+详细能力矩阵见 [`agent-capabilities-feishu-permissions.md`](agent-capabilities-feishu-permissions.md)。任何新增能力都必须先补齐 `Agent capability -> PlatformAdapter/action_type -> Feishu scope -> 风险等级 -> dry-run/人工确认/audit`，再进入生产 allowlist。
+
 ## 4. 权限与数据边界
 
 基本原则：

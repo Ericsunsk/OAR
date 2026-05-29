@@ -112,14 +112,14 @@ flowchart LR
 OAR 默认保守，所有真实写回必须走同一条受控链路：
 
 ```text
-ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent
+ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent
 ```
 
 关键约束：
 
 - 先读后写，写前 dry-run，执行前人工确认。
 - 所有写回必须来自 `ConfirmedAction`。
-- 业务代码只能通过 `LarkAdapter` 或明确设计过的 adapter 层调用飞书。
+- 业务代码只能通过 `LarkAdapter` / `PlatformAdapter` 或明确设计过的 adapter 层调用飞书。
 - `OperationLedger` 保证同一个确认动作只执行一次。
 - `AuditEvent` 记录 actor、scope、target、before/after 摘要和执行结果。
 - access token、refresh token、authorization code、raw CLI stdout/stderr、encrypted blob 和 fingerprint 不得出现在日志、审计 payload 或用户可见错误里。
@@ -153,6 +153,7 @@ ConfirmedAction -> OperationLedger -> LarkAdapter -> AuditEvent
 ├── docs/feishu-integration.md   # Phase 0.5 飞书 / Lark CLI 验证结论
 ├── docs/identity-auth-sync.md   # Phase 0.6 identity、auth refresh、device sync 验证
 ├── docs/execution-audit.md      # ConfirmedAction、OperationLedger、AuditEvent 和权限边界
+├── docs/agent-capabilities-feishu-permissions.md # agent capability、action_type、scope 和门禁矩阵
 ├── docs/memory-evidence.md      # 证据链、三层记忆和检索设计
 ├── docs/validation-plan.md      # 总体验证计划、阶段门和停止标准
 ├── docs/reference/              # 外部参考、竞品、依赖雷达和技术资料
@@ -306,9 +307,10 @@ grant key；生产环境不要打开，必须注入稳定的 `OAR_GRANT_KEY_ID` 
 2. [复盘收件箱](docs/review-inbox.md)：需求、验收标准与工作流。
 3. [系统架构总览](docs/system-architecture.md)：Swift/Rust/LarkAdapter/storage 设计。
 4. [执行与审计边界](docs/execution-audit.md)：执行边界和数据处理原则。
-5. [验证计划](docs/validation-plan.md)：阶段门、实验和停止标准。
-6. [阶段 0.5 飞书集成验证](docs/feishu-integration.md)：OKR CLI 实测结论。
-7. [阶段 0.6 身份与同步验证](docs/identity-auth-sync.md)：identity、token refresh、sync、idempotency 和 audit 进展。
+5. [Agent capabilities 与飞书权限矩阵](docs/agent-capabilities-feishu-permissions.md)：能力、adapter/action_type、飞书 scope、风险等级和 dry-run/确认/audit 要求。
+6. [验证计划](docs/validation-plan.md)：阶段门、实验和停止标准。
+7. [阶段 0.5 飞书集成验证](docs/feishu-integration.md)：OKR CLI 实测结论。
+8. [阶段 0.6 身份与同步验证](docs/identity-auth-sync.md)：identity、token refresh、sync、idempotency 和 audit 进展。
 
 完整文档目录见 [docs/README.md](docs/README.md)。
 

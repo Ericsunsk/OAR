@@ -510,7 +510,7 @@ fn postgres_live_action_executor_policy_denial_records_safe_audit_without_adapte
             "user_executor_policy",
             "idem_executor_policy",
         );
-        let policy = progress_update_policy();
+        let policy = okr_progress_write_policy();
         let grant = token_grant(
             "tenant_executor_policy",
             &["offline_access"],

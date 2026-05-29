@@ -26,6 +26,10 @@
 - 飞书获取 user_access_token：https://open.feishu.cn/document/authentication-management/access-token/get-user-access-token?lang=zh-CN
 - 飞书刷新 user_access_token：https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/authentication-management/access-token/refresh-user-access-token
 - Lark access credentials：https://open.larksuite.com/document/home/introduction-to-scope-and-authorization/access-credentials
+- 飞书 API 权限列表：https://open.feishu.cn/document/server-docs/application-scope/scope-list
+- 飞书 OKR scope 列表：https://open.feishu.cn/document/ukTMukTMukTM/uYTM5UjL2ETO14iNxkTN/scope-list?lang=zh-CN
+- 飞书发送消息 API：https://open.feishu.cn/document/server-docs/im-v1/message/create?lang=zh-CN
+- 飞书创建日程 API：https://open.feishu.cn/document/server-docs/calendar-v4/calendar-event/create?lang=zh-CN
 - 飞书事件订阅概览：https://open.feishu.cn/document/server-docs/event-subscription-guide/overview
 - Lark WebSocket event subscription：https://open.larksuite.com/document/ukTMukTMukTM/uYDNxYjL2QTM24iN0EjN/event-subscription-configure-/use-websocket
 - 飞书 ISV 管理规范：https://open.feishu.cn/document/uAjLw4CM/uMzNwEjLzcDMx4yM3ATM/isv-management-specifications

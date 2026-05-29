@@ -16,6 +16,7 @@
 - CLI 安装与登录态可用，版本为 `1.0.39`。
 - user 和 bot 身份可用，当前默认身份为 user。
 - OKR 读写相关 scope 已授权，`offline_access` 已授权。
+- Phase 0.5 的 CLI 验证 scope 只作为 fixture / parser 回归依据；生产最小 scope 与 OAR `required_scope` 映射以 [`agent-capabilities-feishu-permissions.md`](agent-capabilities-feishu-permissions.md) 为准。
 - `+cycle-list` 可读取 OKR 周期。
 - `+cycle-detail` 可读取 Objective / KR 主数据。
 - `+progress-list` 可读取 progress 列表。

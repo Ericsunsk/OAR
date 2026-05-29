@@ -11,6 +11,7 @@ pub(crate) use oar_core::action::audit_event::{
     AuditActor, AuditActorKind, AuditEvent, AuditEventContext, AuditEventType, AuditScope,
     AuditStateSummary, AuditSubject, AuditTarget,
 };
+pub(crate) use oar_core::action::capability::all_capabilities;
 pub(crate) use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
 pub(crate) use oar_core::action::execution_policy::{
     ActionActorBinding, ExecutionDenied, ExecutionPolicy,
@@ -444,11 +445,8 @@ pub(crate) fn actor_binding(actor_user_id: &str) -> ActionActorBinding {
     ActionActorBinding::new(actor_user_id, LarkIdentityId("identity_live".to_string()))
 }
 
-pub(crate) fn progress_update_policy() -> ExecutionPolicy {
-    ExecutionPolicy::new(
-        ["okr.progress.update"],
-        [ActorKind::User, ActorKind::Service],
-    )
+pub(crate) fn okr_progress_write_policy() -> ExecutionPolicy {
+    ExecutionPolicy::from_capabilities(all_capabilities(), [ActorKind::User, ActorKind::Service])
 }
 
 pub(crate) fn unique_schema_name(test_name: &str) -> String {
