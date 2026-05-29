@@ -6,7 +6,7 @@ struct AgentSidecarView: View {
     @Bindable var settingsModel: AgentSettingsViewModel
     let item: ReviewInboxDisplayItem?
     let action: ReviewInboxSuggestedAction?
-    let evidence: [ReviewInboxDisplayEvidence]
+    let context: AgentConversationContext
 
     @State private var draft = ""
     @State private var showsSettings = false
@@ -16,13 +16,13 @@ struct AgentSidecarView: View {
         settingsModel: AgentSettingsViewModel,
         item: ReviewInboxDisplayItem?,
         action: ReviewInboxSuggestedAction?,
-        evidence: [ReviewInboxDisplayEvidence]
+        context: AgentConversationContext
     ) {
         self.model = model
         self.settingsModel = settingsModel
         self.item = item
         self.action = action
-        self.evidence = evidence
+        self.context = context
     }
 
     var body: some View {
@@ -108,24 +108,6 @@ struct AgentSidecarView: View {
             .accessibilityLabel("Agent 设置")
         }
         .padding(16)
-    }
-
-    private var context: AgentConversationContext {
-        guard let item else { return .empty }
-
-        let actionSummary: String
-        if let action {
-            actionSummary = "\(action.actionType.rawValue)：\(action.rationale) dry-run：\(action.dryRunResultSummary)"
-        } else {
-            actionSummary = "暂无建议动作。"
-        }
-
-        return AgentConversationContext(
-            title: item.keyResultTitle,
-            riskReason: item.riskReason,
-            actionSummary: actionSummary,
-            evidenceSummaries: evidence.map { $0.summary }
-        )
     }
 
     private func sendDraft() {

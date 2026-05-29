@@ -89,6 +89,30 @@ final class ReviewInboxViewModel {
         return actionsForSelectedItem.first
     }
 
+    var agentWorkspaceContext: AgentConversationContext {
+        guard let selectedItem else {
+            return AgentConversationContext(
+                title: AgentConversationContext.empty.title,
+                riskReason: AgentConversationContext.empty.riskReason,
+                actionSummary: AgentConversationContext.empty.actionSummary,
+                evidenceSummaries: [],
+                workspaceSummary: agentWorkspaceSummary,
+                workspaceSignals: agentWorkspaceSignals,
+                pendingActionSummaries: agentPendingActionSummaries
+            )
+        }
+
+        return AgentConversationContext(
+            title: selectedItem.keyResultTitle,
+            riskReason: selectedItem.riskReason,
+            actionSummary: agentSelectedActionSummary,
+            evidenceSummaries: evidenceForSelectedItem.map { safeAgentSummary($0.summary) },
+            workspaceSummary: agentWorkspaceSummary,
+            workspaceSignals: agentWorkspaceSignals,
+            pendingActionSummaries: agentPendingActionSummaries
+        )
+    }
+
     var ledgerForSelectedAction: [ReviewInboxTimelineEvent] {
         guard let selectedAction else { return [] }
         let events = ledgerEvents.filter { $0.actionId == selectedAction.id }
@@ -258,6 +282,68 @@ final class ReviewInboxViewModel {
         return sortedItems.firstIndex(where: { $0.id == selectedItem.id })
     }
 
+    private var agentSelectedActionSummary: String {
+        guard let selectedAction else { return AgentConversationContext.empty.actionSummary }
+        let dryRunSummary = safeAgentSummary(selectedAction.dryRunResultSummary)
+        let dryRunText = dryRunSummary.isEmpty ? "暂无 dry-run 摘要。" : "dry-run：\(dryRunSummary)"
+        return "\(selectedAction.actionType.rawValue)：\(safeAgentSummary(selectedAction.rationale)) \(dryRunText)"
+    }
+
+    private var agentWorkspaceSummary: String {
+        guard !items.isEmpty else {
+            return "工作区摘要：当前没有风险项；筛选“\(filter.rawValue)”显示 0 个，当前焦点 0/0。"
+        }
+
+        return "工作区摘要：共 \(items.count) 个风险，严重/高 \(highRiskCount) 个（严重 \(criticalCount) 个），待确认 \(needsConfirmationCount) 个，已执行 \(executedCount) 个；当前筛选“\(filter.rawValue)”显示 \(visibleItemCount) 个，当前焦点 \(selectedItemPositionText)。"
+    }
+
+    private var agentWorkspaceSignals: [String] {
+        let riskSignals = sortedItems.prefix(4).map { item in
+            "\(item.riskLevel.rawValue)｜\(safeAgentSummary(item.keyResultTitle, maxCharacters: 80))｜owner：\(safeAgentSummary(item.ownerName, maxCharacters: 40))｜置信 \(agentConfidenceText(item.confidenceScore))｜状态：\(item.status.rawValue)｜原因：\(safeAgentSummary(item.riskReason))"
+        }
+        let evidenceGaps = agentEvidenceGapSummaries.prefix(2)
+        return Array((riskSignals + evidenceGaps).prefix(5))
+    }
+
+    private var agentPendingActionSummaries: [String] {
+        let actionPairs = sortedItems.flatMap { item in
+            actions
+                .filter { action in
+                    action.reviewItemId == item.id && action.isPendingOrDraftForAgent
+                }
+                .map { action in (item, action) }
+        }
+
+        return actionPairs.prefix(5).map { item, action in
+            let dryRunSummary = safeAgentSummary(action.dryRunResultSummary)
+            let dryRunText = dryRunSummary.isEmpty ? "暂无 dry-run 摘要。" : "dry-run：\(dryRunSummary)"
+            return "\(safeAgentSummary(item.keyResultTitle, maxCharacters: 80))｜\(action.actionType.rawValue)｜gate：\(action.gateState.rawValue)｜\(dryRunText)"
+        }
+    }
+
+    private var agentEvidenceGapSummaries: [String] {
+        var candidates: [ReviewInboxDisplayItem] = []
+        if let selectedItem {
+            candidates.append(selectedItem)
+        }
+        for item in sortedItems where item.riskLevel == .critical || item.riskLevel == .high {
+            if !candidates.contains(where: { $0.id == item.id }) {
+                candidates.append(item)
+            }
+        }
+
+        return candidates.compactMap { item in
+            let itemEvidence = evidence.filter { $0.reviewItemId == item.id }
+            if itemEvidence.isEmpty {
+                return "证据缺口：\(safeAgentSummary(item.keyResultTitle, maxCharacters: 80)) 暂无摘要证据，需补充平台事实后再判断。"
+            }
+            if itemEvidence.count < 2 {
+                return "证据缺口：\(safeAgentSummary(item.keyResultTitle, maxCharacters: 80)) 仅 \(itemEvidence.count) 条摘要证据，需补充负责人最新口径或更多证据。"
+            }
+            return nil
+        }
+    }
+
     private func reconcileSelectionWithCurrentFilter() {
         if selectedItemID == nil || !sortedItems.contains(where: { $0.id == selectedItemID }) {
             selectedItemID = sortedItems.first?.id
@@ -269,5 +355,23 @@ final class ReviewInboxViewModel {
         }
 
         confirmationNote = ""
+    }
+
+    private func agentConfidenceText(_ score: Double) -> String {
+        "\(Int((score * 100).rounded()))%"
+    }
+
+    private func safeAgentSummary(_ text: String, maxCharacters: Int = 180) -> String {
+        let cleaned = text
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard cleaned.count > maxCharacters else { return cleaned }
+        return "\(String(cleaned.prefix(maxCharacters)))..."
+    }
+}
+
+private extension ReviewInboxSuggestedAction {
+    var isPendingOrDraftForAgent: Bool {
+        gateState == .pending || gateState == .draft
     }
 }

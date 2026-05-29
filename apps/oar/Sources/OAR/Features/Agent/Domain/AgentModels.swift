@@ -36,12 +36,36 @@ struct AgentConversationContext: Equatable {
     var riskReason: String
     var actionSummary: String
     var evidenceSummaries: [String]
+    var workspaceSummary: String
+    var workspaceSignals: [String]
+    var pendingActionSummaries: [String]
+
+    init(
+        title: String,
+        riskReason: String,
+        actionSummary: String,
+        evidenceSummaries: [String],
+        workspaceSummary: String,
+        workspaceSignals: [String],
+        pendingActionSummaries: [String]
+    ) {
+        self.title = title
+        self.riskReason = riskReason
+        self.actionSummary = actionSummary
+        self.evidenceSummaries = evidenceSummaries
+        self.workspaceSummary = workspaceSummary
+        self.workspaceSignals = workspaceSignals
+        self.pendingActionSummaries = pendingActionSummaries
+    }
 
     static let empty = AgentConversationContext(
         title: "未选择风险",
         riskReason: "暂无风险说明。",
         actionSummary: "暂无建议动作。",
-        evidenceSummaries: []
+        evidenceSummaries: [],
+        workspaceSummary: "暂无工作区摘要。",
+        workspaceSignals: [],
+        pendingActionSummaries: []
     )
 }
 

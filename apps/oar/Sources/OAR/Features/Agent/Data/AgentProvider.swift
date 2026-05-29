@@ -182,12 +182,18 @@ private struct RemoteAgentContextDTO: Encodable {
     let riskReason: String
     let actionSummary: String
     let evidenceSummaries: [String]
+    let workspaceSummary: String
+    let workspaceSignals: [String]
+    let pendingActionSummaries: [String]
 
     enum CodingKeys: String, CodingKey {
         case title
         case riskReason = "risk_reason"
         case actionSummary = "action_summary"
         case evidenceSummaries = "evidence_summaries"
+        case workspaceSummary = "workspace_summary"
+        case workspaceSignals = "workspace_signals"
+        case pendingActionSummaries = "pending_action_summaries"
     }
 
     init(context: AgentConversationContext) {
@@ -195,6 +201,9 @@ private struct RemoteAgentContextDTO: Encodable {
         riskReason = context.riskReason
         actionSummary = context.actionSummary
         evidenceSummaries = context.evidenceSummaries
+        workspaceSummary = context.workspaceSummary
+        workspaceSignals = context.workspaceSignals
+        pendingActionSummaries = context.pendingActionSummaries
     }
 }
 

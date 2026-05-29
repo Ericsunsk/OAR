@@ -62,6 +62,39 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertEqual(model.selectedItem?.id, "review-001")
     }
 
+    func testAgentWorkspaceContextSummarizesCountsRisksAndPendingActions() async {
+        let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
+        await model.load()
+
+        let context = model.agentWorkspaceContext
+
+        XCTAssertEqual(context.title, "激活 12 个合格试点团队")
+        XCTAssertEqual(context.evidenceSummaries.count, 3)
+        XCTAssertTrue(context.workspaceSummary.contains("共 4 个风险"))
+        XCTAssertTrue(context.workspaceSummary.contains("严重/高 2 个（严重 1 个）"))
+        XCTAssertTrue(context.workspaceSummary.contains("待确认 2 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("已执行 1 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("当前筛选“全部”显示 4 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("当前焦点 1/4"))
+
+        XCTAssertEqual(context.workspaceSignals.count, 5)
+        XCTAssertTrue(context.workspaceSignals[0].contains("严重｜激活 12 个合格试点团队"))
+        XCTAssertTrue(context.workspaceSignals[0].contains("owner：陈敏"))
+        XCTAssertTrue(context.workspaceSignals[0].contains("置信 91%"))
+        XCTAssertTrue(context.workspaceSignals[1].contains("高｜首轮配置失败率降至 4% 以下"))
+        XCTAssertTrue(
+            context.workspaceSignals.contains {
+                $0.contains("证据缺口：首轮配置失败率降至 4% 以下 仅 1 条摘要证据")
+            }
+        )
+
+        XCTAssertEqual(context.pendingActionSummaries.count, 3)
+        XCTAssertTrue(context.pendingActionSummaries[0].contains("激活 12 个合格试点团队｜更新进展｜gate：待处理"))
+        XCTAssertTrue(context.pendingActionSummaries[0].contains("不修改 owner、target、权重"))
+        XCTAssertTrue(context.pendingActionSummaries[1].contains("激活 12 个合格试点团队｜安排复盘｜gate：待处理"))
+        XCTAssertTrue(context.pendingActionSummaries[2].contains("首轮配置失败率降至 4% 以下｜提醒负责人｜gate：待处理"))
+    }
+
     func testApproveNonExecutableActionShowsBoundaryMessage() async {
         let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
         await model.load()

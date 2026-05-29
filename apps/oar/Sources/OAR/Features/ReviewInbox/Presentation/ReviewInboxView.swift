@@ -39,7 +39,7 @@ struct ReviewInboxRootView: View {
                         settingsModel: agentSettingsModel,
                         item: model.selectedItem,
                         action: model.selectedAction,
-                        evidence: model.evidenceForSelectedItem
+                        context: model.agentWorkspaceContext
                     )
                         .frame(width: 320)
                         .layoutPriority(2)
