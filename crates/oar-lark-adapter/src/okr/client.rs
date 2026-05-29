@@ -17,6 +17,10 @@ use super::types::{
     FeishuOkrObjectiveKeyResultsListResponse, FeishuOkrProgressListRequest,
     FeishuOkrProgressListResponse, FeishuOkrProgressListTarget,
 };
+use super::validation::{
+    validate_batch_get_request, validate_page_request, validate_path_id,
+    validate_progress_list_request,
+};
 
 const OKR_BATCH_GET_PATH: &str = "/open-apis/okr/v1/okrs/batch_get";
 const OKR_CYCLES_PATH: &str = "/open-apis/okr/v2/cycles";
@@ -24,10 +28,6 @@ const OKR_OBJECTIVES_PATH: &str = "/open-apis/okr/v2/objectives";
 const OKR_KEY_RESULTS_PATH: &str = "/open-apis/okr/v2/key_results";
 const OAR_USER_AGENT: &str = concat!("oar-lark-adapter/", env!("CARGO_PKG_VERSION"));
 const DEFAULT_PAGE_SIZE: u32 = 100;
-const MAX_PAGE_SIZE: u32 = 100;
-const MAX_PATH_ID_BYTES: usize = 256;
-const MAX_PAGE_TOKEN_BYTES: usize = 512;
-const MAX_LANG_BYTES: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct FeishuOkrReadClient<H> {
@@ -56,9 +56,7 @@ where
         &mut self,
         request: FeishuOkrBatchGetRequest,
     ) -> Result<FeishuOkrBatchGetResponse, FeishuOkrReadError> {
-        if request.okr_ids.is_empty() || request.okr_ids.len() > 10 {
-            return Err(FeishuOkrReadError::InvalidRequest);
-        }
+        validate_batch_get_request(&request)?;
         let raw = self
             .http_client
             .send_json(build_batch_get_okr_request(&self.config, request))
@@ -124,7 +122,7 @@ where
         &mut self,
         request: FeishuOkrProgressListRequest,
     ) -> Result<FeishuOkrProgressListResponse, FeishuOkrReadError> {
-        validate_progress_list_request(&request)?;
+        validate_progress_list_request(&request, DEFAULT_PAGE_SIZE)?;
         let raw = self
             .http_client
             .send_json(build_progress_list_request(&self.config, request))
@@ -170,9 +168,7 @@ where
         &mut self,
         request: FeishuOkrBatchGetRequest,
     ) -> Result<FeishuOkrBatchGetResponse, FeishuOkrReadError> {
-        if request.okr_ids.is_empty() || request.okr_ids.len() > 10 {
-            return Err(FeishuOkrReadError::InvalidRequest);
-        }
+        validate_batch_get_request(&request)?;
         let raw = self
             .http_client
             .send_json(build_batch_get_okr_request(&self.config, request))
@@ -242,7 +238,7 @@ where
         &mut self,
         request: FeishuOkrProgressListRequest,
     ) -> Result<FeishuOkrProgressListResponse, FeishuOkrReadError> {
-        validate_progress_list_request(&request)?;
+        validate_progress_list_request(&request, DEFAULT_PAGE_SIZE)?;
         let raw = self
             .http_client
             .send_json(build_progress_list_request(&self.config, request))
@@ -427,61 +423,6 @@ fn build_page_query(
         query.push(("lang", lang));
     }
     query
-}
-
-fn validate_page_request(
-    page_size: Option<u32>,
-    page_token: Option<&str>,
-    lang: Option<&str>,
-) -> Result<(), FeishuOkrReadError> {
-    if page_size
-        .map(|page_size| page_size == 0 || page_size > MAX_PAGE_SIZE)
-        .unwrap_or(false)
-    {
-        return Err(FeishuOkrReadError::InvalidRequest);
-    }
-    validate_optional_len(page_token, MAX_PAGE_TOKEN_BYTES)?;
-    validate_optional_len(lang, MAX_LANG_BYTES)?;
-    Ok(())
-}
-
-fn validate_progress_list_request(
-    request: &FeishuOkrProgressListRequest,
-) -> Result<(), FeishuOkrReadError> {
-    validate_path_id(request.target.id())?;
-    let page_size = request.page_size.unwrap_or(DEFAULT_PAGE_SIZE);
-    if page_size == 0 || page_size > MAX_PAGE_SIZE {
-        return Err(FeishuOkrReadError::InvalidRequest);
-    }
-    validate_non_empty_optional_len(request.page_token.as_deref(), MAX_PAGE_TOKEN_BYTES)?;
-    Ok(())
-}
-
-fn validate_path_id(value: &str) -> Result<(), FeishuOkrReadError> {
-    if value.trim().is_empty() || value.len() > MAX_PATH_ID_BYTES {
-        return Err(FeishuOkrReadError::InvalidRequest);
-    }
-    Ok(())
-}
-
-fn validate_optional_len(value: Option<&str>, max_len: usize) -> Result<(), FeishuOkrReadError> {
-    if value.map(|value| value.len() > max_len).unwrap_or(false) {
-        return Err(FeishuOkrReadError::InvalidRequest);
-    }
-    Ok(())
-}
-
-fn validate_non_empty_optional_len(
-    value: Option<&str>,
-    max_len: usize,
-) -> Result<(), FeishuOkrReadError> {
-    if value
-        .map(|value| value.trim().is_empty() || value.len() > max_len)
-        .unwrap_or(false)
-    {
-        return Err(FeishuOkrReadError::InvalidRequest);
-    }
-    Ok(())
 }
 
 fn encode_query(parts: &[(&str, String)]) -> String {
