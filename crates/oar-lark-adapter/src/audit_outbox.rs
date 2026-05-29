@@ -4,10 +4,11 @@ use async_trait::async_trait;
 use oar_core::storage::postgres::audit_outbox_worker::{
     AuditOutboxDelivery, AuditOutboxDispatcher,
 };
-use oar_core::storage::postgres::AuditOutboxMessage;
+use oar_core::storage::postgres::{
+    validate_audit_outbox_text, AuditOutboxMessage, SafeAuditOutboxPayload,
+};
 use serde_json::Value;
 
-const MAX_ENVELOPE_TEXT_LEN: usize = 256;
 const SAFE_ERROR_RETRYABLE: &str = "audit_outbox_sink_retryable";
 const SAFE_ERROR_FAILED: &str = "audit_outbox_sink_failed";
 const SAFE_ERROR_UNSAFE_ENVELOPE: &str = "audit_outbox_unsafe_envelope";
@@ -208,33 +209,22 @@ impl TryFrom<&Value> for AuditOutboxSafePayload {
     type Error = AuditOutboxSinkError;
 
     fn try_from(payload: &Value) -> Result<Self, Self::Error> {
-        let object = payload.as_object().ok_or_else(unsafe_envelope_error)?;
-        if object.is_empty() {
-            return Err(unsafe_envelope_error());
+        SafeAuditOutboxPayload::try_from(payload)
+            .map(AuditOutboxSafePayload::from)
+            .map_err(|_| unsafe_envelope_error())
+    }
+}
+
+impl From<SafeAuditOutboxPayload> for AuditOutboxSafePayload {
+    fn from(payload: SafeAuditOutboxPayload) -> Self {
+        Self {
+            event_id: payload.event_id,
+            trace_id: payload.trace_id,
+            event_type: payload.event_type,
+            sequence: payload.sequence,
+            tenant_id: payload.tenant_id,
+            kind: payload.kind,
         }
-
-        let mut safe = Self {
-            event_id: None,
-            trace_id: None,
-            event_type: None,
-            sequence: None,
-            tenant_id: None,
-            kind: None,
-        };
-
-        for (key, value) in object {
-            match key.as_str() {
-                "event_id" => safe.event_id = Some(string_field(value)?),
-                "trace_id" => safe.trace_id = Some(string_field(value)?),
-                "event_type" => safe.event_type = Some(string_field(value)?),
-                "tenant_id" => safe.tenant_id = Some(string_field(value)?),
-                "kind" => safe.kind = Some(string_field(value)?),
-                "sequence" => safe.sequence = Some(u64_field(value)?),
-                _ => return Err(unsafe_envelope_error()),
-            }
-        }
-
-        Ok(safe)
     }
 }
 
@@ -245,57 +235,8 @@ fn stable_delivery_id(message: &AuditOutboxMessage) -> String {
     )
 }
 
-fn string_field(value: &Value) -> Result<String, AuditOutboxSinkError> {
-    let value = value.as_str().ok_or_else(unsafe_envelope_error)?;
-    validate_text(value)?;
-    Ok(value.to_string())
-}
-
-fn u64_field(value: &Value) -> Result<u64, AuditOutboxSinkError> {
-    value.as_u64().ok_or_else(unsafe_envelope_error)
-}
-
 fn validate_text(value: &str) -> Result<(), AuditOutboxSinkError> {
-    if value.trim().is_empty() || value.len() > MAX_ENVELOPE_TEXT_LEN || contains_sensitive(value) {
-        return Err(unsafe_envelope_error());
-    }
-    Ok(())
-}
-
-fn contains_sensitive(value: &str) -> bool {
-    let lowered = value.to_ascii_lowercase();
-    let direct = [
-        "access_token",
-        "refresh_token",
-        "authorization:",
-        "authorization_code",
-        "bearer ",
-        "client_secret",
-        "oauth_grant",
-        "stdout",
-        "stderr",
-        "encrypted",
-        "fingerprint",
-    ];
-    direct.iter().any(|needle| lowered.contains(needle)) || contains_sensitive_segments(&lowered)
-}
-
-fn contains_sensitive_segments(value: &str) -> bool {
-    let segments = value
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
-
-    for (index, segment) in segments.iter().enumerate() {
-        if matches!(*segment, "secret" | "password" | "credential") {
-            return true;
-        }
-        if *segment == "token" && segments.get(index + 1).copied() != Some("refresh") {
-            return true;
-        }
-    }
-
-    false
+    validate_audit_outbox_text(value).map_err(|_| unsafe_envelope_error())
 }
 
 fn core_delivery(delivery: AuditOutboxSinkDelivery) -> AuditOutboxDelivery {
@@ -374,6 +315,7 @@ mod tests {
     fn envelope_rejects_sensitive_or_unknown_payload_without_echoing_secret() {
         for payload in [
             serde_json::json!({ "trace_id": "access_token=tok_secret" }),
+            serde_json::json!({ "trace_id": "access token tok_secret" }),
             serde_json::json!({ "trace_id": "token=tok_secret" }),
             serde_json::json!({ "encrypted": "blob" }),
             serde_json::json!({ "trace_id": { "nested": true } }),
