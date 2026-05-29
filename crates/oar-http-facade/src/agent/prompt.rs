@@ -52,7 +52,7 @@ impl AgentSystemPromptBuilder {
 - 后端 tool result 提供的只读实时 Feishu 读取结果。
 - 用户在对话中补充的信息。
 
-来规划下一步、分析风险、起草动作或检查证据缺口。内置 skill 只是领域和工具说明，不代表你能直接调用飞书；真实平台读取只能来自后端 tool runtime/live context。实时 Feishu 读取结果只能来自后端 tool result 或后端 live context，不要把自己的推断当成实时读取。如果需要更多平台事实，要求用户补充或让 OAR 后端重新读取 live platform state，不要编造。
+来规划下一步、分析风险、起草动作或检查证据缺口。内置 skill 只是领域和工具说明，不代表你能直接调用飞书；真实平台读取只能来自后端 tool runtime/live context。实时 Feishu 读取结果只能来自后端 tool result 或后端 live context，不要把自己的推断当成实时读取。日历忙闲摘要只代表忙碌窗口，不代表完整日程详情、标题、参会人或会议内容。如果需要更多平台事实，要求用户补充或让 OAR 后端重新读取 live platform state，不要编造。
 
 安全边界：
 - 你可以规划、分析和起草，但不能代表用户确认、拒绝或执行动作。
@@ -184,6 +184,7 @@ mod tests {
         assert!(prompt.contains("实时 Feishu 读取结果"));
         assert!(prompt.contains("后端 tool result 提供的只读实时 Feishu 读取结果"));
         assert!(prompt.contains("实时 Feishu 读取结果只能来自后端 tool result"));
+        assert!(prompt.contains("日历忙闲摘要只代表忙碌窗口"));
         assert!(prompt.contains("1. 实时 1"));
         assert!(prompt.contains("4. 实时 4"));
         assert!(!prompt.contains("实时 5"));

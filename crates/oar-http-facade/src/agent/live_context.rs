@@ -4,9 +4,9 @@ use std::time::SystemTime;
 use oar_core::storage::postgres::{EncryptedTokenGrantRecord, PostgresTokenGrantRepository};
 use oar_lark_adapter::material::read_access_token_from_encrypted_grant;
 use oar_lark_adapter::{
-    AsyncFeishuOkrRead, AsyncFeishuTaskRead, FeishuOkrBatchGetRequest, FeishuOkrReadClient,
-    FeishuTaskGetRequest, FeishuTaskReadClient, OkrReadSnapshot, OkrUserIdType,
-    ReqwestAsyncHttpClient, TaskUserIdType,
+    AsyncFeishuOkrRead, AsyncFeishuTaskRead, FeishuCalendarReadClient, FeishuOkrBatchGetRequest,
+    FeishuOkrReadClient, FeishuTaskGetRequest, FeishuTaskReadClient, OkrReadSnapshot,
+    OkrUserIdType, ReqwestAsyncHttpClient, TaskUserIdType,
 };
 
 use super::request::{AgentEvidenceRefDTO, AgentStreamRequest};
@@ -14,6 +14,7 @@ use super::skills::select_skills;
 use super::tools::{plan_read_tools_for_skills, AgentReadTool};
 use crate::{AuthenticatedContext, OarHttpFacadeRuntime};
 
+mod calendar_summary;
 mod grant;
 mod okr_summary;
 mod refs;
@@ -21,6 +22,7 @@ mod source_registry;
 mod summary;
 mod task_summary;
 
+use calendar_summary::read_my_calendar_free_busy_summary;
 use grant::{
     grant_requires_refresh_before_read, live_read_grant_denial_reason,
     refresh_grant_before_live_read, resolve_grant_id_for_user, resolve_lark_open_id_for_grant,
@@ -29,8 +31,8 @@ use grant::{
 use okr_summary::read_my_okr_summary;
 use source_registry::{gate_evidence_refs_by_scope, resolve_evidence_refs, LiveEvidenceResolution};
 use summary::{
-    build_live_summary, build_task_live_summary, degraded_summary, okr_read_error_reason,
-    task_read_error_reason,
+    build_live_summary, build_task_live_summary, calendar_read_error_reason, degraded_summary,
+    okr_read_error_reason, task_read_error_reason,
 };
 use task_summary::read_my_task_summary;
 
@@ -198,31 +200,34 @@ async fn assemble_live_feishu_summaries(
     let mut live_summaries = Vec::new();
     let should_read_okr_tool = read_tools.contains(&AgentReadTool::FeishuOkrSummarizeMyOkr);
     let should_read_task_tool = read_tools.contains(&AgentReadTool::FeishuTaskSummarizeMyTasks);
+    let should_read_calendar_tool =
+        read_tools.contains(&AgentReadTool::FeishuCalendarSummarizeMyFreeBusy);
+    let lark_open_id_for_tool_reads = if should_read_okr_tool || should_read_calendar_tool {
+        Some(resolve_lark_open_id_for_grant(&pool, auth_context, &token_grant).await)
+    } else {
+        None
+    };
 
     if !evidence_resolution.okr_refs.is_empty() || should_read_okr_tool {
         let mut okr_client = FeishuOkrReadClient::new(open_api_config.clone(), http_client.clone());
 
         if should_read_okr_tool {
-            let lark_open_id =
-                match resolve_lark_open_id_for_grant(&pool, auth_context, &token_grant).await {
-                    Ok(open_id) => open_id,
-                    Err(reason) => {
-                        evidence_resolution
-                            .degraded
-                            .push(format!("未读取到实时 Feishu OKR 证据：{}。", reason));
-                        String::new()
+            match &lark_open_id_for_tool_reads {
+                Some(Ok(lark_open_id)) => {
+                    match read_my_okr_summary(&mut okr_client, access_token.clone(), lark_open_id)
+                        .await
+                    {
+                        Ok(summary) => live_summaries.push(summary),
+                        Err(error) => live_summaries.push(format!(
+                            "工具 feishu.okr.summarize_my_okr｜实时读取降级：{}。",
+                            okr_read_error_reason(error)
+                        )),
                     }
-                };
-            if !lark_open_id.is_empty() {
-                match read_my_okr_summary(&mut okr_client, access_token.clone(), &lark_open_id)
-                    .await
-                {
-                    Ok(summary) => live_summaries.push(summary),
-                    Err(error) => live_summaries.push(format!(
-                        "工具 feishu.okr.summarize_my_okr｜实时读取降级：{}。",
-                        okr_read_error_reason(error)
-                    )),
                 }
+                Some(Err(reason)) => evidence_resolution
+                    .degraded
+                    .push(format!("未读取到实时 Feishu OKR 证据：{}。", reason)),
+                None => {}
             }
         }
 
@@ -268,7 +273,8 @@ async fn assemble_live_feishu_summaries(
     }
 
     if !evidence_resolution.task_refs.is_empty() || should_read_task_tool {
-        let mut task_client = FeishuTaskReadClient::new(open_api_config, http_client);
+        let mut task_client =
+            FeishuTaskReadClient::new(open_api_config.clone(), http_client.clone());
         if should_read_task_tool {
             match read_my_task_summary(&mut task_client, access_token.clone()).await {
                 Ok(summary) => live_summaries.push(summary),
@@ -298,6 +304,36 @@ async fn assemble_live_feishu_summaries(
                     ));
                 }
             }
+        }
+    }
+
+    if should_read_calendar_tool {
+        let mut calendar_client = FeishuCalendarReadClient::new(open_api_config, http_client);
+        match &lark_open_id_for_tool_reads {
+            Some(Ok(lark_open_id)) => {
+                match read_my_calendar_free_busy_summary(
+                    &mut calendar_client,
+                    access_token.clone(),
+                    lark_open_id,
+                    now,
+                )
+                .await
+                {
+                    Ok(summary) => live_summaries.push(summary),
+                    Err(error) => live_summaries.push(format!(
+                        "工具 feishu.calendar.summarize_my_free_busy｜实时读取降级：{}。",
+                        calendar_read_error_reason(error)
+                    )),
+                }
+            }
+            Some(Err(reason)) => live_summaries.push(format!(
+                "工具 feishu.calendar.summarize_my_free_busy｜实时读取降级：{}。",
+                reason
+            )),
+            None => live_summaries.push(
+                "工具 feishu.calendar.summarize_my_free_busy｜实时读取降级：用户身份未解析。"
+                    .to_string(),
+            ),
         }
     }
 
@@ -404,29 +440,43 @@ mod tests {
 
     #[test]
     fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
-        let mut tools = vec![AgentReadTool::FeishuOkrSummarizeMyOkr];
+        let mut tools = vec![
+            AgentReadTool::FeishuOkrSummarizeMyOkr,
+            AgentReadTool::FeishuCalendarSummarizeMyFreeBusy,
+        ];
         let mut degraded = Vec::new();
 
         gate_read_tools_by_scope(&["okr.content.read".to_string()], &mut tools, &mut degraded);
 
         assert!(tools.is_empty());
-        assert_eq!(degraded.len(), 1);
+        assert_eq!(degraded.len(), 2);
         assert!(degraded[0].contains("okr:okr.period:readonly"));
         assert!(degraded[0].contains("okr:okr.content:readonly"));
+        assert!(degraded[1].contains("calendar:calendar.free_busy:read"));
 
-        let mut tools = vec![AgentReadTool::FeishuOkrSummarizeMyOkr];
+        let mut tools = vec![
+            AgentReadTool::FeishuOkrSummarizeMyOkr,
+            AgentReadTool::FeishuCalendarSummarizeMyFreeBusy,
+        ];
         let mut degraded = Vec::new();
 
         gate_read_tools_by_scope(
             &[
                 FeishuScope::OkrPeriodRead.as_str().to_string(),
                 FeishuScope::OkrContentRead.as_str().to_string(),
+                FeishuScope::CalendarFreeBusyRead.as_str().to_string(),
             ],
             &mut tools,
             &mut degraded,
         );
 
-        assert_eq!(tools, vec![AgentReadTool::FeishuOkrSummarizeMyOkr]);
+        assert_eq!(
+            tools,
+            vec![
+                AgentReadTool::FeishuOkrSummarizeMyOkr,
+                AgentReadTool::FeishuCalendarSummarizeMyFreeBusy
+            ]
+        );
         assert!(degraded.is_empty());
     }
 
@@ -536,6 +586,42 @@ mod tests {
 
         assert_eq!(request.context.activated_skill_summaries.len(), 1);
         assert!(request.context.activated_skill_summaries[0].contains("feishu.task"));
+        assert_eq!(request.context.live_feishu_read_summaries.len(), 1);
+        let summary = &request.context.live_feishu_read_summaries[0];
+        assert!(summary.contains("后端未配置 Feishu 授权存储"));
+    }
+
+    #[tokio::test]
+    async fn live_context_plans_read_only_tool_when_calendar_intent_has_no_evidence_refs() {
+        let mut request = AgentStreamRequest {
+            messages: vec![AgentMessageDTO {
+                role: "user".to_string(),
+                text: "查下我的飞书日历今天有没有空".to_string(),
+            }],
+            context: AgentConversationContextDTO {
+                title: "日历查询".to_string(),
+                risk_reason: "用户请求实时读取".to_string(),
+                action_summary: "无".to_string(),
+                evidence_summaries: vec![],
+                evidence_refs: vec![],
+                workspace_summary: "摘要".to_string(),
+                workspace_signals: vec![],
+                pending_action_summaries: vec![],
+                live_feishu_read_summaries: vec![],
+                activated_skill_summaries: vec![],
+            },
+        };
+        let runtime = OarHttpFacadeRuntime::disabled();
+        let auth_context = AuthenticatedContext {
+            session_id: "oar_session_test".to_string(),
+            tenant_id: "tenant_x".to_string(),
+            user_id: "feishu_user_tenant_ou_demo".to_string(),
+        };
+
+        inject_live_feishu_context(&runtime, &auth_context, &mut request).await;
+
+        assert_eq!(request.context.activated_skill_summaries.len(), 1);
+        assert!(request.context.activated_skill_summaries[0].contains("feishu.calendar"));
         assert_eq!(request.context.live_feishu_read_summaries.len(), 1);
         let summary = &request.context.live_feishu_read_summaries[0];
         assert!(summary.contains("后端未配置 Feishu 授权存储"));

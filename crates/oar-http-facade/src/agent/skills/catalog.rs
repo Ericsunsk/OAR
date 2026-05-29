@@ -1,7 +1,8 @@
-use super::builtin::{feishu_okr, feishu_task};
+use super::builtin::{feishu_calendar, feishu_okr, feishu_task};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentSkill {
+    FeishuCalendar,
     FeishuOkr,
     FeishuTask,
 }
@@ -25,6 +26,14 @@ pub(in crate::agent) struct AgentSkillToolSpec {
 impl AgentSkill {
     pub(in crate::agent) const fn spec(self) -> AgentSkillSpec {
         match self {
+            Self::FeishuCalendar => AgentSkillSpec {
+                id: feishu_calendar::ID,
+                display_name: feishu_calendar::DISPLAY_NAME,
+                purpose: feishu_calendar::PURPOSE,
+                tools: feishu_calendar::TOOLS,
+                safety: feishu_calendar::SAFETY,
+                manifest_markdown: feishu_calendar::MANIFEST_MARKDOWN,
+            },
             Self::FeishuOkr => AgentSkillSpec {
                 id: feishu_okr::ID,
                 display_name: feishu_okr::DISPLAY_NAME,

@@ -3,6 +3,9 @@ use crate::agent::request::AgentStreamRequest;
 
 pub(in crate::agent) fn select_skills(request: &AgentStreamRequest) -> Vec<AgentSkill> {
     let mut skills = Vec::new();
+    if latest_user_requests_feishu_calendar_free_busy(request) {
+        skills.push(AgentSkill::FeishuCalendar);
+    }
     if latest_user_requests_feishu_okr_summary(request) {
         skills.push(AgentSkill::FeishuOkr);
     }
@@ -11,6 +14,14 @@ pub(in crate::agent) fn select_skills(request: &AgentStreamRequest) -> Vec<Agent
     }
 
     skills
+}
+
+pub(super) fn latest_user_requests_feishu_calendar_free_busy(request: &AgentStreamRequest) -> bool {
+    let Some(latest_user_text) = latest_user_text(request) else {
+        return false;
+    };
+
+    latest_user_has_explicit_self_calendar_free_busy_intent(latest_user_text)
 }
 
 pub(super) fn latest_user_requests_feishu_task_summary(request: &AgentStreamRequest) -> bool {
@@ -60,6 +71,15 @@ fn latest_user_has_explicit_self_task_read_intent(text: &str) -> bool {
         && is_self_scoped(text)
         && !targets_non_self(text)
         && !asks_task_write(text)
+}
+
+fn latest_user_has_explicit_self_calendar_free_busy_intent(text: &str) -> bool {
+    (mentions_feishu(text) || mentions_calendar(text))
+        && mentions_calendar_free_busy(text)
+        && is_self_scoped(text)
+        && !targets_non_self(text)
+        && !asks_calendar_write(text)
+        && !asks_calendar_event_listing(text)
 }
 
 fn latest_user_has_contextual_feishu_count_intent(text: &str) -> bool {
@@ -126,6 +146,31 @@ fn mentions_task(text: &str) -> bool {
         || contains_latin_token(&normalized, "tasks")
         || contains_latin_token(&normalized, "todo")
         || contains_latin_token(&normalized, "todos")
+}
+
+fn mentions_calendar(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("日历")
+        || text.contains("日程")
+        || contains_latin_token(&normalized, "calendar")
+        || contains_latin_token(&normalized, "cal")
+}
+
+fn mentions_calendar_free_busy(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("忙闲")
+        || text.contains("空闲")
+        || text.contains("有空")
+        || text.contains("没空")
+        || text.contains("能不能开会")
+        || text.contains("能否开会")
+        || text.contains("可用时间")
+        || normalized.contains("free-busy")
+        || normalized.contains("freebusy")
+        || contains_latin_token(&normalized, "availability")
+        || contains_latin_token(&normalized, "available")
+        || contains_latin_token(&normalized, "busy")
+        || contains_latin_token(&normalized, "free")
 }
 
 fn asks_to_read(text: &str) -> bool {
@@ -204,10 +249,48 @@ fn asks_task_write(text: &str) -> bool {
         || contains_latin_token(&normalized, "create")
         || contains_latin_token(&normalized, "add")
         || contains_latin_token(&normalized, "update")
+        || contains_latin_token(&normalized, "change")
+        || contains_latin_token(&normalized, "set")
         || contains_latin_token(&normalized, "delete")
         || contains_latin_token(&normalized, "complete")
         || contains_latin_token(&normalized, "assign")
         || contains_latin_token(&normalized, "comment")
+}
+
+fn asks_calendar_write(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("创建")
+        || text.contains("新建")
+        || text.contains("添加")
+        || text.contains("新增")
+        || text.contains("更新")
+        || text.contains("修改")
+        || text.contains("删除")
+        || text.contains("预约")
+        || text.contains("预订")
+        || text.contains("安排")
+        || text.contains("邀请")
+        || text.contains("约会")
+        || contains_latin_token(&normalized, "create")
+        || contains_latin_token(&normalized, "add")
+        || contains_latin_token(&normalized, "update")
+        || contains_latin_token(&normalized, "delete")
+        || contains_latin_token(&normalized, "book")
+        || contains_latin_token(&normalized, "invite")
+        || contains_latin_token(&normalized, "schedule")
+}
+
+fn asks_calendar_event_listing(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("日程列表")
+        || text.contains("会议列表")
+        || text.contains("有哪些日程")
+        || text.contains("有哪些会议")
+        || text.contains("日程安排")
+        || text.contains("会议安排")
+        || normalized.contains("event list")
+        || normalized.contains("meeting list")
+        || normalized.contains("my schedule")
 }
 
 fn mentions_non_okr_goal_context(text: &str) -> bool {
@@ -220,7 +303,10 @@ fn mentions_non_okr_feishu_domain(text: &str) -> bool {
         || text.contains("聊天")
         || text.contains("会话")
         || text.contains("任务")
+        || text.contains("日历")
         || text.contains("日程")
+        || text.contains("忙闲")
+        || text.contains("空闲")
         || text.contains("会议")
         || text.contains("文档")
         || text.contains("审批")
@@ -254,6 +340,33 @@ mod tests {
         assert!(latest_user_requests_feishu_task_summary(&request));
         assert_eq!(select_skills(&request), vec![AgentSkill::FeishuTask]);
         assert_feishu_task_spec(AgentSkill::FeishuTask.spec());
+    }
+
+    #[test]
+    fn selects_feishu_calendar_for_explicit_user_free_busy_read() {
+        let request = request_with_latest_user_text("查下我的飞书日历今天有没有空");
+
+        assert!(latest_user_requests_feishu_calendar_free_busy(&request));
+        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuCalendar]);
+        assert_feishu_calendar_spec(AgentSkill::FeishuCalendar.spec());
+    }
+
+    #[test]
+    fn selects_feishu_calendar_for_availability_variants() {
+        assert_eq!(
+            select_skills(&request_with_latest_user_text("看下我的日历忙闲")),
+            vec![AgentSkill::FeishuCalendar]
+        );
+        assert_eq!(
+            select_skills(&request_with_latest_user_text(
+                "show my Feishu availability"
+            )),
+            vec![AgentSkill::FeishuCalendar]
+        );
+        assert_eq!(
+            select_skills(&request_with_latest_user_text("查我的飞书今天能不能开会")),
+            vec![AgentSkill::FeishuCalendar]
+        );
     }
 
     #[test]
@@ -322,6 +435,16 @@ mod tests {
         assert!(select_skills(&request_with_latest_user_text("帮我更新我的任务")).is_empty());
         assert!(select_skills(&request_with_latest_user_text("查团队任务")).is_empty());
         assert!(select_skills(&request_with_latest_user_text("看下张三任务")).is_empty());
+    }
+
+    #[test]
+    fn does_not_select_feishu_calendar_for_writes_event_lists_or_non_self_requests() {
+        assert!(select_skills(&request_with_latest_user_text("创建一个日程")).is_empty());
+        assert!(select_skills(&request_with_latest_user_text("帮我预约会议")).is_empty());
+        assert!(select_skills(&request_with_latest_user_text("查团队忙闲")).is_empty());
+        assert!(select_skills(&request_with_latest_user_text("张三今天有空吗")).is_empty());
+        assert!(select_skills(&request_with_latest_user_text("看我的日程列表")).is_empty());
+        assert!(select_skills(&request_with_latest_user_text("show my schedule")).is_empty());
     }
 
     #[test]
@@ -406,5 +529,15 @@ mod tests {
         assert_eq!(spec.tools[0].name, "feishu.task.summarize_my_tasks");
         assert!(spec.tools[0].description.contains("只读汇总"));
         assert!(spec.manifest_markdown.contains("# Feishu Task"));
+    }
+
+    fn assert_feishu_calendar_spec(spec: AgentSkillSpec) {
+        assert_eq!(spec.id, "feishu.calendar");
+        assert_eq!(spec.display_name, "Feishu Calendar");
+        assert!(spec.purpose.contains("忙闲"));
+        assert_eq!(spec.tools.len(), 1);
+        assert_eq!(spec.tools[0].name, "feishu.calendar.summarize_my_free_busy");
+        assert!(spec.tools[0].description.contains("未来 7 天"));
+        assert!(spec.manifest_markdown.contains("# Feishu Calendar"));
     }
 }

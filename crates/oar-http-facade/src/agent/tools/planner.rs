@@ -14,6 +14,9 @@ pub(in crate::agent) fn plan_read_tools_for_skills(
     active_skills: &[AgentSkill],
 ) -> Vec<AgentReadTool> {
     let mut tools = Vec::new();
+    if active_skills.contains(&AgentSkill::FeishuCalendar) {
+        tools.push(AgentReadTool::FeishuCalendarSummarizeMyFreeBusy);
+    }
     if active_skills.contains(&AgentSkill::FeishuOkr) {
         tools.push(AgentReadTool::FeishuOkrSummarizeMyOkr);
     }
@@ -77,6 +80,29 @@ mod tests {
         assert_eq!(
             spec.required_feishu_scopes().expect("scopes"),
             vec![FeishuScope::TaskRead]
+        );
+        assert_eq!(spec.effect, AgentToolEffect::Read);
+    }
+
+    #[test]
+    fn planner_requests_my_calendar_free_busy_for_explicit_user_calendar_read() {
+        let request = request_with_latest_user_text("查下我的飞书日历今天有没有空");
+
+        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuCalendar]);
+        assert_eq!(
+            plan_read_tools(&request),
+            vec![AgentReadTool::FeishuCalendarSummarizeMyFreeBusy]
+        );
+        let spec = AgentReadTool::FeishuCalendarSummarizeMyFreeBusy.spec();
+        assert_eq!(spec.name, "feishu.calendar.summarize_my_free_busy");
+        assert!(spec.description.contains("未来 7 天"));
+        assert_eq!(
+            spec.required_action_types,
+            &[CapabilityActionType::CalendarFreeBusyRead]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![FeishuScope::CalendarFreeBusyRead]
         );
         assert_eq!(spec.effect, AgentToolEffect::Read);
     }

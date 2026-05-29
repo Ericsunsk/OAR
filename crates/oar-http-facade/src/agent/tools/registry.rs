@@ -5,6 +5,7 @@ use oar_core::action::capability::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentReadTool {
+    FeishuCalendarSummarizeMyFreeBusy,
     FeishuOkrSummarizeMyOkr,
     FeishuTaskSummarizeMyTasks,
 }
@@ -28,10 +29,18 @@ const FEISHU_OKR_SUMMARIZE_MY_OKR_ACTION_TYPES: &[CapabilityActionType] = &[
 ];
 const FEISHU_TASK_SUMMARIZE_MY_TASKS_ACTION_TYPES: &[CapabilityActionType] =
     &[CapabilityActionType::TaskRead];
+const FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES: &[CapabilityActionType] =
+    &[CapabilityActionType::CalendarFreeBusyRead];
 
 impl AgentReadTool {
     pub(in crate::agent) const fn spec(self) -> AgentToolSpec {
         match self {
+            Self::FeishuCalendarSummarizeMyFreeBusy => AgentToolSpec {
+                name: "feishu.calendar.summarize_my_free_busy",
+                description: "只读汇总当前用户未来 7 天的 Feishu 主日历忙闲时段。",
+                required_action_types: FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES,
+                effect: AgentToolEffect::Read,
+            },
             Self::FeishuOkrSummarizeMyOkr => AgentToolSpec {
                 name: "feishu.okr.summarize_my_okr",
                 description: "只读汇总当前用户的 Feishu OKR 周期、Objective 和 KR 数量。",
@@ -105,6 +114,16 @@ mod tests {
         assert_eq!(
             spec.required_feishu_scopes().expect("scopes"),
             vec![FeishuScope::TaskRead]
+        );
+
+        let spec = AgentReadTool::FeishuCalendarSummarizeMyFreeBusy.spec();
+        assert_eq!(
+            spec.required_action_types,
+            &[CapabilityActionType::CalendarFreeBusyRead]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![FeishuScope::CalendarFreeBusyRead]
         );
     }
 }

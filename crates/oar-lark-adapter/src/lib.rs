@@ -2,6 +2,7 @@
 
 #[cfg(feature = "postgres")]
 pub mod audit_outbox;
+pub mod calendar;
 pub mod config;
 pub mod credentials;
 pub mod crypto;
@@ -19,6 +20,11 @@ pub mod task;
 pub use audit_outbox::{
     sink_unavailable_error, AuditOutboxDeliveryEnvelope, AuditOutboxSafePayload, AuditOutboxSink,
     AuditOutboxSinkDelivery, AuditOutboxSinkDispatcher, AuditOutboxSinkError, NoopAuditOutboxSink,
+};
+pub use calendar::{
+    build_free_busy_batch_request, AsyncFeishuCalendarRead, CalendarFreeBusyBatchRequest,
+    CalendarFreeBusyItem, CalendarFreeBusyList, CalendarFreeBusyPage, CalendarUserIdType,
+    FeishuCalendarReadClient, FeishuCalendarReadError,
 };
 pub use config::FeishuOpenApiConfig;
 pub use credentials::{

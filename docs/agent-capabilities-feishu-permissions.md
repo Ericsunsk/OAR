@@ -57,7 +57,7 @@ Core 能力矩阵的执行姿态合同：
 | 读取 OKR progress | `OkrAdapter.list_progress` | `action_type = okr.progress.read`；`AutoRead` | `okr:okr.progress:readonly` | R0 | 不适用 | 不需要 | 记录来源引用、progress 摘要、content hash 和 parser 版本 |
 | 读取 OKR review | 未来 `OkrAdapter.list_reviews` | `action_type = okr.review.read`；`AutoRead` | `okr:okr.review:readonly` | R0 | 不适用 | 不需要 | 记录 review 引用、可见范围、摘要 hash 和 parser 版本 |
 | 读取 OKR setting | 未来 `OkrAdapter.get_settings` | `action_type = okr.setting.read`；`AutoRead` | `okr:okr.setting:read` | R0 | 不适用 | 不需要 | 记录设置来源、租户范围、字段摘要和同步版本 |
-| 查询 calendar free-busy | 未来 `CalendarAdapter.get_free_busy` | `action_type = calendar.free_busy.read`；`AutoRead` | 首选 `calendar:calendar.free_busy:read`；若官方或租户返回 `calendar:calendar:readonly` 兼容能力，需用 fixture 记录后映射 | R0 | 不适用 | 不需要 | 记录查询时间窗、参与者安全摘要、来源 scope 和 safe error |
+| 查询 calendar free-busy | `CalendarAdapter.batch_free_busy` | `action_type = calendar.free_busy.read`；`AutoRead` | 首选 `calendar:calendar.free_busy:read`；若官方或租户返回 `calendar:calendar:readonly` 兼容能力，需用 fixture 记录后映射 | R0 | 不适用 | 不需要 | 记录查询时间窗、参与者安全摘要、来源 scope 和 safe error；不保存日程标题、参会人清单、会议内容或原始 payload |
 | 读取 task | `TaskAdapter.get_task` / `list_my_tasks` | `action_type = task.read`；`AutoRead` | `task:task:read` | R0 | 不适用 | 不需要 | 记录 task 引用、状态摘要、可见范围和同步游标 |
 | 风险检测、周报、证据摘要 | `EvidenceAdapter` / risk engine | 无平台写入；内部可生成 `risk_detected` / `brief_generated` 审计事件 | 继承证据源读取 scope；不得扩大授权 | R1 | 不适用 | 不需要 | 记录输入 evidence refs、模型/规则版本、可见范围；不把模型输出当作证据本身 |
 | 起草 KR progress 创建 | `OkrAdapter.dry_run_create_progress` | `create_kr_progress` / 目标 `action_type = okr.progress.create`；生产策略可先复用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；展示目标 KR、payload 摘要、before/after 和影响范围 | 必须确认或编辑后确认 | 成功、失败、拒绝、stale dry-run 都写 `AuditEvent`；审计只存安全摘要 |
@@ -67,7 +67,7 @@ Core 能力矩阵的执行姿态合同：
 | 写 OKR/文档评论 | 未来 `ActionAdapter` / `CommentAdapter` | 未来 `comment.create`；MVP 仅草稿 | 文档评论可用 `docs:document.comment:create` 或 `docs:document.comment:write_only`；OKR 原生评论能力启用前需 API Explorer 复核 | R3 | 启用前必须展示接收位置、正文摘要和可见范围 | 必须 | 记录 comment target、正文 hash、引用证据和外部结果；不存完整敏感正文 |
 | 提醒 owner / 发送飞书卡片 | 未来 `MessageAdapter.send` | `action_type = im.message.send`；core 当前为 `DraftOnly`，只生成消息草稿或待评审项 | bot 发送可申请 `im:message:send_as_bot`；用户身份发送/代发在启用前需 API Explorer/官方文档复核，不进入当前 allowlist | R3 | 生产启用前必须展示收件人、渠道、消息摘要、频控结果 | 生产启用前必须；系统状态通知需单独 allowlist | 草稿记录收件人类型、数量、消息 hash；生产启用后记录发送结果；禁止群发原始风险结论 |
 | 创建任务 | 未来 `TaskAdapter.create_task` | `action_type = task.create`；core 当前为 `DraftOnly`，只生成任务草稿或待评审项 | 最小创建 scope：`task:task:writeonly`；完整任务管理 scope：`task:task:write` 不能因未来可能使用而提前进入 allowlist | R3 | 生产启用前必须展示 owner、标题、截止时间、来源证据 | 生产启用前必须 | 草稿记录 task target、assignee 摘要、payload hash；生产启用后记录外部结果 |
-| 创建会议草稿 / 日程 | 未来 `CalendarAdapter.create_event` | 未来 `calendar.event.create`；MVP 仅草稿 | 创建日程需要日历写权限；官方权限键示例包括 `calendar:calendar`，读取忙闲为 `calendar:calendar:readonly` | R3 | 必须展示参会人、时间、日历、会议室、通知设置 | 必须 | 记录 event target、attendee 摘要、idempotency key、结果；避免默认发送通知 |
+| 创建会议草稿 / 日程 | 未来 `CalendarAdapter.create_event` | 未来 `calendar.event.create`；MVP 仅草稿 | 创建日程需要日历写权限；官方权限键示例包括 `calendar:calendar`；读取忙闲首选 `calendar:calendar.free_busy:read`，不得因建会草稿提前申请粗粒度写 scope | R3 | 必须展示参会人、时间、日历、会议室、通知设置 | 必须 | 记录 event target、attendee 摘要、idempotency key、结果；避免默认发送通知 |
 | 外部 A2A 提交建议 | A2A gateway -> OAR proposal service | 只能生成 `ProposedAction`，不能生成 `ConfirmedAction` | 不直接持有飞书 scope 或 token | R1-R3 | 平台写入前仍由 OAR adapter dry-run | 必须由 OAR 用户确认 | 记录外部 agent id、建议摘要、证据引用、后续用户决策 |
 
 Agent tool manifest 与 core capability 的当前对齐：
@@ -76,6 +76,7 @@ Agent tool manifest 与 core capability 的当前对齐：
 | --- | --- | --- | --- | --- |
 | `feishu.okr.summarize_my_okr` | `okr.period.read`、`okr.content.read` | `okr:okr.period:readonly`、`okr:okr.content:readonly` | Read | 只读汇总当前用户本人 OKR 周期、Objective 和 KR 数量；不读取团队/他人 OKR，不生成 `ProposedAction` 或 `ConfirmedAction` |
 | `feishu.task.summarize_my_tasks` | `task.read` | `task:task:read` | Read | 只读汇总当前用户本人“我负责的”任务数量、状态和示例标题；不创建/更新/删除/指派任务，不生成 `ProposedAction` 或 `ConfirmedAction` |
+| `feishu.calendar.summarize_my_free_busy` | `calendar.free_busy.read` | `calendar:calendar.free_busy:read` | Read | 只读汇总当前用户本人未来 7 天主日历忙碌窗口数量和示例时间段；不返回日程标题、详情、参会人或会议内容，不生成 `ProposedAction` 或 `ConfirmedAction` |
 
 ## 4. 生产执行规则
 
@@ -126,8 +127,8 @@ Agent tool manifest 与 core capability 的当前对齐：
 当前 MVP 只允许：
 
 - 自动读取授权范围内的 OKR 周期、Objective、KR 和 progress。
-- Agent 已启用 `feishu.okr.summarize_my_okr` 和 `feishu.task.summarize_my_tasks` 只读工具，用于当前用户本人 OKR 与“我负责的”任务安全摘要；边界见上方 manifest 对齐表。
-- 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy 和 task 摘要列为 `AutoRead`；adapter 实现另行接入，且这些读能力不进入写执行 allowlist。
+- Agent 已启用 `feishu.okr.summarize_my_okr`、`feishu.task.summarize_my_tasks` 和 `feishu.calendar.summarize_my_free_busy` 只读工具，用于当前用户本人 OKR、“我负责的”任务和未来 7 天主日历忙闲安全摘要；边界见上方 manifest 对齐表。
+- 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy 和 task 摘要列为 `AutoRead`；calendar free-busy 与 task read 已接入只读 adapter，这些读能力不进入写执行 allowlist。
 - 自动生成风险、证据摘要、周报和建议动作。
 - 将 task 创建和 bot 消息发送登记为 `DraftOnly`；当前只允许生成草稿或待评审项合同，不进入生产写执行 allowlist。
 - 对 KR progress 创建 / 更新进入受控写回验证路径。

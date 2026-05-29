@@ -1,5 +1,6 @@
 use oar_lark_adapter::{
-    FeishuOkrReadError, FeishuTaskReadError, OkrReadObjective, OkrReadSnapshot, TaskReadSummary,
+    FeishuCalendarReadError, FeishuOkrReadError, FeishuTaskReadError, OkrReadObjective,
+    OkrReadSnapshot, TaskReadSummary,
 };
 
 use super::refs::ParsedOkrEvidenceRef;
@@ -140,6 +141,22 @@ pub(super) fn task_read_error_reason(error: FeishuTaskReadError) -> &'static str
         | FeishuTaskReadError::ApiFailure => "任务实时读取暂不可用",
         FeishuTaskReadError::OversizedResponse | FeishuTaskReadError::InvalidJson => {
             "任务实时读取返回不可用"
+        }
+    }
+}
+
+pub(super) fn calendar_read_error_reason(error: FeishuCalendarReadError) -> &'static str {
+    match error {
+        FeishuCalendarReadError::InvalidRequest => "日历忙闲读取请求无效",
+        FeishuCalendarReadError::Unauthorized => "授权已失效，需要重新登录",
+        FeishuCalendarReadError::Forbidden => "授权缺少日历忙闲读取权限",
+        FeishuCalendarReadError::NotFound => "日历忙闲目标不存在或无权访问",
+        FeishuCalendarReadError::UpstreamClient => "日历忙闲读取请求被拒绝",
+        FeishuCalendarReadError::UpstreamTransient
+        | FeishuCalendarReadError::Transport
+        | FeishuCalendarReadError::ApiFailure => "日历忙闲实时读取暂不可用",
+        FeishuCalendarReadError::OversizedResponse | FeishuCalendarReadError::InvalidJson => {
+            "日历忙闲实时读取返回不可用"
         }
     }
 }
