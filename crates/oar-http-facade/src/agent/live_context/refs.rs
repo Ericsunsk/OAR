@@ -60,8 +60,8 @@ pub(super) fn gate_refs_by_scope<'a>(
     task_refs: &mut Vec<(&'a AgentEvidenceRefDTO, ParsedTaskEvidenceRef)>,
     degraded: &mut Vec<String>,
 ) {
-    if !okr_refs.is_empty() && !has_okr_progress_read_scope(scopes) {
-        degraded.push("未读取到实时 Feishu OKR 证据：授权缺少 OKR 进展读取权限。".to_string());
+    if !okr_refs.is_empty() && !has_okr_content_read_scope(scopes) {
+        degraded.push("未读取到实时 Feishu OKR 证据：授权缺少 OKR 内容读取权限。".to_string());
         okr_refs.clear();
     }
     if !task_refs.is_empty() && !has_task_read_scope(scopes) {
@@ -70,8 +70,8 @@ pub(super) fn gate_refs_by_scope<'a>(
     }
 }
 
-pub(super) fn has_okr_progress_read_scope(scopes: &[String]) -> bool {
-    let required = FeishuScope::OkrProgressRead.as_str();
+pub(super) fn has_okr_content_read_scope(scopes: &[String]) -> bool {
+    let required = FeishuScope::OkrContentRead.as_str();
     scopes.iter().any(|scope| scope.trim() == required)
 }
 

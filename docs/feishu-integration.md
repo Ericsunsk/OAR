@@ -58,8 +58,9 @@
 `LarkAdapter` 最小 OKR 接口可以进入实现：
 
 ```text
-list_okr_cycles(user_id, user_id_type) -> OkrCycle[]
-get_okr_cycle_detail cycle_id -> OkrCycleDetail
+list_cycles(user_id, user_id_type) -> OkrCycle[]
+list_cycle_objectives(cycle_id) -> OkrObjective[]
+list_objective_key_results(objective_id) -> OkrKeyResult[]
 list_progress(target_id, target_type) -> ProgressRecord[]
 dry_run_create_progress(request) -> ToolDryRun
 create_progress(confirmed_action_id, request) -> ProgressRecord

@@ -5,6 +5,7 @@ mod prompt;
 mod request;
 mod settings;
 mod stream;
+mod tools;
 
 use std::fmt;
 use std::time::Duration;

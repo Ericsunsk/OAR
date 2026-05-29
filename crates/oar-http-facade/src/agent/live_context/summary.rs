@@ -1,4 +1,6 @@
-use oar_lark_adapter::{FeishuTaskReadError, OkrReadObjective, OkrReadSnapshot, TaskReadSummary};
+use oar_lark_adapter::{
+    FeishuOkrReadError, FeishuTaskReadError, OkrReadObjective, OkrReadSnapshot, TaskReadSummary,
+};
 
 use super::refs::ParsedOkrEvidenceRef;
 use crate::agent::request::AgentEvidenceRefDTO;
@@ -142,6 +144,21 @@ pub(super) fn task_read_error_reason(error: FeishuTaskReadError) -> &'static str
     }
 }
 
+pub(super) fn okr_read_error_reason(error: FeishuOkrReadError) -> &'static str {
+    match error {
+        FeishuOkrReadError::InvalidRequest => "OKR 读取请求无效",
+        FeishuOkrReadError::Unauthorized => "授权已失效，需要重新登录",
+        FeishuOkrReadError::Forbidden => "授权缺少 OKR 读取权限",
+        FeishuOkrReadError::UpstreamClient => "OKR 读取请求被拒绝",
+        FeishuOkrReadError::UpstreamTransient
+        | FeishuOkrReadError::Transport
+        | FeishuOkrReadError::ApiFailure => "OKR 实时读取暂不可用",
+        FeishuOkrReadError::OversizedResponse | FeishuOkrReadError::InvalidJson => {
+            "OKR 实时读取返回不可用"
+        }
+    }
+}
+
 pub(super) fn degraded_summary(evidence_ref: &AgentEvidenceRefDTO, reason: &str) -> String {
     finalize_summary(format!(
         "{}｜实时读取降级：{}。",
@@ -171,11 +188,11 @@ fn latest_update_time(objective: &OkrReadObjective) -> Option<&str> {
         .or(objective.last_updated_time.as_deref())
 }
 
-fn compact_text(value: &str) -> String {
+pub(super) fn compact_text(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn truncate_chars(value: &str, limit: usize) -> String {
+pub(super) fn truncate_chars(value: &str, limit: usize) -> String {
     let char_count = value.chars().count();
     if char_count <= limit {
         return value.to_string();

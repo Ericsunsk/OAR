@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgentCapability {
+    OkrPeriodRead,
     OkrContentRead,
     OkrProgressRead,
     OkrProgressCreate,
@@ -17,6 +18,7 @@ pub enum AgentCapability {
 impl AgentCapability {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::OkrPeriodRead => "okr_period_read",
             Self::OkrContentRead => "okr_content_read",
             Self::OkrProgressRead => "okr_progress_read",
             Self::OkrProgressCreate => "okr_progress_create",
@@ -33,6 +35,7 @@ impl AgentCapability {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CapabilityActionType {
+    OkrPeriodRead,
     OkrContentRead,
     OkrProgressRead,
     OkrProgressCreate,
@@ -48,6 +51,7 @@ pub enum CapabilityActionType {
 impl CapabilityActionType {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::OkrPeriodRead => "okr.period.read",
             Self::OkrContentRead => "okr.content.read",
             Self::OkrProgressRead => "okr.progress.read",
             Self::OkrProgressCreate => "okr.progress.create",
@@ -67,6 +71,7 @@ impl FromStr for CapabilityActionType {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
+            "okr.period.read" => Ok(Self::OkrPeriodRead),
             "okr.content.read" => Ok(Self::OkrContentRead),
             "okr.progress.read" => Ok(Self::OkrProgressRead),
             "okr.progress.create" => Ok(Self::OkrProgressCreate),
@@ -104,6 +109,7 @@ impl PlatformAdapter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FeishuScope {
+    OkrPeriodRead,
     OkrContentRead,
     OkrProgressRead,
     OkrProgressWrite,
@@ -118,6 +124,7 @@ pub enum FeishuScope {
 impl FeishuScope {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::OkrPeriodRead => "okr:okr.period:readonly",
             Self::OkrContentRead => "okr:okr.content:readonly",
             Self::OkrProgressRead => "okr:okr.progress:readonly",
             Self::OkrProgressWrite => "okr:okr.progress:writeonly",
@@ -133,6 +140,7 @@ impl FeishuScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OarRequiredScope {
+    OkrPeriodRead,
     OkrContentRead,
     OkrProgressRead,
     OkrProgressWrite,
@@ -147,6 +155,7 @@ pub enum OarRequiredScope {
 impl OarRequiredScope {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::OkrPeriodRead => "okr.period.read",
             Self::OkrContentRead => "okr.content.read",
             Self::OkrProgressRead => "okr.progress.read",
             Self::OkrProgressWrite => "okr.progress.write",
@@ -251,6 +260,7 @@ impl CapabilitySpec {
     }
 }
 
+pub const OKR_PERIOD_READ_SCOPES: &[FeishuScope] = &[FeishuScope::OkrPeriodRead];
 pub const OKR_CONTENT_READ_SCOPES: &[FeishuScope] = &[FeishuScope::OkrContentRead];
 pub const OKR_PROGRESS_READ_SCOPES: &[FeishuScope] = &[FeishuScope::OkrProgressRead];
 pub const OKR_PROGRESS_WRITE_SCOPES: &[FeishuScope] = &[FeishuScope::OkrProgressWrite];
@@ -262,6 +272,17 @@ pub const TASK_WRITE_SCOPES: &[FeishuScope] = &[FeishuScope::TaskWrite];
 pub const IM_MESSAGE_SEND_AS_BOT_SCOPES: &[FeishuScope] = &[FeishuScope::ImMessageSendAsBot];
 
 pub const CAPABILITY_MATRIX: &[CapabilitySpec] = &[
+    CapabilitySpec {
+        capability: AgentCapability::OkrPeriodRead,
+        action_type: CapabilityActionType::OkrPeriodRead,
+        adapter: PlatformAdapter::Lark,
+        required_scope: OarRequiredScope::OkrPeriodRead,
+        feishu_scopes: OKR_PERIOD_READ_SCOPES,
+        effect: CapabilityEffect::Read,
+        execution_mode: CapabilityExecutionMode::AutoRead,
+        risk: RiskLevel::Low,
+        safety: CapabilitySafety::READ_ONLY,
+    },
     CapabilitySpec {
         capability: AgentCapability::OkrContentRead,
         action_type: CapabilityActionType::OkrContentRead,
@@ -502,6 +523,45 @@ mod tests {
                 capability.action_type_str()
             );
         }
+    }
+
+    #[test]
+    fn okr_read_capabilities_are_explicitly_mapped_to_minimal_feishu_read_scopes() {
+        let period =
+            find_by_action_type(CapabilityActionType::OkrPeriodRead).expect("period read lookup");
+        assert_eq!(period.capability, AgentCapability::OkrPeriodRead);
+        assert_eq!(period.required_scope.as_str(), "okr.period.read");
+        assert_eq!(period.feishu_scopes[0].as_str(), "okr:okr.period:readonly");
+        assert_eq!(period.execution_mode, CapabilityExecutionMode::AutoRead);
+        assert_eq!(find_by_action_type_str("okr.period.read"), Some(period));
+        assert_eq!(
+            "okr.period.read"
+                .parse::<CapabilityActionType>()
+                .expect("period action type parse"),
+            CapabilityActionType::OkrPeriodRead
+        );
+
+        let content =
+            find_by_action_type(CapabilityActionType::OkrContentRead).expect("content read lookup");
+        assert_eq!(content.capability, AgentCapability::OkrContentRead);
+        assert_eq!(content.required_scope.as_str(), "okr.content.read");
+        assert_eq!(
+            content.feishu_scopes[0].as_str(),
+            "okr:okr.content:readonly"
+        );
+        assert_eq!(content.execution_mode, CapabilityExecutionMode::AutoRead);
+        assert_eq!(find_by_action_type_str("okr.content.read"), Some(content));
+
+        let progress = find_by_action_type(CapabilityActionType::OkrProgressRead)
+            .expect("progress read lookup");
+        assert_eq!(progress.capability, AgentCapability::OkrProgressRead);
+        assert_eq!(progress.required_scope.as_str(), "okr.progress.read");
+        assert_eq!(
+            progress.feishu_scopes[0].as_str(),
+            "okr:okr.progress:readonly"
+        );
+        assert_eq!(progress.execution_mode, CapabilityExecutionMode::AutoRead);
+        assert_eq!(find_by_action_type_str("okr.progress.read"), Some(progress));
     }
 
     #[test]

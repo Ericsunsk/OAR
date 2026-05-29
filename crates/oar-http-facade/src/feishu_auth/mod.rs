@@ -10,6 +10,7 @@ use hyper::body::Frame;
 use hyper::header::{CACHE_CONTROL, CONTENT_TYPE};
 use hyper::http::{HeaderValue, Method, StatusCode};
 use hyper::Response;
+use oar_core::action::capability::FeishuScope;
 use oar_lark_adapter::{
     AsyncFeishuOAuthLogin, FeishuOAuthLoginClient, FeishuOAuthLoginConfig, FeishuOpenApiConfig,
     ReqwestAsyncHttpClient,
@@ -36,6 +37,18 @@ use crate::response::{
 use crate::util::non_empty_env;
 
 const FEISHU_LOGIN_SSE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(15);
+const DEFAULT_FEISHU_AUTH_SCOPES: &[&str] = &[
+    "offline_access",
+    FeishuScope::OkrPeriodRead.as_str(),
+    FeishuScope::OkrContentRead.as_str(),
+    FeishuScope::OkrProgressRead.as_str(),
+    FeishuScope::OkrProgressWrite.as_str(),
+    FeishuScope::OkrReviewRead.as_str(),
+    FeishuScope::OkrSettingRead.as_str(),
+    FeishuScope::CalendarFreeBusyRead.as_str(),
+    FeishuScope::TaskRead.as_str(),
+    FeishuScope::TaskWrite.as_str(),
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum FeishuLoginRuntimeConfigError {
@@ -70,7 +83,7 @@ impl FeishuLoginRuntime {
         let authorize_base_url = non_empty_env(env, "OAR_FEISHU_AUTHORIZE_BASE_URL")
             .unwrap_or_else(|| "https://open.feishu.cn".to_string());
         let scope = non_empty_env(env, "OAR_FEISHU_AUTH_SCOPE")
-            .or_else(|| Some("offline_access".to_string()));
+            .or_else(|| Some(default_feishu_auth_scope()));
         let config = FeishuOAuthLoginConfig::new(
             open_api.clone(),
             authorize_base_url,
@@ -105,6 +118,10 @@ impl FeishuLoginRuntime {
     pub(crate) fn client_secret(&self) -> oar_lark_adapter::SecretString {
         self.config.client_secret.clone()
     }
+}
+
+fn default_feishu_auth_scope() -> String {
+    DEFAULT_FEISHU_AUTH_SCOPES.join(" ")
 }
 
 impl FeishuGrantPersistenceRuntime {

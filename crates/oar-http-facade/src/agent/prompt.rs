@@ -42,9 +42,10 @@ impl AgentSystemPromptBuilder {
 - 当前会话历史。
 - 当前焦点/工作区信号。
 - 后端/前端提供的工作区摘要、证据摘要和 dry-run 摘要。
+- 后端 tool result 提供的只读实时 Feishu 读取结果。
 - 用户在对话中补充的信息。
 
-来规划下一步、分析风险、起草动作或检查证据缺口。如果需要更多平台事实，要求用户补充或让 OAR 后端重新读取 live platform state，不要编造。
+来规划下一步、分析风险、起草动作或检查证据缺口。实时 Feishu 读取结果只能来自后端 tool result 或后端 live context，不要把自己的推断当成实时读取。如果需要更多平台事实，要求用户补充或让 OAR 后端重新读取 live platform state，不要编造。
 
 安全边界：
 - 你可以规划、分析和起草，但不能代表用户确认、拒绝或执行动作。
@@ -66,7 +67,7 @@ Top 工作区信号：
 待处理动作摘要：
 {pending_actions}
 
-实时 Feishu 读取结果（由后端基于 evidence refs 实时读取）：
+实时 Feishu 读取结果（来自后端 tool result；可能由 evidence refs live read 或只读 tool runtime 产生）：
 {live_feishu}
 
 回答要求：
@@ -165,9 +166,34 @@ mod tests {
         assert!(prompt.contains("5. 动作 5"));
         assert!(!prompt.contains("动作 6"));
         assert!(prompt.contains("实时 Feishu 读取结果"));
+        assert!(prompt.contains("后端 tool result 提供的只读实时 Feishu 读取结果"));
+        assert!(prompt.contains("实时 Feishu 读取结果只能来自后端 tool result"));
         assert!(prompt.contains("1. 实时 1"));
         assert!(prompt.contains("4. 实时 4"));
         assert!(!prompt.contains("实时 5"));
         assert!(prompt.contains("明确区分“前端/既有摘要”和“后端实时读取结果”"));
+    }
+
+    #[test]
+    fn prompt_builder_includes_backend_tool_result_summary() {
+        let prompt = AgentSystemPromptBuilder.make_prompt(&AgentConversationContextDTO {
+            title: "OKR 查询".to_string(),
+            risk_reason: "无".to_string(),
+            action_summary: "无".to_string(),
+            evidence_summaries: vec![],
+            evidence_refs: vec![],
+            workspace_summary: "摘要".to_string(),
+            workspace_signals: vec![],
+            pending_action_summaries: vec![],
+            live_feishu_read_summaries: vec![
+                "工具 feishu.okr.summarize_my_okr｜实时：我的 OKR 当前有 2 条目标；仅返回安全摘要。"
+                    .to_string(),
+            ],
+        });
+
+        assert!(prompt.contains("来自后端 tool result"));
+        assert!(prompt.contains("feishu.okr.summarize_my_okr"));
+        assert!(prompt.contains("我的 OKR 当前有 2 条目标"));
+        assert!(!prompt.contains("raw_payload"));
     }
 }

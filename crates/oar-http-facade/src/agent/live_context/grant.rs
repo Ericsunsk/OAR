@@ -202,6 +202,34 @@ pub(super) async fn resolve_grant_id_for_user(
     }
 }
 
+pub(super) async fn resolve_lark_open_id_for_grant(
+    pool: &sqlx::PgPool,
+    auth_context: &AuthenticatedContext,
+    token_grant: &EncryptedTokenGrantRecord,
+) -> Result<String, &'static str> {
+    let open_id = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT li.actor_external_id
+        FROM lark_identities li
+        WHERE li.tenant_id = $1
+          AND li.id = $2
+          AND li.actor_kind = 'user'
+        LIMIT 1
+        "#,
+    )
+    .bind(&auth_context.tenant_id)
+    .bind(&token_grant.identity_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| "查询用户飞书身份失败")?
+    .ok_or("当前用户没有可用的飞书身份")?;
+
+    if open_id.trim().is_empty() {
+        return Err("当前用户飞书身份为空");
+    }
+    Ok(open_id)
+}
+
 fn live_read_refresh_audit_context(
     auth_context: &AuthenticatedContext,
     grant_id: &str,

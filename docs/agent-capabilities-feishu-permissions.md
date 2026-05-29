@@ -18,11 +18,12 @@ ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent
 | PlatformAdapter | 生产调用边界，例如 `LarkAdapter`、`OkrAdapter`、`TaskAdapter`、`CalendarAdapter`、`MessageAdapter`、`AuthAdapter` |
 | `ProposedActionKind` | Review Inbox 中待用户处理的建议动作类型，例如 `create_kr_progress` |
 | `action_type` | OAR 执行策略和审计中的稳定动作键，例如 `okr.progress.update`；它不是飞书 scope |
-| Feishu scope | 飞书开放平台应用权限，例如 `okr:okr.progress:writeonly` |
-| OAR `required_scope` | OAR 内部策略键，可映射到一个或多个飞书 scope；当前测试中已有 `okr.progress.write` |
+| Feishu app scope | 飞书开放平台应用后台开通的权限，例如 `okr:okr.progress:writeonly` |
+| OAuth grant scope | 用户扫码授权后实际进入 OAR `TokenGrant.scopes` 的权限；后台新增 app scope 后，旧 grant 不会自动增权 |
+| OAR `required_scope` | OAR 内部策略键，可映射到一个或多个飞书 scope；例如 `okr.period.read`、`okr.content.read`、`okr.progress.write` |
 | Capability execution mode | core 能力矩阵中的执行姿态：`AutoRead` 可自动读取，`DraftOnly` 只生成建议/草稿，`ConfirmedWrite` 才能进入生产写执行 allowlist |
 
-飞书 scope 是必要条件，不是充分条件。一次写回必须同时满足：飞书应用已开通 scope、用户或应用授权里有该 scope、用户对目标资源有实际权限、OAR policy allowlist 允许该 `action_type`、目标对象和 payload 通过 dry-run，并且用户完成确认。
+飞书 app scope、用户 OAuth grant scope 和 OAR allowlist 是三层不同门禁。读 OKR 必须先在飞书应用后台开通对应 read scope，再由用户通过 OAR 重新扫码把这些 scope 写入 `TokenGrant`；写回还必须额外满足 OAR policy allowlist、dry-run 和人工确认。旧 `TokenGrant` 不会因为后台新增 scope 自动扩大授权。
 
 `ExecutionPolicy::from_capabilities(...)` 只把 `CapabilityExecutionMode = ConfirmedWrite` 且 `effect = Write` 的能力纳入外部写执行 allowlist。拥有 task、message、calendar 等写 scope 只代表可申请或可生成草稿，不代表可以直接生产写入。
 
@@ -50,9 +51,9 @@ Core 能力矩阵的执行姿态合同：
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 飞书 OAuth 登录与用户绑定 | `AuthAdapter.exchange_code` | 无业务 `ProposedAction`；auth audit 使用 `token_grant.*` / `token_refresh.*` | `offline_access` 用于 refresh token；如读取稳定 user id，可申请 `auth:user.id:read` | R1 | 不适用 | 用户在飞书 OAuth 同意页授权 | 记录 grant 生命周期、scope 摘要、actor、tenant，不记录 token/code |
 | token refresh | `AuthAdapter.refresh` | `token_refresh.rotate`、`token_refresh.mark_needs_refresh`、`token_refresh.mark_reauth_required`、`token_refresh.mark_config_required`、`token_refresh.conflict_noop` | 原 grant 已包含 `offline_access` | R1 | 不适用 | 不需要每次人工确认；只维护授权材料 | 每次 refresh outcome 写 append-only `AuditEvent`，明文 token、fingerprint、encrypted blob 禁止入审计 |
-| 读取 OKR 周期 | `OkrAdapter.list_okr_cycles` | 无写入 `action_type` | 最小 scope：`okr:okr.period:readonly`；粗粒度兼容：`okr:okr:readonly` | R0 | 不适用 | 不需要 | 记录同步 job、目标租户、scope 摘要、游标和 safe error |
-| 读取 Objective / KR 内容 | `OkrAdapter.get_okr_cycle_detail` / `batch_get_okrs` | 无写入 `action_type` | 最小 scope：`okr:okr.content:readonly`；粗粒度兼容：`okr:okr:readonly` | R0 | 不适用 | 不需要 | 只保存摘要、引用、hash 和可见范围；不默认保存完整正文 |
-| 读取 OKR progress | `OkrAdapter.list_progress` | 无写入 `action_type` | `okr:okr.progress:readonly` | R0 | 不适用 | 不需要 | 记录来源引用、progress 摘要、content hash 和 parser 版本 |
+| 读取 OKR 周期 | `OkrAdapter.list_cycles` | `action_type = okr.period.read`；`AutoRead` | `okr:okr.period:readonly` | R0 | 不适用 | 不需要 | 记录同步 job、目标租户、scope 摘要、游标和 safe error |
+| 读取 Objective / KR 内容 | `OkrAdapter.list_cycle_objectives` / `list_objective_key_results` / `batch_get_okrs` | `action_type = okr.content.read`；`AutoRead` | `okr:okr.content:readonly` | R0 | 不适用 | 不需要 | 只保存摘要、引用、hash 和可见范围；不默认保存完整正文 |
+| 读取 OKR progress | `OkrAdapter.list_progress` | `action_type = okr.progress.read`；`AutoRead` | `okr:okr.progress:readonly` | R0 | 不适用 | 不需要 | 记录来源引用、progress 摘要、content hash 和 parser 版本 |
 | 读取 OKR review | 未来 `OkrAdapter.list_reviews` | `action_type = okr.review.read`；`AutoRead` | `okr:okr.review:readonly` | R0 | 不适用 | 不需要 | 记录 review 引用、可见范围、摘要 hash 和 parser 版本 |
 | 读取 OKR setting | 未来 `OkrAdapter.get_settings` | `action_type = okr.setting.read`；`AutoRead` | `okr:okr.setting:read` | R0 | 不适用 | 不需要 | 记录设置来源、租户范围、字段摘要和同步版本 |
 | 查询 calendar free-busy | 未来 `CalendarAdapter.get_free_busy` | `action_type = calendar.free_busy.read`；`AutoRead` | 首选 `calendar:calendar.free_busy:read`；若官方或租户返回 `calendar:calendar:readonly` 兼容能力，需用 fixture 记录后映射 | R0 | 不适用 | 不需要 | 记录查询时间窗、参与者安全摘要、来源 scope 和 safe error |
@@ -84,8 +85,11 @@ Core 能力矩阵的执行姿态合同：
 
 ## 5. Scope 与 allowlist 管理
 
-- 默认只申请和启用 P0 所需 scope：`offline_access`、OKR 读取 scope、progress 读取 scope、progress 写入 scope。
-- 下一批可申请/开放的 scope 仅作为 `AutoRead` 或 `DraftOnly` 合同进入 core 矩阵：`okr:okr.review:readonly`、`okr:okr.setting:read`、`calendar:calendar.free_busy:read`、`task:task:read`、`task:task:writeonly`、`im:message:send_as_bot`。其中 `task.create` 和 `im.message.send` 不进入生产执行 allowlist。
+- 未配置 `OAR_FEISHU_AUTH_SCOPE` 时，OAR 默认扫码登录请求已声明用户级能力所需的 Feishu scopes：`offline_access`、OKR 读写、OKR review/setting 读取、calendar free-busy、task 读写等。
+- 默认 OAuth grant scope 放宽不等于放宽执行边界；写操作仍必须经过 dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
+- 飞书开发者后台开启或新增 scope 后，用户必须重新用 OAR 扫码授权；旧 `TokenGrant.scopes` 不会自动增加新 scope。
+- progress 创建/更新的 `okr:okr.progress:writeonly` 默认进入 OAuth grant，避免真实使用时反复补授权；生产执行仍只接受 `ConfirmedWrite` 能力、dry-run 和人工确认。
+- 新增 scope 只能先作为 `AutoRead`、`DraftOnly` 或明确的 `ConfirmedWrite` 合同进入 core 矩阵；`task.create` 和 `im.message.send` 当前不进入生产执行 allowlist。
 - `okr:okr.content:writeonly`、`okr:okr.period:writeonly`、`okr:okr`、`task:task:write`、`calendar:calendar`、`im:message` 等高权限或粗粒度 scope 不应因为“未来可能用到”提前进入生产 allowlist。
 - OAR 内部 `required_scope` 必须有明确映射表。例如 `okr.progress.write` 映射到飞书 `okr:okr.progress:writeonly`，不能模糊映射到 `okr:okr`。
 - 外部写执行 allowlist 只接受 `ConfirmedWrite` 能力。新增 scope、读能力或草稿能力时，必须显式确认 execution mode，避免 write scope 自动变成生产写权限。

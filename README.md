@@ -282,8 +282,13 @@ DATABASE_URL=postgres://... docker compose -f docker/compose.yml up --build
 飞书扫码登录需要额外配置 `OAR_FEISHU_APP_ID`、`OAR_FEISHU_APP_SECRET` 和
 `OAR_FEISHU_REDIRECT_URI`；其中 redirect URI 必须在飞书开发者后台安全设置中登记，
 且移动端扫码时需要是手机可访问的公网地址。飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入 Dockerfile。
-当前默认 `OAR_FEISHU_AUTH_SCOPE=offline_access`：`authen/v1/user_info` 获取基础身份不需要额外应用权限，
-`offline_access` 用于让飞书返回 refresh token，支持 OAR 加密落库 `TokenGrant` 并后续刷新。
+未设置 `OAR_FEISHU_AUTH_SCOPE` 时，代码内置默认授权会请求 OAR 已声明用户级能力所需的
+Feishu scopes，包括 OKR 读写、OKR review/setting 读取、calendar free-busy、task 读写等。
+`authen/v1/user_info` 获取基础身份不需要额外应用权限，`offline_access` 用于让飞书返回 refresh token，
+支持 OAR 加密落库 `TokenGrant` 并后续刷新。飞书开发者后台必须先开启默认授权包含的对应权限。
+设置变更后必须让用户重新用 OAR 扫码授权；旧 `TokenGrant` 不会因为后台新增 app scope 自动获得 OAuth grant scope。
+飞书 app scope、用户 OAuth grant scope 和 OAR allowlist 是三层不同门禁；默认授权变宽不代表绕过执行边界，
+写操作仍然必须经过 dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
 本地开发可临时设置 `OAR_ALLOW_EPHEMERAL_GRANT_KEY=true` 让 auth refresh 配置自动生成一次性内存
 grant key；生产环境不要打开，必须注入稳定的 `OAR_GRANT_KEY_ID` / `OAR_GRANT_KEY_HEX`。
 
