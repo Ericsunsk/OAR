@@ -3,12 +3,13 @@ mod error;
 mod types;
 
 pub use client::{
-    build_get_task_request, parse_task_source_ref, AsyncFeishuTaskRead, FeishuTaskReadClient,
+    build_get_task_request, build_list_tasks_request, parse_task_source_ref, AsyncFeishuTaskRead,
+    FeishuTaskReadClient,
 };
 pub use error::FeishuTaskReadError;
 pub use types::{
-    FeishuTaskGetRequest, TaskReadDue, TaskReadOwner, TaskReadSummary, TaskSourceRef,
-    TaskUserIdType,
+    FeishuTaskGetRequest, FeishuTaskListRequest, TaskListType, TaskReadDue, TaskReadOwner,
+    TaskReadPage, TaskReadSummary, TaskSourceRef, TaskUserIdType,
 };
 
 #[cfg(test)]

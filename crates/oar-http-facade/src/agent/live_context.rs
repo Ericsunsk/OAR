@@ -19,6 +19,7 @@ mod okr_summary;
 mod refs;
 mod source_registry;
 mod summary;
+mod task_summary;
 
 use grant::{
     grant_requires_refresh_before_read, live_read_grant_denial_reason,
@@ -31,6 +32,7 @@ use summary::{
     build_live_summary, build_task_live_summary, degraded_summary, okr_read_error_reason,
     task_read_error_reason,
 };
+use task_summary::read_my_task_summary;
 
 const LIVE_EVIDENCE_REF_LIMIT: usize = 4;
 
@@ -194,10 +196,13 @@ async fn assemble_live_feishu_summaries(
         }
     };
     let mut live_summaries = Vec::new();
-    if !evidence_resolution.okr_refs.is_empty() || !read_tools.is_empty() {
+    let should_read_okr_tool = read_tools.contains(&AgentReadTool::FeishuOkrSummarizeMyOkr);
+    let should_read_task_tool = read_tools.contains(&AgentReadTool::FeishuTaskSummarizeMyTasks);
+
+    if !evidence_resolution.okr_refs.is_empty() || should_read_okr_tool {
         let mut okr_client = FeishuOkrReadClient::new(open_api_config.clone(), http_client.clone());
 
-        if !read_tools.is_empty() {
+        if should_read_okr_tool {
             let lark_open_id =
                 match resolve_lark_open_id_for_grant(&pool, auth_context, &token_grant).await {
                     Ok(open_id) => open_id,
@@ -209,24 +214,14 @@ async fn assemble_live_feishu_summaries(
                     }
                 };
             if !lark_open_id.is_empty() {
-                for read_tool in read_tools {
-                    match read_tool {
-                        AgentReadTool::FeishuOkrSummarizeMyOkr => {
-                            match read_my_okr_summary(
-                                &mut okr_client,
-                                access_token.clone(),
-                                &lark_open_id,
-                            )
-                            .await
-                            {
-                                Ok(summary) => live_summaries.push(summary),
-                                Err(error) => live_summaries.push(format!(
-                                    "工具 feishu.okr.summarize_my_okr｜实时读取降级：{}。",
-                                    okr_read_error_reason(error)
-                                )),
-                            }
-                        }
-                    }
+                match read_my_okr_summary(&mut okr_client, access_token.clone(), &lark_open_id)
+                    .await
+                {
+                    Ok(summary) => live_summaries.push(summary),
+                    Err(error) => live_summaries.push(format!(
+                        "工具 feishu.okr.summarize_my_okr｜实时读取降级：{}。",
+                        okr_read_error_reason(error)
+                    )),
                 }
             }
         }
@@ -272,8 +267,18 @@ async fn assemble_live_feishu_summaries(
         }
     }
 
-    if !evidence_resolution.task_refs.is_empty() {
+    if !evidence_resolution.task_refs.is_empty() || should_read_task_tool {
         let mut task_client = FeishuTaskReadClient::new(open_api_config, http_client);
+        if should_read_task_tool {
+            match read_my_task_summary(&mut task_client, access_token.clone()).await {
+                Ok(summary) => live_summaries.push(summary),
+                Err(error) => live_summaries.push(format!(
+                    "工具 feishu.task.summarize_my_tasks｜实时读取降级：{}。",
+                    task_read_error_reason(error)
+                )),
+            }
+        }
+
         for (evidence_ref, parsed) in evidence_resolution.task_refs {
             match task_client
                 .get_task_summary(FeishuTaskGetRequest {
@@ -495,6 +500,42 @@ mod tests {
 
         assert_eq!(request.context.activated_skill_summaries.len(), 1);
         assert!(request.context.activated_skill_summaries[0].contains("feishu.okr"));
+        assert_eq!(request.context.live_feishu_read_summaries.len(), 1);
+        let summary = &request.context.live_feishu_read_summaries[0];
+        assert!(summary.contains("后端未配置 Feishu 授权存储"));
+    }
+
+    #[tokio::test]
+    async fn live_context_plans_read_only_tool_when_task_intent_has_no_evidence_refs() {
+        let mut request = AgentStreamRequest {
+            messages: vec![AgentMessageDTO {
+                role: "user".to_string(),
+                text: "查下我的飞书任务有几条".to_string(),
+            }],
+            context: AgentConversationContextDTO {
+                title: "任务查询".to_string(),
+                risk_reason: "用户请求实时读取".to_string(),
+                action_summary: "无".to_string(),
+                evidence_summaries: vec![],
+                evidence_refs: vec![],
+                workspace_summary: "摘要".to_string(),
+                workspace_signals: vec![],
+                pending_action_summaries: vec![],
+                live_feishu_read_summaries: vec![],
+                activated_skill_summaries: vec![],
+            },
+        };
+        let runtime = OarHttpFacadeRuntime::disabled();
+        let auth_context = AuthenticatedContext {
+            session_id: "oar_session_test".to_string(),
+            tenant_id: "tenant_x".to_string(),
+            user_id: "feishu_user_tenant_ou_demo".to_string(),
+        };
+
+        inject_live_feishu_context(&runtime, &auth_context, &mut request).await;
+
+        assert_eq!(request.context.activated_skill_summaries.len(), 1);
+        assert!(request.context.activated_skill_summaries[0].contains("feishu.task"));
         assert_eq!(request.context.live_feishu_read_summaries.len(), 1);
         let summary = &request.context.live_feishu_read_summaries[0];
         assert!(summary.contains("后端未配置 Feishu 授权存储"));

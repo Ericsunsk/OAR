@@ -13,11 +13,15 @@ pub(in crate::agent) fn plan_read_tools(request: &AgentStreamRequest) -> Vec<Age
 pub(in crate::agent) fn plan_read_tools_for_skills(
     active_skills: &[AgentSkill],
 ) -> Vec<AgentReadTool> {
+    let mut tools = Vec::new();
     if active_skills.contains(&AgentSkill::FeishuOkr) {
-        return vec![AgentReadTool::FeishuOkrSummarizeMyOkr];
+        tools.push(AgentReadTool::FeishuOkrSummarizeMyOkr);
+    }
+    if active_skills.contains(&AgentSkill::FeishuTask) {
+        tools.push(AgentReadTool::FeishuTaskSummarizeMyTasks);
     }
 
-    vec![]
+    tools
 }
 
 #[cfg(test)]
@@ -50,6 +54,29 @@ mod tests {
         assert_eq!(
             spec.required_feishu_scopes().expect("scopes"),
             vec![FeishuScope::OkrPeriodRead, FeishuScope::OkrContentRead]
+        );
+        assert_eq!(spec.effect, AgentToolEffect::Read);
+    }
+
+    #[test]
+    fn planner_requests_my_task_summary_for_explicit_user_task_read() {
+        let request = request_with_latest_user_text("查下我的飞书任务有几条");
+
+        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuTask]);
+        assert_eq!(
+            plan_read_tools(&request),
+            vec![AgentReadTool::FeishuTaskSummarizeMyTasks]
+        );
+        let spec = AgentReadTool::FeishuTaskSummarizeMyTasks.spec();
+        assert_eq!(spec.name, "feishu.task.summarize_my_tasks");
+        assert!(spec.description.contains("我负责的任务"));
+        assert_eq!(
+            spec.required_action_types,
+            &[CapabilityActionType::TaskRead]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![FeishuScope::TaskRead]
         );
         assert_eq!(spec.effect, AgentToolEffect::Read);
     }

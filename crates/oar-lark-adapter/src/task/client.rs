@@ -3,9 +3,13 @@ use serde_json::Value;
 
 use crate::config::FeishuOpenApiConfig;
 use crate::oauth::{AsyncHttpClient, HttpClient, HttpRequest};
+use crate::redaction::SecretString;
 
 use super::error::FeishuTaskReadError;
-use super::types::{FeishuTaskGetRequest, FeishuTaskGetResponse, TaskReadSummary, TaskSourceRef};
+use super::types::{
+    valid_task_id, FeishuTaskGetRequest, FeishuTaskGetResponse, FeishuTaskListRequest,
+    FeishuTaskListResponse, TaskReadPage, TaskReadSummary, TaskSourceRef,
+};
 
 const TASK_GET_PATH_PREFIX: &str = "/open-apis/task/v2/tasks";
 const OAR_USER_AGENT: &str = concat!("oar-lark-adapter/", env!("CARGO_PKG_VERSION"));
@@ -44,6 +48,17 @@ where
             .map_err(FeishuTaskReadError::from)?;
         map_status_or_parse_task(raw.status, &raw.body, &source_ref)
     }
+
+    pub fn list_task_summaries(
+        &mut self,
+        request: FeishuTaskListRequest,
+    ) -> Result<TaskReadPage, FeishuTaskReadError> {
+        let raw = self
+            .http_client
+            .send_json(build_list_tasks_request(&self.config, request))
+            .map_err(FeishuTaskReadError::from)?;
+        map_status_or_parse_task_list(raw.status, &raw.body)
+    }
 }
 
 #[async_trait]
@@ -52,6 +67,11 @@ pub trait AsyncFeishuTaskRead {
         &mut self,
         request: FeishuTaskGetRequest,
     ) -> Result<TaskReadSummary, FeishuTaskReadError>;
+
+    async fn list_task_summaries(
+        &mut self,
+        request: FeishuTaskListRequest,
+    ) -> Result<TaskReadPage, FeishuTaskReadError>;
 }
 
 #[async_trait]
@@ -71,6 +91,18 @@ where
             .map_err(FeishuTaskReadError::from)?;
         map_status_or_parse_task(raw.status, &raw.body, &source_ref)
     }
+
+    async fn list_task_summaries(
+        &mut self,
+        request: FeishuTaskListRequest,
+    ) -> Result<TaskReadPage, FeishuTaskReadError> {
+        let raw = self
+            .http_client
+            .send_json(build_list_tasks_request(&self.config, request))
+            .await
+            .map_err(FeishuTaskReadError::from)?;
+        map_status_or_parse_task_list(raw.status, &raw.body)
+    }
 }
 
 pub fn parse_task_source_ref(source_ref: &str) -> Result<TaskSourceRef, FeishuTaskReadError> {
@@ -82,12 +114,7 @@ pub fn parse_task_source_ref(source_ref: &str) -> Result<TaskSourceRef, FeishuTa
     } else {
         return Err(FeishuTaskReadError::InvalidSourceRef);
     };
-    if task_id.is_empty()
-        || task_id.len() > 100
-        || task_id.contains('/')
-        || task_id.contains('?')
-        || task_id.contains('#')
-    {
+    if !valid_task_id(task_id) {
         return Err(FeishuTaskReadError::InvalidSourceRef);
     }
     Ok(TaskSourceRef {
@@ -113,17 +140,61 @@ pub fn build_get_task_request(
     HttpRequest {
         method: "GET".to_string(),
         url,
-        headers: vec![
-            (
-                "Authorization".to_string(),
-                format!("Bearer {}", request.user_access_token.expose_secret()),
-            ),
-            ("Accept".to_string(), "application/json".to_string()),
-            ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
-        ],
+        headers: task_request_headers(&request.user_access_token),
         body: Value::Object(serde_json::Map::new()),
         max_response_bytes: config.max_response_bytes,
     }
+}
+
+pub fn build_list_tasks_request(
+    config: &FeishuOpenApiConfig,
+    request: FeishuTaskListRequest,
+) -> HttpRequest {
+    let mut query_parts = vec![
+        (
+            "page_size",
+            request.page_size.unwrap_or(50).clamp(1, 100).to_string(),
+        ),
+        ("type", request.task_type.as_str().to_string()),
+        ("user_id_type", request.user_id_type.as_str().to_string()),
+    ];
+    if let Some(page_token) = request.page_token.filter(|value| !value.trim().is_empty()) {
+        query_parts.push(("page_token", page_token));
+    }
+    if let Some(completed) = request.completed {
+        query_parts.push(("completed", completed.to_string()));
+    }
+    let query_string = encode_query(&query_parts);
+    // Feishu Task v2 list endpoint currently supports the current user's "my_tasks" list.
+    let url = format!(
+        "{}/{}?{}",
+        config.base_url.trim_end_matches('/'),
+        TASK_GET_PATH_PREFIX.trim_start_matches('/'),
+        query_string
+    );
+
+    HttpRequest {
+        method: "GET".to_string(),
+        url,
+        headers: task_request_headers(&request.user_access_token),
+        body: Value::Object(serde_json::Map::new()),
+        max_response_bytes: config.max_response_bytes,
+    }
+}
+
+fn task_request_headers(user_access_token: &SecretString) -> Vec<(String, String)> {
+    vec![
+        (
+            "Authorization".to_string(),
+            format!("Bearer {}", user_access_token.expose_secret()),
+        ),
+        ("Accept".to_string(), "application/json".to_string()),
+        (
+            "Content-Type".to_string(),
+            "application/json; charset=utf-8".to_string(),
+        ),
+        ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
+    ]
 }
 
 fn map_status_or_parse_task(
@@ -131,19 +202,42 @@ fn map_status_or_parse_task(
     body: &str,
     source_ref: &TaskSourceRef,
 ) -> Result<TaskReadSummary, FeishuTaskReadError> {
-    match status {
-        200..=299 => {
-            let parsed: FeishuTaskGetResponse =
-                serde_json::from_str(body).map_err(|_| FeishuTaskReadError::InvalidJson)?;
-            if parsed.code != 0 {
-                return Err(map_api_code(parsed.code));
-            }
-            let task = parsed
-                .data
-                .and_then(|data| data.task)
-                .ok_or(FeishuTaskReadError::InvalidJson)?;
-            Ok(TaskReadSummary::from_feishu_task(source_ref, task))
+    map_status_or_parse_task_response(status, body, |body| {
+        let parsed: FeishuTaskGetResponse =
+            serde_json::from_str(body).map_err(|_| FeishuTaskReadError::InvalidJson)?;
+        if parsed.code != 0 {
+            return Err(map_api_code(parsed.code));
         }
+        let task = parsed
+            .data
+            .and_then(|data| data.task)
+            .ok_or(FeishuTaskReadError::InvalidJson)?;
+        Ok(TaskReadSummary::from_feishu_task(source_ref, task))
+    })
+}
+
+fn map_status_or_parse_task_list(
+    status: u16,
+    body: &str,
+) -> Result<TaskReadPage, FeishuTaskReadError> {
+    map_status_or_parse_task_response(status, body, |body| {
+        let parsed: FeishuTaskListResponse =
+            serde_json::from_str(body).map_err(|_| FeishuTaskReadError::InvalidJson)?;
+        if parsed.code != 0 {
+            return Err(map_api_code(parsed.code));
+        }
+        let data = parsed.data.ok_or(FeishuTaskReadError::InvalidJson)?;
+        Ok(TaskReadPage::from_feishu_list(data))
+    })
+}
+
+fn map_status_or_parse_task_response<T>(
+    status: u16,
+    body: &str,
+    parse_success: impl FnOnce(&str) -> Result<T, FeishuTaskReadError>,
+) -> Result<T, FeishuTaskReadError> {
+    match status {
+        200..=299 => parse_success(body),
         401 => Err(FeishuTaskReadError::Unauthorized),
         403 => Err(FeishuTaskReadError::Forbidden),
         404 => Err(FeishuTaskReadError::NotFound),

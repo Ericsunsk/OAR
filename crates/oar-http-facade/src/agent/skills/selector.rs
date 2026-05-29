@@ -2,11 +2,23 @@ use super::catalog::AgentSkill;
 use crate::agent::request::AgentStreamRequest;
 
 pub(in crate::agent) fn select_skills(request: &AgentStreamRequest) -> Vec<AgentSkill> {
+    let mut skills = Vec::new();
     if latest_user_requests_feishu_okr_summary(request) {
-        return vec![AgentSkill::FeishuOkr];
+        skills.push(AgentSkill::FeishuOkr);
+    }
+    if latest_user_requests_feishu_task_summary(request) {
+        skills.push(AgentSkill::FeishuTask);
     }
 
-    vec![]
+    skills
+}
+
+pub(super) fn latest_user_requests_feishu_task_summary(request: &AgentStreamRequest) -> bool {
+    let Some(latest_user_text) = latest_user_text(request) else {
+        return false;
+    };
+
+    latest_user_has_explicit_self_task_read_intent(latest_user_text)
 }
 
 pub(super) fn latest_user_requests_feishu_okr_summary(request: &AgentStreamRequest) -> bool {
@@ -40,6 +52,14 @@ fn latest_user_has_explicit_self_okr_read_intent(text: &str) -> bool {
         && is_self_scoped(text)
         && !targets_non_self(text)
         && !mentions_non_okr_goal_context(text)
+}
+
+fn latest_user_has_explicit_self_task_read_intent(text: &str) -> bool {
+    mentions_task(text)
+        && asks_to_read(text)
+        && is_self_scoped(text)
+        && !targets_non_self(text)
+        && !asks_task_write(text)
 }
 
 fn latest_user_has_contextual_feishu_count_intent(text: &str) -> bool {
@@ -95,6 +115,17 @@ fn mentions_feishu(text: &str) -> bool {
     text.contains("飞书")
         || contains_latin_token(&normalized, "feishu")
         || contains_latin_token(&normalized, "lark")
+}
+
+fn mentions_task(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("任务")
+        || text.contains("待办")
+        || text.contains("我负责")
+        || contains_latin_token(&normalized, "task")
+        || contains_latin_token(&normalized, "tasks")
+        || contains_latin_token(&normalized, "todo")
+        || contains_latin_token(&normalized, "todos")
 }
 
 fn asks_to_read(text: &str) -> bool {
@@ -156,6 +187,29 @@ fn targets_non_self(text: &str) -> bool {
         || contains_latin_token(&normalized, "others")
 }
 
+fn asks_task_write(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("创建")
+        || text.contains("新建")
+        || text.contains("添加")
+        || text.contains("新增")
+        || text.contains("更新")
+        || text.contains("修改")
+        || text.contains("删除")
+        || text.contains("完成")
+        || text.contains("关闭")
+        || text.contains("指派")
+        || text.contains("分配")
+        || text.contains("评论")
+        || contains_latin_token(&normalized, "create")
+        || contains_latin_token(&normalized, "add")
+        || contains_latin_token(&normalized, "update")
+        || contains_latin_token(&normalized, "delete")
+        || contains_latin_token(&normalized, "complete")
+        || contains_latin_token(&normalized, "assign")
+        || contains_latin_token(&normalized, "comment")
+}
+
 fn mentions_non_okr_goal_context(text: &str) -> bool {
     text.contains("目标客户") || text.contains("客户目标")
 }
@@ -191,6 +245,27 @@ mod tests {
         assert!(latest_user_requests_feishu_okr_summary(&request));
         assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
         assert_feishu_okr_spec(AgentSkill::FeishuOkr.spec());
+    }
+
+    #[test]
+    fn selects_feishu_task_for_explicit_user_task_read() {
+        let request = request_with_latest_user_text("查下我的飞书任务有几条");
+
+        assert!(latest_user_requests_feishu_task_summary(&request));
+        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuTask]);
+        assert_feishu_task_spec(AgentSkill::FeishuTask.spec());
+    }
+
+    #[test]
+    fn selects_feishu_task_for_todo_read_variants() {
+        assert_eq!(
+            select_skills(&request_with_latest_user_text("看下我的待办")),
+            vec![AgentSkill::FeishuTask]
+        );
+        assert_eq!(
+            select_skills(&request_with_latest_user_text("show my tasks")),
+            vec![AgentSkill::FeishuTask]
+        );
     }
 
     #[test]
@@ -239,6 +314,14 @@ mod tests {
         assert!(select_skills(&request_with_latest_user_text("我们团队 OKR 有几条")).is_empty());
         assert!(select_skills(&request_with_latest_user_text("看下张三 OKR")).is_empty());
         assert!(select_skills(&request_with_latest_user_text("show my team OKR")).is_empty());
+    }
+
+    #[test]
+    fn does_not_select_feishu_task_for_writes_or_non_self_requests() {
+        assert!(select_skills(&request_with_latest_user_text("创建一个任务")).is_empty());
+        assert!(select_skills(&request_with_latest_user_text("帮我更新我的任务")).is_empty());
+        assert!(select_skills(&request_with_latest_user_text("查团队任务")).is_empty());
+        assert!(select_skills(&request_with_latest_user_text("看下张三任务")).is_empty());
     }
 
     #[test]
@@ -313,5 +396,15 @@ mod tests {
                 activated_skill_summaries: vec![],
             },
         }
+    }
+
+    fn assert_feishu_task_spec(spec: AgentSkillSpec) {
+        assert_eq!(spec.id, "feishu.task");
+        assert_eq!(spec.display_name, "Feishu Task");
+        assert!(spec.purpose.contains("飞书任务"));
+        assert_eq!(spec.tools.len(), 1);
+        assert_eq!(spec.tools[0].name, "feishu.task.summarize_my_tasks");
+        assert!(spec.tools[0].description.contains("只读汇总"));
+        assert!(spec.manifest_markdown.contains("# Feishu Task"));
     }
 }

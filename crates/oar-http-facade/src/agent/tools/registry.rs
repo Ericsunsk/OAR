@@ -6,6 +6,7 @@ use oar_core::action::capability::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentReadTool {
     FeishuOkrSummarizeMyOkr,
+    FeishuTaskSummarizeMyTasks,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +26,8 @@ const FEISHU_OKR_SUMMARIZE_MY_OKR_ACTION_TYPES: &[CapabilityActionType] = &[
     CapabilityActionType::OkrPeriodRead,
     CapabilityActionType::OkrContentRead,
 ];
+const FEISHU_TASK_SUMMARIZE_MY_TASKS_ACTION_TYPES: &[CapabilityActionType] =
+    &[CapabilityActionType::TaskRead];
 
 impl AgentReadTool {
     pub(in crate::agent) const fn spec(self) -> AgentToolSpec {
@@ -33,6 +36,12 @@ impl AgentReadTool {
                 name: "feishu.okr.summarize_my_okr",
                 description: "只读汇总当前用户的 Feishu OKR 周期、Objective 和 KR 数量。",
                 required_action_types: FEISHU_OKR_SUMMARIZE_MY_OKR_ACTION_TYPES,
+                effect: AgentToolEffect::Read,
+            },
+            Self::FeishuTaskSummarizeMyTasks => AgentToolSpec {
+                name: "feishu.task.summarize_my_tasks",
+                description: "只读汇总当前用户在 Feishu 中我负责的任务数量、状态和示例标题。",
+                required_action_types: FEISHU_TASK_SUMMARIZE_MY_TASKS_ACTION_TYPES,
                 effect: AgentToolEffect::Read,
             },
         }
@@ -86,6 +95,16 @@ mod tests {
         assert_eq!(
             spec.required_feishu_scopes().expect("scopes"),
             vec![FeishuScope::OkrPeriodRead, FeishuScope::OkrContentRead]
+        );
+
+        let spec = AgentReadTool::FeishuTaskSummarizeMyTasks.spec();
+        assert_eq!(
+            spec.required_action_types,
+            &[CapabilityActionType::TaskRead]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![FeishuScope::TaskRead]
         );
     }
 }

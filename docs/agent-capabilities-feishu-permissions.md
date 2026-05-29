@@ -58,7 +58,7 @@ Core 能力矩阵的执行姿态合同：
 | 读取 OKR review | 未来 `OkrAdapter.list_reviews` | `action_type = okr.review.read`；`AutoRead` | `okr:okr.review:readonly` | R0 | 不适用 | 不需要 | 记录 review 引用、可见范围、摘要 hash 和 parser 版本 |
 | 读取 OKR setting | 未来 `OkrAdapter.get_settings` | `action_type = okr.setting.read`；`AutoRead` | `okr:okr.setting:read` | R0 | 不适用 | 不需要 | 记录设置来源、租户范围、字段摘要和同步版本 |
 | 查询 calendar free-busy | 未来 `CalendarAdapter.get_free_busy` | `action_type = calendar.free_busy.read`；`AutoRead` | 首选 `calendar:calendar.free_busy:read`；若官方或租户返回 `calendar:calendar:readonly` 兼容能力，需用 fixture 记录后映射 | R0 | 不适用 | 不需要 | 记录查询时间窗、参与者安全摘要、来源 scope 和 safe error |
-| 读取 task | 未来 `TaskAdapter.list_tasks` | `action_type = task.read`；`AutoRead` | `task:task:read` | R0 | 不适用 | 不需要 | 记录 task 引用、状态摘要、可见范围和同步游标 |
+| 读取 task | `TaskAdapter.get_task` / `list_my_tasks` | `action_type = task.read`；`AutoRead` | `task:task:read` | R0 | 不适用 | 不需要 | 记录 task 引用、状态摘要、可见范围和同步游标 |
 | 风险检测、周报、证据摘要 | `EvidenceAdapter` / risk engine | 无平台写入；内部可生成 `risk_detected` / `brief_generated` 审计事件 | 继承证据源读取 scope；不得扩大授权 | R1 | 不适用 | 不需要 | 记录输入 evidence refs、模型/规则版本、可见范围；不把模型输出当作证据本身 |
 | 起草 KR progress 创建 | `OkrAdapter.dry_run_create_progress` | `create_kr_progress` / 目标 `action_type = okr.progress.create`；生产策略可先复用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；展示目标 KR、payload 摘要、before/after 和影响范围 | 必须确认或编辑后确认 | 成功、失败、拒绝、stale dry-run 都写 `AuditEvent`；审计只存安全摘要 |
 | 起草 KR progress 更新 | `OkrAdapter.dry_run_update_progress` | `update_kr_progress` / `action_type = okr.progress.update`；当前 policy 测试使用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；执行前重新读取 live target 并校验 dry-run 指纹 | 必须确认或编辑后确认 | 记录 actor、scope、target、evidence、before/after 摘要、adapter operation id、结果 |
@@ -75,6 +75,7 @@ Agent tool manifest 与 core capability 的当前对齐：
 | Agent tool | Required `action_type` | 派生 Feishu scope | Effect | 边界 |
 | --- | --- | --- | --- | --- |
 | `feishu.okr.summarize_my_okr` | `okr.period.read`、`okr.content.read` | `okr:okr.period:readonly`、`okr:okr.content:readonly` | Read | 只读汇总当前用户本人 OKR 周期、Objective 和 KR 数量；不读取团队/他人 OKR，不生成 `ProposedAction` 或 `ConfirmedAction` |
+| `feishu.task.summarize_my_tasks` | `task.read` | `task:task:read` | Read | 只读汇总当前用户本人“我负责的”任务数量、状态和示例标题；不创建/更新/删除/指派任务，不生成 `ProposedAction` 或 `ConfirmedAction` |
 
 ## 4. 生产执行规则
 
@@ -125,7 +126,7 @@ Agent tool manifest 与 core capability 的当前对齐：
 当前 MVP 只允许：
 
 - 自动读取授权范围内的 OKR 周期、Objective、KR 和 progress。
-- Agent 已启用 `feishu.okr.summarize_my_okr` 只读工具，用于当前用户本人 OKR 安全摘要；边界见上方 manifest 对齐表。
+- Agent 已启用 `feishu.okr.summarize_my_okr` 和 `feishu.task.summarize_my_tasks` 只读工具，用于当前用户本人 OKR 与“我负责的”任务安全摘要；边界见上方 manifest 对齐表。
 - 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy 和 task 摘要列为 `AutoRead`；adapter 实现另行接入，且这些读能力不进入写执行 allowlist。
 - 自动生成风险、证据摘要、周报和建议动作。
 - 将 task 创建和 bot 消息发送登记为 `DraftOnly`；当前只允许生成草稿或待评审项合同，不进入生产写执行 allowlist。

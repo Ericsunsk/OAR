@@ -5,8 +5,8 @@ use crate::config::FeishuOpenApiConfig;
 use crate::oauth::{AsyncHttpClient, HttpClient, HttpClientFailure, HttpRequest, HttpResponse};
 use crate::redaction::SecretString;
 use crate::task::{
-    parse_task_source_ref, AsyncFeishuTaskRead, FeishuTaskGetRequest, FeishuTaskReadClient,
-    FeishuTaskReadError, TaskUserIdType,
+    parse_task_source_ref, AsyncFeishuTaskRead, FeishuTaskGetRequest, FeishuTaskListRequest,
+    FeishuTaskReadClient, FeishuTaskReadError, TaskListType, TaskUserIdType,
 };
 
 #[derive(Clone)]
@@ -63,6 +63,17 @@ fn sample_request() -> FeishuTaskGetRequest {
     FeishuTaskGetRequest {
         user_access_token: SecretString::new("u-very-secret-task-token"),
         source_ref: "task://task_123".to_string(),
+        user_id_type: TaskUserIdType::OpenId,
+    }
+}
+
+fn sample_list_request() -> FeishuTaskListRequest {
+    FeishuTaskListRequest {
+        user_access_token: SecretString::new("u-very-secret-task-token"),
+        page_size: Some(2),
+        page_token: None,
+        completed: Some(false),
+        task_type: TaskListType::MyTasks,
         user_id_type: TaskUserIdType::OpenId,
     }
 }
@@ -197,6 +208,70 @@ fn get_task_tolerates_missing_optional_fields_and_shape_variants() {
 }
 
 #[test]
+fn list_tasks_success_returns_sanitized_page() {
+    let response = HttpResponse::new(
+        200,
+        json!({
+            "code": 0,
+            "msg": "ok",
+            "data": {
+                "items": [
+                    {
+                        "guid": "task_123",
+                        "summary": " Ship task list adapter ",
+                        "completed": false,
+                        "due": {"timestamp": "1780000000000", "is_all_day": true},
+                        "members": [
+                            {"member_id": "ou_owner", "member_type": "open_id", "role": "assignee"}
+                        ],
+                        "updated_at": 1781000000000_i64,
+                        "description": "raw body field should not surface"
+                    },
+                    {
+                        "guid": "task_unsafe/ref",
+                        "summary": "invalid id is skipped"
+                    },
+                    {
+                        "guid": "task_456",
+                        "summary": "Second task",
+                        "completed": true
+                    }
+                ],
+                "has_more": true,
+                "page_token": "next-page"
+            }
+        })
+        .to_string(),
+    );
+    let mut client = FeishuTaskReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(response),
+    );
+
+    let page = client
+        .list_task_summaries(sample_list_request())
+        .expect("success");
+
+    assert_eq!(page.tasks.len(), 2);
+    assert_eq!(page.tasks[0].source_ref, "task://task_123");
+    assert_eq!(
+        page.tasks[0].title.as_deref(),
+        Some("Ship task list adapter")
+    );
+    assert_eq!(page.tasks[0].status.as_deref(), Some("open"));
+    assert_eq!(page.tasks[0].owners.len(), 1);
+    assert_eq!(page.tasks[1].source_ref, "task://task_456");
+    assert_eq!(page.tasks[1].status.as_deref(), Some("completed"));
+    assert!(page.has_more);
+    assert_eq!(page.page_token.as_deref(), Some("next-page"));
+
+    let serialized = serde_json::to_string(&page).expect("page json");
+    assert!(!serialized.contains("description"));
+    assert!(!serialized.contains("raw body"));
+    assert!(!serialized.contains("task_unsafe/ref"));
+}
+
+#[test]
 fn get_task_maps_status_codes_to_safe_errors() {
     let mut unauthorized = FeishuTaskReadClient::new(
         FeishuOpenApiConfig::default(),
@@ -297,6 +372,78 @@ fn get_task_fail_closed_for_oversized_invalid_json_and_missing_task() {
     );
     assert_eq!(
         missing_task.get_task_summary(sample_request()),
+        Err(FeishuTaskReadError::InvalidJson)
+    );
+}
+
+#[test]
+fn list_tasks_request_contains_safe_query_and_redacts_token_in_debug() {
+    let mut client = FeishuTaskReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(
+            200,
+            json!({"code":0,"data":{"items":[]}}).to_string(),
+        )),
+    );
+
+    client
+        .list_task_summaries(FeishuTaskListRequest {
+            user_access_token: SecretString::new("u-very-secret-task-token"),
+            page_size: Some(250),
+            page_token: Some("next/page token".to_string()),
+            completed: Some(true),
+            task_type: TaskListType::MyTasks,
+            user_id_type: TaskUserIdType::OpenId,
+        })
+        .expect("success");
+    let sent = client
+        .http_client()
+        .request
+        .as_ref()
+        .expect("captured request");
+
+    assert_eq!(sent.method, "GET");
+    assert!(sent.url.contains("/open-apis/task/v2/tasks?"));
+    assert!(sent.url.contains("page_size=100"));
+    assert!(sent.url.contains("page_token=next%2Fpage%20token"));
+    assert!(sent.url.contains("completed=true"));
+    assert!(sent.url.contains("type=my_tasks"));
+    assert!(sent.url.contains("user_id_type=open_id"));
+    assert!(sent.headers.iter().any(|(name, value)| {
+        name == "Authorization" && value == "Bearer u-very-secret-task-token"
+    }));
+
+    let request_debug = format!("{sent:?}");
+    assert!(!request_debug.contains("u-very-secret-task-token"));
+    assert!(request_debug.contains("[REDACTED]"));
+}
+
+#[test]
+fn list_task_maps_status_codes_and_fail_closed_shapes() {
+    let mut forbidden = FeishuTaskReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(403, "{}")),
+    );
+    assert_eq!(
+        forbidden.list_task_summaries(sample_list_request()),
+        Err(FeishuTaskReadError::Forbidden)
+    );
+
+    let mut invalid_json = FeishuTaskReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(200, "{not-json")),
+    );
+    assert_eq!(
+        invalid_json.list_task_summaries(sample_list_request()),
+        Err(FeishuTaskReadError::InvalidJson)
+    );
+
+    let mut missing_data = FeishuTaskReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(200, json!({"code":0}).to_string())),
+    );
+    assert_eq!(
+        missing_data.list_task_summaries(sample_list_request()),
         Err(FeishuTaskReadError::InvalidJson)
     );
 }

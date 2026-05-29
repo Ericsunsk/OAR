@@ -1,8 +1,9 @@
-use super::builtin::feishu_okr;
+use super::builtin::{feishu_okr, feishu_task};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentSkill {
     FeishuOkr,
+    FeishuTask,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,14 @@ impl AgentSkill {
                 tools: feishu_okr::TOOLS,
                 safety: feishu_okr::SAFETY,
                 manifest_markdown: feishu_okr::MANIFEST_MARKDOWN,
+            },
+            Self::FeishuTask => AgentSkillSpec {
+                id: feishu_task::ID,
+                display_name: feishu_task::DISPLAY_NAME,
+                purpose: feishu_task::PURPOSE,
+                tools: feishu_task::TOOLS,
+                safety: feishu_task::SAFETY,
+                manifest_markdown: feishu_task::MANIFEST_MARKDOWN,
             },
         }
     }

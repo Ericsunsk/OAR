@@ -75,7 +75,8 @@ pub use okr::{
 pub use postgres::{PostgresFeishuGrantMaterialStore, PostgresFeishuGrantMaterialStoreError};
 pub use redaction::SecretString;
 pub use task::{
-    build_get_task_request, parse_task_source_ref, AsyncFeishuTaskRead, FeishuTaskGetRequest,
-    FeishuTaskReadClient, FeishuTaskReadError, TaskReadDue, TaskReadOwner, TaskReadSummary,
-    TaskSourceRef, TaskUserIdType,
+    build_get_task_request, build_list_tasks_request, parse_task_source_ref, AsyncFeishuTaskRead,
+    FeishuTaskGetRequest, FeishuTaskListRequest, FeishuTaskReadClient, FeishuTaskReadError,
+    TaskListType, TaskReadDue, TaskReadOwner, TaskReadPage, TaskReadSummary, TaskSourceRef,
+    TaskUserIdType,
 };

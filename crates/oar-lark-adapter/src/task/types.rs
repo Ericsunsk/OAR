@@ -22,6 +22,29 @@ impl fmt::Debug for FeishuTaskGetRequest {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct FeishuTaskListRequest {
+    pub user_access_token: SecretString,
+    pub page_size: Option<u16>,
+    pub page_token: Option<String>,
+    pub completed: Option<bool>,
+    pub task_type: TaskListType,
+    pub user_id_type: TaskUserIdType,
+}
+
+impl fmt::Debug for FeishuTaskListRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FeishuTaskListRequest")
+            .field("user_access_token", &"[REDACTED]")
+            .field("page_size", &self.page_size)
+            .field("page_token", &self.page_token)
+            .field("completed", &self.completed)
+            .field("task_type", &self.task_type)
+            .field("user_id_type", &self.user_id_type)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskUserIdType {
     OpenId,
@@ -35,6 +58,19 @@ impl TaskUserIdType {
             TaskUserIdType::OpenId => "open_id",
             TaskUserIdType::UserId => "user_id",
             TaskUserIdType::UnionId => "union_id",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskListType {
+    MyTasks,
+}
+
+impl TaskListType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskListType::MyTasks => "my_tasks",
         }
     }
 }
@@ -68,6 +104,13 @@ pub struct TaskReadOwner {
     pub owner_type: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct TaskReadPage {
+    pub tasks: Vec<TaskReadSummary>,
+    pub has_more: bool,
+    pub page_token: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub(super) struct FeishuTaskGetResponse {
     pub code: i64,
@@ -77,6 +120,21 @@ pub(super) struct FeishuTaskGetResponse {
 #[derive(Debug, Deserialize)]
 pub(super) struct FeishuTaskGetData {
     pub task: Option<FeishuTask>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct FeishuTaskListResponse {
+    pub code: i64,
+    pub data: Option<FeishuTaskListData>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct FeishuTaskListData {
+    #[serde(default, alias = "tasks")]
+    pub items: Vec<FeishuTask>,
+    #[serde(default)]
+    pub has_more: bool,
+    pub page_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -134,6 +192,41 @@ impl TaskReadSummary {
             update_time,
         }
     }
+}
+
+impl TaskReadPage {
+    pub(super) fn from_feishu_list(data: FeishuTaskListData) -> Self {
+        let tasks = data
+            .items
+            .into_iter()
+            .filter_map(|task| {
+                let task_id = task.id.as_deref()?.trim().to_string();
+                if !valid_task_id(&task_id) {
+                    return None;
+                }
+                Some(TaskReadSummary::from_feishu_task(
+                    &TaskSourceRef { task_id },
+                    task,
+                ))
+            })
+            .collect::<Vec<_>>();
+        Self {
+            tasks,
+            has_more: data.has_more,
+            page_token: non_empty(data.page_token),
+        }
+    }
+}
+
+pub(super) fn valid_task_id(task_id: &str) -> bool {
+    !task_id.is_empty()
+        && task_id.len() <= 100
+        && !task_id.contains('/')
+        && !task_id.contains('?')
+        && !task_id.contains('#')
+        && task_id
+            .chars()
+            .all(|character| !character.is_whitespace() && !character.is_control())
 }
 
 fn task_status(task: &FeishuTask) -> Option<String> {
