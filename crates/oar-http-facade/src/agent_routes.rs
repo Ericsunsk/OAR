@@ -379,6 +379,13 @@ fn agent_model_settings_error_response(error: AgentModelSettingsError) -> Facade
                 "safe_message": "Agent model detection did not find a usable model."
             }),
         ),
+        AgentModelSettingsError::UpstreamUnauthorized => json_facade_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            json!({
+                "error": error.to_string(),
+                "safe_message": "Agent model provider rejected the API key."
+            }),
+        ),
         AgentModelSettingsError::StoreUnavailable
         | AgentModelSettingsError::SecretCryptoFailed
         | AgentModelSettingsError::InvalidStoredProtocol => service_unavailable(

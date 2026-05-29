@@ -41,11 +41,7 @@ final class RemoteAgentSettingsProviderTests: XCTestCase {
             )
         }
 
-        let provider = RemoteAgentSettingsProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
         let catalog = try await provider.detectModels(
             baseURL: "https://api.openai.com/v1",
             apiKey: "sk-test"
@@ -82,11 +78,7 @@ final class RemoteAgentSettingsProviderTests: XCTestCase {
             )
         }
 
-        let provider = RemoteAgentSettingsProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
         let snapshot = try await provider.loadSettings()
 
         XCTAssertEqual(snapshot.source, .user)
@@ -130,11 +122,7 @@ final class RemoteAgentSettingsProviderTests: XCTestCase {
             )
         }
 
-        let provider = RemoteAgentSettingsProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
         let snapshot = try await provider.saveSettings(
             baseURL: "https://api.anthropic.com/v1",
             apiKey: nil,
@@ -145,10 +133,45 @@ final class RemoteAgentSettingsProviderTests: XCTestCase {
         XCTAssertEqual(snapshot.apiKeyStatus, .saved)
     }
 
+    func testDetectModelsMapsRejectedAPIKeyError() async throws {
+        AgentSettingsTestURLProtocol.handler = { request in
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 422,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data(#"{"error":"agent_settings_api_key_rejected"}"#.utf8)
+            )
+        }
+
+        let provider = Self.provider()
+
+        do {
+            _ = try await provider.detectModels(
+                baseURL: "https://www.bytecatcode.org/v1",
+                apiKey: "bad-key"
+            )
+            XCTFail("Expected invalid API key error")
+        } catch AgentSettingsProviderError.invalidAPIKey {
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     private static let appSession = AppSession(
         sessionID: "oar_session_secret",
         user: AuthenticatedUser(id: "user_1", displayName: "陈敏", tenantName: "OAR 测试租户")
     )
+
+    private static func provider() -> RemoteAgentSettingsProvider {
+        RemoteAgentSettingsProvider(
+            baseURL: URL(string: "https://oar.example.test")!,
+            appSession: Self.appSession,
+            urlSession: Self.urlSession
+        )
+    }
 
     private static var urlSession: URLSession {
         let configuration = URLSessionConfiguration.ephemeral

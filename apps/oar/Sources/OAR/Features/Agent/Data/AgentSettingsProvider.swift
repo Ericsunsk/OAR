@@ -45,6 +45,7 @@ enum AgentSettingsProviderError: LocalizedError {
     case unauthorized
     case invalidResponse
     case detectionFailed
+    case invalidAPIKey
     case serverUnavailable
 
     var errorDescription: String? {
@@ -57,6 +58,8 @@ enum AgentSettingsProviderError: LocalizedError {
             return "Agent 设置服务返回了无法识别的响应。"
         case .detectionFailed:
             return "无法根据 Base URL 和 API Key 检测模型。"
+        case .invalidAPIKey:
+            return "模型服务拒绝了这个 API Key，请检查是否复制了完整密钥。"
         case .serverUnavailable:
             return "Agent 设置服务暂时不可用。"
         }
@@ -165,12 +168,19 @@ struct RemoteAgentSettingsProvider: AgentSettingsProviding {
         case 401, 403:
             throw AgentSettingsProviderError.unauthorized
         case 400, 422:
+            if Self.backendErrorCode(from: data) == "agent_settings_api_key_rejected" {
+                throw AgentSettingsProviderError.invalidAPIKey
+            }
             throw AgentSettingsProviderError.detectionFailed
         case 500..<600:
             throw AgentSettingsProviderError.serverUnavailable
         default:
             throw AgentSettingsProviderError.invalidResponse
         }
+    }
+
+    private static func backendErrorCode(from data: Data) -> String? {
+        try? JSONDecoder().decode(AgentSettingsErrorDTO.self, from: data).error
     }
 }
 
@@ -207,6 +217,10 @@ private struct AgentSettingsUpdateRequestDTO: Encodable {
         case apiKey = "api_key"
         case selectedModel = "selected_model"
     }
+}
+
+private struct AgentSettingsErrorDTO: Decodable {
+    let error: String
 }
 
 private struct AgentModelSettingsSnapshotDTO: Decodable {
