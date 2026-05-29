@@ -72,9 +72,11 @@ pub use okr::{
     FeishuOkrCycleObjectivesListRequest, FeishuOkrCycleObjectivesListResponse, FeishuOkrItem,
     FeishuOkrKeyResult, FeishuOkrObjective, FeishuOkrObjectiveKeyResultsListData,
     FeishuOkrObjectiveKeyResultsListRequest, FeishuOkrObjectiveKeyResultsListResponse,
-    FeishuOkrProgressRate, FeishuOkrProgressRecordRef, FeishuOkrReadClient, FeishuOkrReadError,
-    OkrProgressListRequest, OkrReadCycle, OkrReadCyclesPage, OkrReadKeyResult,
-    OkrReadKeyResultsPage, OkrReadObjective, OkrReadObjectivesPage, OkrReadOkr, OkrReadSnapshot,
+    FeishuOkrProgressListData, FeishuOkrProgressListRequest, FeishuOkrProgressListResponse,
+    FeishuOkrProgressListTarget, FeishuOkrProgressRate, FeishuOkrProgressRecord,
+    FeishuOkrProgressRecordRef, FeishuOkrReadClient, FeishuOkrReadError, OkrDepartmentIdType,
+    OkrReadCycle, OkrReadCyclesPage, OkrReadKeyResult, OkrReadKeyResultsPage, OkrReadObjective,
+    OkrReadObjectivesPage, OkrReadOkr, OkrReadProgressPage, OkrReadProgressRecord, OkrReadSnapshot,
     OkrReviewInboxPlan, OkrReviewInboxPlanError, OkrReviewInboxPlanInput, OkrUserIdType,
 };
 #[cfg(feature = "postgres")]

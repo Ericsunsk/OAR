@@ -95,6 +95,60 @@ impl fmt::Debug for FeishuOkrObjectiveKeyResultsListRequest {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct FeishuOkrProgressListRequest {
+    pub user_access_token: SecretString,
+    pub user_id_type: OkrUserIdType,
+    pub target: FeishuOkrProgressListTarget,
+    pub page_size: Option<u32>,
+    pub page_token: Option<String>,
+    pub department_id_type: OkrDepartmentIdType,
+}
+
+impl FeishuOkrProgressListRequest {
+    pub fn new(
+        user_access_token: SecretString,
+        target: FeishuOkrProgressListTarget,
+    ) -> FeishuOkrProgressListRequest {
+        FeishuOkrProgressListRequest {
+            user_access_token,
+            user_id_type: OkrUserIdType::OpenId,
+            target,
+            page_size: Some(100),
+            page_token: None,
+            department_id_type: OkrDepartmentIdType::OpenDepartmentId,
+        }
+    }
+}
+
+impl fmt::Debug for FeishuOkrProgressListRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FeishuOkrProgressListRequest")
+            .field("user_access_token", &"[REDACTED]")
+            .field("user_id_type", &self.user_id_type)
+            .field("target", &self.target)
+            .field("page_size", &self.page_size)
+            .field("page_token", &self.page_token)
+            .field("department_id_type", &self.department_id_type)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeishuOkrProgressListTarget {
+    Objective(String),
+    KeyResult(String),
+}
+
+impl FeishuOkrProgressListTarget {
+    pub fn id(&self) -> &str {
+        match self {
+            FeishuOkrProgressListTarget::Objective(id)
+            | FeishuOkrProgressListTarget::KeyResult(id) => id,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OkrUserIdType {
     OpenId,
@@ -108,6 +162,21 @@ impl OkrUserIdType {
             OkrUserIdType::OpenId => "open_id",
             OkrUserIdType::UserId => "user_id",
             OkrUserIdType::UnionId => "union_id",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OkrDepartmentIdType {
+    OpenDepartmentId,
+    DepartmentId,
+}
+
+impl OkrDepartmentIdType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OkrDepartmentIdType::OpenDepartmentId => "open_department_id",
+            OkrDepartmentIdType::DepartmentId => "department_id",
         }
     }
 }
@@ -183,6 +252,27 @@ pub struct FeishuOkrObjectiveKeyResultsListData {
         alias = "kr_list"
     )]
     pub items: Vec<FeishuOkrKeyResult>,
+    #[serde(
+        default,
+        alias = "next_page_token",
+        deserialize_with = "deserialize_option_stringish"
+    )]
+    pub page_token: Option<String>,
+    #[serde(default)]
+    pub has_more: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct FeishuOkrProgressListResponse {
+    pub code: i64,
+    pub msg: Option<String>,
+    pub data: Option<FeishuOkrProgressListData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct FeishuOkrProgressListData {
+    #[serde(default)]
+    pub progress_list: Vec<FeishuOkrProgressRecord>,
     #[serde(
         default,
         alias = "next_page_token",
@@ -308,6 +398,21 @@ pub struct FeishuOkrProgressRate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct FeishuOkrProgressRecord {
+    #[serde(
+        default,
+        alias = "id",
+        deserialize_with = "deserialize_option_stringish"
+    )]
+    pub progress_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_option_stringish")]
+    pub modify_time: Option<String>,
+    pub progress_rate: Option<FeishuOkrProgressRate>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct FeishuOkrProgressRecordRef {
     pub id: Option<String>,
     #[serde(flatten)]
@@ -353,6 +458,22 @@ pub struct OkrReadKeyResultsPage {
     pub krs: Vec<OkrReadKeyResult>,
     pub next_page_token: Option<String>,
     pub has_more: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct OkrReadProgressPage {
+    #[serde(default)]
+    pub progress_records: Vec<OkrReadProgressRecord>,
+    pub next_page_token: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct OkrReadProgressRecord {
+    pub id: Option<String>,
+    pub modify_time: Option<String>,
+    pub percent: Option<String>,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -429,6 +550,20 @@ impl OkrReadKeyResultsPage {
         Self {
             objective_id: objective_id.into(),
             krs: data.items.iter().map(OkrReadKeyResult::from).collect(),
+            next_page_token: data.page_token.clone(),
+            has_more: data.has_more.unwrap_or(false),
+        }
+    }
+}
+
+impl OkrReadProgressPage {
+    pub fn from_progress_list_data(data: &FeishuOkrProgressListData) -> Self {
+        Self {
+            progress_records: data
+                .progress_list
+                .iter()
+                .map(OkrReadProgressRecord::from)
+                .collect(),
             next_page_token: data.page_token.clone(),
             has_more: data.has_more.unwrap_or(false),
         }
@@ -513,6 +648,23 @@ impl From<&FeishuOkrKeyResult> for OkrReadKeyResult {
                 value.progress_report_last_updated_time.as_deref(),
                 value.score_last_updated_time.as_deref(),
             ]),
+        }
+    }
+}
+
+impl From<&FeishuOkrProgressRecord> for OkrReadProgressRecord {
+    fn from(value: &FeishuOkrProgressRecord) -> Self {
+        Self {
+            id: value.progress_id.clone(),
+            modify_time: value.modify_time.clone(),
+            percent: value
+                .progress_rate
+                .as_ref()
+                .and_then(|rate| rate.percent.clone()),
+            status: value
+                .progress_rate
+                .as_ref()
+                .and_then(|rate| rate.status.clone()),
         }
     }
 }

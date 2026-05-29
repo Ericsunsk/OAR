@@ -10,27 +10,20 @@ use super::types::{
     FeishuOkrBatchGetRequest, FeishuOkrBatchGetResponse, FeishuOkrCycleListRequest,
     FeishuOkrCycleListResponse, FeishuOkrCycleObjectivesListRequest,
     FeishuOkrCycleObjectivesListResponse, FeishuOkrObjectiveKeyResultsListRequest,
-    FeishuOkrObjectiveKeyResultsListResponse,
+    FeishuOkrObjectiveKeyResultsListResponse, FeishuOkrProgressListRequest,
+    FeishuOkrProgressListResponse, FeishuOkrProgressListTarget,
 };
 
 const OKR_BATCH_GET_PATH: &str = "/open-apis/okr/v1/okrs/batch_get";
 const OKR_CYCLES_PATH: &str = "/open-apis/okr/v2/cycles";
 const OKR_OBJECTIVES_PATH: &str = "/open-apis/okr/v2/objectives";
-const OKR_PROGRESS_RECORDS_PATH: &str = "/open-apis/okr/v1/progress_records";
+const OKR_KEY_RESULTS_PATH: &str = "/open-apis/okr/v2/key_results";
 const OAR_USER_AGENT: &str = concat!("oar-lark-adapter/", env!("CARGO_PKG_VERSION"));
+const DEFAULT_PAGE_SIZE: u32 = 100;
 const MAX_PAGE_SIZE: u32 = 100;
 const MAX_PATH_ID_BYTES: usize = 256;
 const MAX_PAGE_TOKEN_BYTES: usize = 512;
 const MAX_LANG_BYTES: usize = 32;
-
-#[derive(Debug, Clone)]
-pub struct OkrProgressListRequest {
-    pub user_id_type: super::types::OkrUserIdType,
-    pub user_id: String,
-    pub page_size: Option<u32>,
-    pub page_token: Option<String>,
-    pub lang: Option<String>,
-}
 
 #[derive(Debug, Clone)]
 pub struct FeishuOkrReadClient<H> {
@@ -122,6 +115,18 @@ where
             .map_err(FeishuOkrReadError::from)?;
         map_status_or_parse_objective_key_results_list(raw.status, &raw.body)
     }
+
+    pub fn list_progress(
+        &mut self,
+        request: FeishuOkrProgressListRequest,
+    ) -> Result<FeishuOkrProgressListResponse, FeishuOkrReadError> {
+        validate_progress_list_request(&request)?;
+        let raw = self
+            .http_client
+            .send_json(build_progress_list_request(&self.config, request))
+            .map_err(FeishuOkrReadError::from)?;
+        map_status_or_parse_progress_list(raw.status, &raw.body)
+    }
 }
 
 #[async_trait]
@@ -145,6 +150,11 @@ pub trait AsyncFeishuOkrRead {
         &mut self,
         request: FeishuOkrObjectiveKeyResultsListRequest,
     ) -> Result<FeishuOkrObjectiveKeyResultsListResponse, FeishuOkrReadError>;
+
+    async fn list_progress(
+        &mut self,
+        request: FeishuOkrProgressListRequest,
+    ) -> Result<FeishuOkrProgressListResponse, FeishuOkrReadError>;
 }
 
 #[async_trait]
@@ -222,6 +232,19 @@ where
             .await
             .map_err(FeishuOkrReadError::from)?;
         map_status_or_parse_objective_key_results_list(raw.status, &raw.body)
+    }
+
+    async fn list_progress(
+        &mut self,
+        request: FeishuOkrProgressListRequest,
+    ) -> Result<FeishuOkrProgressListResponse, FeishuOkrReadError> {
+        validate_progress_list_request(&request)?;
+        let raw = self
+            .http_client
+            .send_json(build_progress_list_request(&self.config, request))
+            .await
+            .map_err(FeishuOkrReadError::from)?;
+        map_status_or_parse_progress_list(raw.status, &raw.body)
     }
 }
 
@@ -319,46 +342,35 @@ pub fn build_list_objective_key_results_request(
 
 pub fn build_progress_list_request(
     config: &FeishuOpenApiConfig,
-    user_access_token: crate::redaction::SecretString,
-    request: OkrProgressListRequest,
+    request: FeishuOkrProgressListRequest,
 ) -> HttpRequest {
+    let path = match &request.target {
+        FeishuOkrProgressListTarget::Objective(objective_id) => format!(
+            "{}/{}/progresses",
+            OKR_OBJECTIVES_PATH,
+            percent_encode(objective_id)
+        ),
+        FeishuOkrProgressListTarget::KeyResult(key_result_id) => format!(
+            "{}/{}/progresses",
+            OKR_KEY_RESULTS_PATH,
+            percent_encode(key_result_id)
+        ),
+    };
     let mut query = vec![
         ("user_id_type", request.user_id_type.as_str().to_string()),
-        ("user_id", request.user_id),
+        (
+            "department_id_type",
+            request.department_id_type.as_str().to_string(),
+        ),
+        (
+            "page_size",
+            request.page_size.unwrap_or(DEFAULT_PAGE_SIZE).to_string(),
+        ),
     ];
-    if let Some(page_size) = request.page_size {
-        query.push(("page_size", page_size.to_string()));
-    }
     if let Some(page_token) = request.page_token {
         query.push(("page_token", page_token));
     }
-    if let Some(lang) = request.lang {
-        query.push(("lang", lang));
-    }
-
-    // TODO: Confirm final query/body schema in official API Explorer before enabling this in
-    // production read path; the transport boundary and parser are prepared for staged rollout.
-    let url = format!(
-        "{}{}?{}",
-        config.base_url.trim_end_matches('/'),
-        OKR_PROGRESS_RECORDS_PATH,
-        encode_query(&query)
-    );
-
-    HttpRequest {
-        method: "GET".to_string(),
-        url,
-        headers: vec![
-            (
-                "Authorization".to_string(),
-                format!("Bearer {}", user_access_token.expose_secret()),
-            ),
-            ("Accept".to_string(), "application/json".to_string()),
-            ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
-        ],
-        body: Value::Object(serde_json::Map::new()),
-        max_response_bytes: config.max_response_bytes,
-    }
+    build_get_request(config, path, query, request.user_access_token)
 }
 
 fn build_get_request(
@@ -441,6 +453,13 @@ fn map_status_or_parse_objective_key_results_list(
     map_status_or_parse_okr_response(status, body)
 }
 
+fn map_status_or_parse_progress_list(
+    status: u16,
+    body: &str,
+) -> Result<FeishuOkrProgressListResponse, FeishuOkrReadError> {
+    map_status_or_parse_okr_response(status, body)
+}
+
 fn map_status_or_parse_okr_response<T>(status: u16, body: &str) -> Result<T, FeishuOkrReadError>
 where
     T: DeserializeOwned + OkrApiEnvelope,
@@ -489,10 +508,16 @@ impl OkrApiEnvelope for FeishuOkrObjectiveKeyResultsListResponse {
     }
 }
 
+impl OkrApiEnvelope for FeishuOkrProgressListResponse {
+    fn code(&self) -> i64 {
+        self.code
+    }
+}
+
 fn map_api_code(code: i64) -> FeishuOkrReadError {
     match code {
         401 | 99991663 | 99991664 => FeishuOkrReadError::Unauthorized,
-        403 => FeishuOkrReadError::Forbidden,
+        403 | 1001002 => FeishuOkrReadError::Forbidden,
         400..=499 => FeishuOkrReadError::UpstreamClient,
         _ => FeishuOkrReadError::ApiFailure,
     }
@@ -514,6 +539,18 @@ fn validate_page_request(
     Ok(())
 }
 
+fn validate_progress_list_request(
+    request: &FeishuOkrProgressListRequest,
+) -> Result<(), FeishuOkrReadError> {
+    validate_path_id(request.target.id())?;
+    let page_size = request.page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+    if page_size == 0 || page_size > MAX_PAGE_SIZE {
+        return Err(FeishuOkrReadError::InvalidRequest);
+    }
+    validate_non_empty_optional_len(request.page_token.as_deref(), MAX_PAGE_TOKEN_BYTES)?;
+    Ok(())
+}
+
 fn validate_path_id(value: &str) -> Result<(), FeishuOkrReadError> {
     if value.trim().is_empty() || value.len() > MAX_PATH_ID_BYTES {
         return Err(FeishuOkrReadError::InvalidRequest);
@@ -523,6 +560,19 @@ fn validate_path_id(value: &str) -> Result<(), FeishuOkrReadError> {
 
 fn validate_optional_len(value: Option<&str>, max_len: usize) -> Result<(), FeishuOkrReadError> {
     if value.map(|value| value.len() > max_len).unwrap_or(false) {
+        return Err(FeishuOkrReadError::InvalidRequest);
+    }
+    Ok(())
+}
+
+fn validate_non_empty_optional_len(
+    value: Option<&str>,
+    max_len: usize,
+) -> Result<(), FeishuOkrReadError> {
+    if value
+        .map(|value| value.trim().is_empty() || value.len() > max_len)
+        .unwrap_or(false)
+    {
         return Err(FeishuOkrReadError::InvalidRequest);
     }
     Ok(())
