@@ -80,9 +80,9 @@ struct AgentSidecarView: View {
         }
         .background(.thinMaterial)
         .background(Color.white.opacity(0.16))
-        .onAppear(perform: syncConversation)
+        .onAppear(perform: syncFocus)
         .onChange(of: item?.id) { _, _ in
-            syncConversation()
+            syncFocus()
         }
         .sheet(isPresented: $showsSettings) {
             AgentSettingsSheet(model: settingsModel)
@@ -141,9 +141,8 @@ struct AgentSidecarView: View {
         }
     }
 
-    private func syncConversation() {
-        model.activateConversation(itemID: item?.id)
-        draft = ""
+    private func syncFocus() {
+        model.activateFocus(itemID: item?.id)
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
@@ -163,13 +162,13 @@ private struct AgentContextCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("当前上下文")
+            Text("工作区信号")
                 .font(.codexBody(11, weight: .semibold))
                 .foregroundStyle(Color.codexMuted)
-            Text(item?.keyResultTitle ?? "未选择风险")
+            Text(item?.keyResultTitle ?? "未选择焦点")
                 .font(.codexBody(13, weight: .semibold))
                 .lineLimit(2)
-            Text(action?.actionType.rawValue ?? "等待建议动作")
+            Text(action.map { "当前焦点动作：\($0.actionType.rawValue)" } ?? "当前焦点：工作区总览")
                 .font(.codexBody(12, weight: .medium))
                 .foregroundStyle(Color.codexMuted)
         }
@@ -233,9 +232,10 @@ private struct AgentShortcutStrip: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            shortcut("解释风险")
-            shortcut("生成确认理由")
-            shortcut("检查证据缺口")
+            shortcut("规划下一步")
+            shortcut("扫描风险")
+            shortcut("起草动作")
+            shortcut("检查证据")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -267,7 +267,7 @@ private struct ChatInputBar: View {
                     .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 64)
 
                 if draft.isEmpty {
-                    Text("问证据、理由或风险")
+                    Text("问计划、风险、证据或动作")
                         .font(.codexBody(13))
                         .foregroundStyle(Color.codexMuted.opacity(0.72))
                         .padding(.top, 7)

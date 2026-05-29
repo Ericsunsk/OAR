@@ -20,8 +20,11 @@ ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent
 | `action_type` | OAR 执行策略和审计中的稳定动作键，例如 `okr.progress.update`；它不是飞书 scope |
 | Feishu scope | 飞书开放平台应用权限，例如 `okr:okr.progress:writeonly` |
 | OAR `required_scope` | OAR 内部策略键，可映射到一个或多个飞书 scope；当前测试中已有 `okr.progress.write` |
+| Capability execution mode | core 能力矩阵中的执行姿态：`AutoRead` 可自动读取，`DraftOnly` 只生成建议/草稿，`ConfirmedWrite` 才能进入生产写执行 allowlist |
 
 飞书 scope 是必要条件，不是充分条件。一次写回必须同时满足：飞书应用已开通 scope、用户或应用授权里有该 scope、用户对目标资源有实际权限、OAR policy allowlist 允许该 `action_type`、目标对象和 payload 通过 dry-run，并且用户完成确认。
+
+`ExecutionPolicy::from_capabilities(...)` 只把 `CapabilityExecutionMode = ConfirmedWrite` 且 `effect = Write` 的能力纳入外部写执行 allowlist。拥有 task、message、calendar 等写 scope 只代表可申请或可生成草稿，不代表可以直接生产写入。
 
 ## 2. 风险等级
 
@@ -35,6 +38,14 @@ ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent
 
 ## 3. 能力到权限矩阵
 
+Core 能力矩阵的执行姿态合同：
+
+| Execution mode | 用途 | 是否进入 `ExecutionPolicy` 写执行 allowlist |
+| --- | --- | --- |
+| `AutoRead` | 授权范围内的读取、同步、查询和安全摘要生成 | 否 |
+| `DraftOnly` | 需要外部写 scope 才能最终落地的建议动作，但当前只生成草稿或待评审项 | 否 |
+| `ConfirmedWrite` | 已完成 adapter、dry-run、人工确认、ledger 幂等和 audit 合同的单对象写入 | 是 |
+
 | Agent capability | PlatformAdapter / operation | `ProposedActionKind` / `action_type` | Feishu scope 或权限要求 | 风险 | dry-run | 人工确认 | audit 要求 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 飞书 OAuth 登录与用户绑定 | `AuthAdapter.exchange_code` | 无业务 `ProposedAction`；auth audit 使用 `token_grant.*` / `token_refresh.*` | `offline_access` 用于 refresh token；如读取稳定 user id，可申请 `auth:user.id:read` | R1 | 不适用 | 用户在飞书 OAuth 同意页授权 | 记录 grant 生命周期、scope 摘要、actor、tenant，不记录 token/code |
@@ -42,14 +53,18 @@ ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent
 | 读取 OKR 周期 | `OkrAdapter.list_okr_cycles` | 无写入 `action_type` | 最小 scope：`okr:okr.period:readonly`；粗粒度兼容：`okr:okr:readonly` | R0 | 不适用 | 不需要 | 记录同步 job、目标租户、scope 摘要、游标和 safe error |
 | 读取 Objective / KR 内容 | `OkrAdapter.get_okr_cycle_detail` / `batch_get_okrs` | 无写入 `action_type` | 最小 scope：`okr:okr.content:readonly`；粗粒度兼容：`okr:okr:readonly` | R0 | 不适用 | 不需要 | 只保存摘要、引用、hash 和可见范围；不默认保存完整正文 |
 | 读取 OKR progress | `OkrAdapter.list_progress` | 无写入 `action_type` | `okr:okr.progress:readonly` | R0 | 不适用 | 不需要 | 记录来源引用、progress 摘要、content hash 和 parser 版本 |
+| 读取 OKR review | 未来 `OkrAdapter.list_reviews` | `action_type = okr.review.read`；`AutoRead` | `okr:okr.review:readonly` | R0 | 不适用 | 不需要 | 记录 review 引用、可见范围、摘要 hash 和 parser 版本 |
+| 读取 OKR setting | 未来 `OkrAdapter.get_settings` | `action_type = okr.setting.read`；`AutoRead` | `okr:okr.setting:read` | R0 | 不适用 | 不需要 | 记录设置来源、租户范围、字段摘要和同步版本 |
+| 查询 calendar free-busy | 未来 `CalendarAdapter.get_free_busy` | `action_type = calendar.free_busy.read`；`AutoRead` | 首选 `calendar:calendar.free_busy:read`；若官方或租户返回 `calendar:calendar:readonly` 兼容能力，需用 fixture 记录后映射 | R0 | 不适用 | 不需要 | 记录查询时间窗、参与者安全摘要、来源 scope 和 safe error |
+| 读取 task | 未来 `TaskAdapter.list_tasks` | `action_type = task.read`；`AutoRead` | `task:task:read` | R0 | 不适用 | 不需要 | 记录 task 引用、状态摘要、可见范围和同步游标 |
 | 风险检测、周报、证据摘要 | `EvidenceAdapter` / risk engine | 无平台写入；内部可生成 `risk_detected` / `brief_generated` 审计事件 | 继承证据源读取 scope；不得扩大授权 | R1 | 不适用 | 不需要 | 记录输入 evidence refs、模型/规则版本、可见范围；不把模型输出当作证据本身 |
 | 起草 KR progress 创建 | `OkrAdapter.dry_run_create_progress` | `create_kr_progress` / 目标 `action_type = okr.progress.create`；生产策略可先复用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；展示目标 KR、payload 摘要、before/after 和影响范围 | 必须确认或编辑后确认 | 成功、失败、拒绝、stale dry-run 都写 `AuditEvent`；审计只存安全摘要 |
 | 起草 KR progress 更新 | `OkrAdapter.dry_run_update_progress` | `update_kr_progress` / `action_type = okr.progress.update`；当前 policy 测试使用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；执行前重新读取 live target 并校验 dry-run 指纹 | 必须确认或编辑后确认 | 记录 actor、scope、target、evidence、before/after 摘要、adapter operation id、结果 |
 | progress 删除预览 | `OkrAdapter.dry_run_delete_progress` | `delete_kr_progress_dry_run` / 禁用 `action_type = okr.progress.delete` | 删除 scope：`okr:okr.progress:delete`；MVP 不申请或不启用执行 | R4 | 只允许 dry-run | 不进入真实执行 | 记录 dry-run 或 denied audit；禁止真实删除 |
 | 修改 OKR 内容、owner、权重、周期、目标正文 | 未开放；未来只能走 `OkrAdapter` | 未来可能是 `okr.content.*` / `okr.period.*`；MVP 禁止 | 相关 scope 包括 `okr:okr.content:writeonly`、`okr:okr.period:writeonly` 或粗粒度 `okr:okr` | R4 | 不开放 | 不开放 | 若被请求，记录 denied audit 和原因 |
 | 写 OKR/文档评论 | 未来 `ActionAdapter` / `CommentAdapter` | 未来 `comment.create`；MVP 仅草稿 | 文档评论可用 `docs:document.comment:create` 或 `docs:document.comment:write_only`；OKR 原生评论能力启用前需 API Explorer 复核 | R3 | 启用前必须展示接收位置、正文摘要和可见范围 | 必须 | 记录 comment target、正文 hash、引用证据和外部结果；不存完整敏感正文 |
-| 提醒 owner / 发送飞书卡片 | 未来 `MessageAdapter.send` | 未来 `notification.send` / `im.message.send`；MVP 仅草稿或后端系统状态通知 | bot 发送可用 `im:message:send_as_bot`；用户身份发送/代发在启用前需 API Explorer/官方文档复核，不进入当前 allowlist | R3 | 必须展示收件人、渠道、消息摘要、频控结果 | 必须，系统状态通知需单独 allowlist | 记录收件人类型、数量、消息 hash、发送结果；禁止群发原始风险结论 |
-| 创建任务 | 未来 `TaskAdapter.create_task` | 未来 `task.create`；MVP 仅草稿 | 最小创建/更新 scope：`task:task:writeonly`；完整任务管理 scope：`task:task:write` | R3 | 必须展示 owner、标题、截止时间、来源证据 | 必须 | 记录 task target、assignee 摘要、payload hash、结果 |
+| 提醒 owner / 发送飞书卡片 | 未来 `MessageAdapter.send` | `action_type = im.message.send`；core 当前为 `DraftOnly`，只生成消息草稿或待评审项 | bot 发送可申请 `im:message:send_as_bot`；用户身份发送/代发在启用前需 API Explorer/官方文档复核，不进入当前 allowlist | R3 | 生产启用前必须展示收件人、渠道、消息摘要、频控结果 | 生产启用前必须；系统状态通知需单独 allowlist | 草稿记录收件人类型、数量、消息 hash；生产启用后记录发送结果；禁止群发原始风险结论 |
+| 创建任务 | 未来 `TaskAdapter.create_task` | `action_type = task.create`；core 当前为 `DraftOnly`，只生成任务草稿或待评审项 | 最小创建 scope：`task:task:writeonly`；完整任务管理 scope：`task:task:write` 不能因未来可能使用而提前进入 allowlist | R3 | 生产启用前必须展示 owner、标题、截止时间、来源证据 | 生产启用前必须 | 草稿记录 task target、assignee 摘要、payload hash；生产启用后记录外部结果 |
 | 创建会议草稿 / 日程 | 未来 `CalendarAdapter.create_event` | 未来 `calendar.event.create`；MVP 仅草稿 | 创建日程需要日历写权限；官方权限键示例包括 `calendar:calendar`，读取忙闲为 `calendar:calendar:readonly` | R3 | 必须展示参会人、时间、日历、会议室、通知设置 | 必须 | 记录 event target、attendee 摘要、idempotency key、结果；避免默认发送通知 |
 | 外部 A2A 提交建议 | A2A gateway -> OAR proposal service | 只能生成 `ProposedAction`，不能生成 `ConfirmedAction` | 不直接持有飞书 scope 或 token | R1-R3 | 平台写入前仍由 OAR adapter dry-run | 必须由 OAR 用户确认 | 记录外部 agent id、建议摘要、证据引用、后续用户决策 |
 
@@ -70,8 +85,10 @@ ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent
 ## 5. Scope 与 allowlist 管理
 
 - 默认只申请和启用 P0 所需 scope：`offline_access`、OKR 读取 scope、progress 读取 scope、progress 写入 scope。
+- 下一批可申请/开放的 scope 仅作为 `AutoRead` 或 `DraftOnly` 合同进入 core 矩阵：`okr:okr.review:readonly`、`okr:okr.setting:read`、`calendar:calendar.free_busy:read`、`task:task:read`、`task:task:writeonly`、`im:message:send_as_bot`。其中 `task.create` 和 `im.message.send` 不进入生产执行 allowlist。
 - `okr:okr.content:writeonly`、`okr:okr.period:writeonly`、`okr:okr`、`task:task:write`、`calendar:calendar`、`im:message` 等高权限或粗粒度 scope 不应因为“未来可能用到”提前进入生产 allowlist。
 - OAR 内部 `required_scope` 必须有明确映射表。例如 `okr.progress.write` 映射到飞书 `okr:okr.progress:writeonly`，不能模糊映射到 `okr:okr`。
+- 外部写执行 allowlist 只接受 `ConfirmedWrite` 能力。新增 scope、读能力或草稿能力时，必须显式确认 execution mode，避免 write scope 自动变成生产写权限。
 - 新增 scope 前必须记录：目标 API、最小权限、actor kind、数据范围、风险等级、dry-run 展示内容、审计字段和回归 fixture。
 - 如果飞书官方 scope 名称或 API 行为变化，先更新 fixture 和本文档，再开放生产执行。
 
@@ -96,7 +113,9 @@ ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent
 当前 MVP 只允许：
 
 - 自动读取授权范围内的 OKR 周期、Objective、KR 和 progress。
+- 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy 和 task 摘要列为 `AutoRead`；adapter 实现另行接入，且这些读能力不进入写执行 allowlist。
 - 自动生成风险、证据摘要、周报和建议动作。
+- 将 task 创建和 bot 消息发送登记为 `DraftOnly`；当前只允许生成草稿或待评审项合同，不进入生产写执行 allowlist。
 - 对 KR progress 创建 / 更新进入受控写回验证路径。
 - 对 progress 删除生成 dry-run 或 denied audit，但不执行。
 

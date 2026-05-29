@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use oar_core::action::capability::all_capabilities;
+use oar_core::action::capability::{all_capabilities, CapabilityExecutionMode};
 use oar_core::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use oar_core::action::execution_policy::{ActionActorBinding, ExecutionDenied, ExecutionPolicy};
 use oar_core::domain::identity::{
@@ -87,23 +87,63 @@ fn allows_progress_create_from_capability_matrix_write_allowlist() {
 #[test]
 fn read_capabilities_are_not_added_to_write_execution_allowlist() {
     let action = confirmed_action();
-    let grant = token_grant(&["okr.progress.read"], TokenGrantState::Valid);
-
     let binding = actor_binding("user-1", "identity-1");
-    let result = policy().evaluate(
-        &action,
-        "okr.progress.read",
-        "okr.progress.read",
-        &grant,
-        &binding,
-    );
+    let policy = policy();
 
-    assert_eq!(
-        result,
-        Err(ExecutionDenied::ActionNotAllowlisted {
-            action_type: "okr.progress.read".to_string()
-        })
-    );
+    for capability in all_capabilities()
+        .iter()
+        .filter(|capability| capability.execution_mode == CapabilityExecutionMode::AutoRead)
+    {
+        let grant = token_grant(
+            &[capability.required_scope.as_str()],
+            TokenGrantState::Valid,
+        );
+        let result = policy.evaluate(
+            &action,
+            capability.action_type_str(),
+            capability.required_scope.as_str(),
+            &grant,
+            &binding,
+        );
+
+        assert_eq!(
+            result,
+            Err(ExecutionDenied::ActionNotAllowlisted {
+                action_type: capability.action_type_str().to_string()
+            })
+        );
+    }
+}
+
+#[test]
+fn draft_only_write_capabilities_are_not_added_to_write_execution_allowlist() {
+    let action = confirmed_action();
+    let binding = actor_binding("user-1", "identity-1");
+    let policy = policy();
+
+    for capability in all_capabilities()
+        .iter()
+        .filter(|capability| capability.execution_mode == CapabilityExecutionMode::DraftOnly)
+    {
+        let grant = token_grant(
+            &[capability.required_scope.as_str()],
+            TokenGrantState::Valid,
+        );
+        let result = policy.evaluate(
+            &action,
+            capability.action_type_str(),
+            capability.required_scope.as_str(),
+            &grant,
+            &binding,
+        );
+
+        assert_eq!(
+            result,
+            Err(ExecutionDenied::ActionNotAllowlisted {
+                action_type: capability.action_type_str().to_string()
+            })
+        );
+    }
 }
 
 #[test]

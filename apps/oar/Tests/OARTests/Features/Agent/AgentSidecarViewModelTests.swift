@@ -47,45 +47,45 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertEqual(model.errorMessage, AgentProviderError.missingBackendConfiguration.localizedDescription)
     }
 
-    func testConversationHistoryIsScopedByItemID() async {
+    func testConversationHistoryStaysInWorkspaceThreadWhenFocusChanges() async {
         let provider = ManualStreamingAgentProvider(immediateReply: "收到。")
         let model = AgentSidecarViewModel(provider: provider)
 
-        model.activateConversation(itemID: "review-a")
+        model.activateFocus(itemID: "review-a")
         await model.send("解释 A", context: .empty)
-        let reviewAThread = model.messages
+        let threadAfterReviewA = model.messages
 
-        model.activateConversation(itemID: "review-b")
-        XCTAssertEqual(model.messages.count, 1)
+        model.activateFocus(itemID: "review-b")
+        XCTAssertEqual(model.activeFocusItemID, "review-b")
+        XCTAssertEqual(model.messages, threadAfterReviewA)
 
         await model.send("解释 B", context: .empty)
-        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释 B", "收到。"])
+        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释 A", "收到。", "解释 B", "收到。"])
 
-        model.activateConversation(itemID: "review-a")
-        XCTAssertEqual(model.messages, reviewAThread)
-        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释 A", "收到。"])
+        model.activateFocus(itemID: "review-a")
+        XCTAssertEqual(model.activeFocusItemID, "review-a")
+        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释 A", "收到。", "解释 B", "收到。"])
     }
 
-    func testLateReplyDoesNotPolluteActiveConversation() async {
+    func testLateReplyContinuesIntoWorkspaceThreadAfterFocusChanges() async {
         let provider = ManualStreamingAgentProvider()
         let model = AgentSidecarViewModel(provider: provider)
 
-        model.activateConversation(itemID: "review-a")
+        model.activateFocus(itemID: "review-a")
         let sendTask = Task {
             await model.send("解释 A", context: .empty)
         }
         await provider.waitForStream()
         XCTAssertTrue(model.isSending)
 
-        model.activateConversation(itemID: "review-b")
-        XCTAssertFalse(model.isSending)
-        XCTAssertEqual(model.messages.count, 1)
+        model.activateFocus(itemID: "review-b")
+        XCTAssertEqual(model.activeFocusItemID, "review-b")
+        XCTAssertTrue(model.isSending)
+        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释 A"])
 
         provider.finish(with: "A 的回复")
         await sendTask.value
 
-        XCTAssertEqual(model.messages.count, 1)
-        model.activateConversation(itemID: "review-a")
         XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释 A", "A 的回复"])
         XCTAssertFalse(model.isSending)
     }

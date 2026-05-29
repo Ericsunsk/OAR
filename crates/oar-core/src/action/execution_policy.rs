@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::action::capability::{CapabilityEffect, CapabilitySpec};
+use crate::action::capability::CapabilitySpec;
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::domain::identity::{ActorKind, LarkIdentityId, TokenGrant, TokenGrantState};
 
@@ -32,7 +32,7 @@ impl ExecutionPolicy {
         Self::new(
             capabilities
                 .into_iter()
-                .filter(|capability| capability.effect == CapabilityEffect::Write)
+                .filter(|capability| capability.enters_execution_allowlist())
                 .map(|capability| capability.action_type_str()),
             allowed_actor_kinds,
         )

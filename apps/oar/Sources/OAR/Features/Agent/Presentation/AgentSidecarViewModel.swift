@@ -3,14 +3,13 @@ import Foundation
 @Observable
 @MainActor
 final class AgentSidecarViewModel {
-    private static let fallbackConversationID = "__oar_agent_default__"
     private static let streamFlushInterval: TimeInterval = 0.045
 
     private static func initialMessages() -> [AgentMessage] {
         [
             AgentMessage(
                 role: .assistant,
-                text: "我只基于当前风险、摘要证据和 dry-run 结果回答。确认前不会写回飞书。"
+                text: "我是工作区级 OAR Agent。可以结合这条线程、当前焦点和后端提供的证据摘要来规划下一步；确认前不会写回飞书。"
             )
         ]
     }
@@ -18,12 +17,9 @@ final class AgentSidecarViewModel {
     var messages: [AgentMessage] = AgentSidecarViewModel.initialMessages()
     var isSending = false
     var errorMessage: String?
+    private(set) var activeFocusItemID: String?
 
     private let provider: AgentProviding
-    private var activeConversationID = AgentSidecarViewModel.fallbackConversationID
-    private var conversationsByID: [String: [AgentMessage]] = [:]
-    private var errorsByID: [String: String] = [:]
-    private var sendingConversationIDs: Set<String> = []
 
     init(
         provider: AgentProviding
@@ -35,41 +31,23 @@ final class AgentSidecarViewModel {
         provider.isAvailable
     }
 
-    func activateConversation(itemID: String?) {
-        let conversationID = conversationID(for: itemID)
-        guard activeConversationID != conversationID else { return }
-
-        conversationsByID[activeConversationID] = messages
-        activeConversationID = conversationID
-        messages = conversationsByID[conversationID] ?? Self.initialMessages()
-        errorMessage = errorsByID[conversationID]
-        isSending = sendingConversationIDs.contains(conversationID)
+    func activateFocus(itemID: String?) {
+        activeFocusItemID = normalizedFocusID(for: itemID)
     }
 
     func send(_ text: String, context: AgentConversationContext) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        guard !isSending else { return }
 
-        let conversationID = activeConversationID
-        guard !sendingConversationIDs.contains(conversationID) else { return }
-
-        var thread = conversationsByID[conversationID] ?? messages
+        var thread = messages
         thread.append(AgentMessage(role: .user, text: trimmed))
-        conversationsByID[conversationID] = thread
-
-        if activeConversationID == conversationID {
-            messages = thread
-            errorMessage = nil
-            isSending = true
-        }
-        errorsByID[conversationID] = nil
-        sendingConversationIDs.insert(conversationID)
+        messages = thread
+        errorMessage = nil
+        isSending = true
 
         defer {
-            sendingConversationIDs.remove(conversationID)
-            if activeConversationID == conversationID {
-                isSending = false
-            }
+            isSending = false
         }
 
         let assistantID = UUID()
@@ -89,7 +67,6 @@ final class AgentSidecarViewModel {
                 flushAssistantReply(
                     id: assistantID,
                     text: displayText,
-                    conversationID: conversationID,
                     thread: &thread,
                     didStart: &didStartAssistantReply
                 )
@@ -103,23 +80,19 @@ final class AgentSidecarViewModel {
                 flushAssistantReply(
                     id: assistantID,
                     text: assistantText,
-                    conversationID: conversationID,
                     thread: &thread,
                     didStart: &didStartAssistantReply
                 )
             }
             let message = (error as? LocalizedError)?.errorDescription ?? "Agent 暂时不可用。"
-            errorsByID[conversationID] = message
-            if activeConversationID == conversationID {
-                errorMessage = message
-            }
+            errorMessage = message
         }
     }
 
-    private func conversationID(for itemID: String?) -> String {
+    private func normalizedFocusID(for itemID: String?) -> String? {
         guard let trimmed = itemID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
-            return Self.fallbackConversationID
+            return nil
         }
         return trimmed
     }
@@ -127,7 +100,6 @@ final class AgentSidecarViewModel {
     private func flushAssistantReply(
         id: UUID,
         text: String,
-        conversationID: String,
         thread: inout [AgentMessage],
         didStart: inout Bool
     ) {
@@ -141,10 +113,7 @@ final class AgentSidecarViewModel {
             thread.append(AgentMessage(id: id, role: .assistant, text: text))
             didStart = true
         }
-        conversationsByID[conversationID] = thread
-        if activeConversationID == conversationID {
-            messages = thread
-        }
+        messages = thread
     }
 
     private func updateAssistantReply(id: UUID, text: String, in thread: inout [AgentMessage]) {

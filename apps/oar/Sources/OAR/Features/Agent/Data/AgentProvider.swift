@@ -134,12 +134,12 @@ struct MockAgentProvider: AgentProviding {
     ) -> AsyncThrowingStream<AgentStreamEvent, Error> {
         let latest = messages.last?.text ?? ""
         let reply: String
-        if latest.contains("理由") || latest.contains("备注") {
-            reply = "可以写：已核对当前摘要证据和 dry-run 影响范围，同意先执行“\(context.actionSummary)”。"
+        if latest.contains("理由") || latest.contains("备注") || latest.contains("起草") || latest.contains("动作") {
+            reply = "可以先起草：基于当前焦点、摘要证据和 dry-run 影响范围，建议推进“\(context.actionSummary)”。执行前仍需在 OAR 中确认。"
         } else if latest.contains("证据") {
-            reply = "当前证据可以解释风险，但建议补充负责人最新口径。风险点是：\(context.riskReason)"
+            reply = "我会先把证据分成已支持和待补充两类。当前可见风险信号是：\(context.riskReason)；如果要下结论，建议补充负责人最新口径。"
         } else {
-            reply = "建议先围绕“\(context.actionSummary)”确认影响范围，并保留人工确认。"
+            reply = "建议先扫描高风险项，再围绕“\(context.actionSummary)”确认影响范围、证据缺口和人工确认路径。"
         }
 
         return AsyncThrowingStream { continuation in
