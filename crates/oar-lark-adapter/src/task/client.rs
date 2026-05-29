@@ -4,6 +4,7 @@ use serde_json::Value;
 use crate::config::FeishuOpenApiConfig;
 use crate::oauth::{AsyncHttpClient, HttpClient, HttpRequest};
 use crate::redaction::SecretString;
+use crate::url_encoding::{encode_query, percent_encode};
 
 use super::error::FeishuTaskReadError;
 use super::types::{
@@ -127,7 +128,7 @@ pub fn build_get_task_request(
     request: FeishuTaskGetRequest,
     source_ref: &TaskSourceRef,
 ) -> HttpRequest {
-    let query_string = encode_query(&[("user_id_type", request.user_id_type.as_str().to_string())]);
+    let query_string = encode_query([("user_id_type", request.user_id_type.as_str())]);
     // Feishu Task v2 task detail endpoint; read access is gated by task:task:read.
     let url = format!(
         "{}/{}/{}?{}",
@@ -164,7 +165,7 @@ pub fn build_list_tasks_request(
     if let Some(completed) = request.completed {
         query_parts.push(("completed", completed.to_string()));
     }
-    let query_string = encode_query(&query_parts);
+    let query_string = encode_query(query_parts);
     // Feishu Task v2 list endpoint currently supports the current user's "my_tasks" list.
     let url = format!(
         "{}/{}?{}",
@@ -254,25 +255,4 @@ fn map_api_code(code: i64) -> FeishuTaskReadError {
         400..=499 => FeishuTaskReadError::UpstreamClient,
         _ => FeishuTaskReadError::ApiFailure,
     }
-}
-
-fn encode_query(parts: &[(&str, String)]) -> String {
-    parts
-        .iter()
-        .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-fn percent_encode(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for byte in input.as_bytes() {
-        if byte.is_ascii_alphanumeric() || [b'-', b'_', b'.', b'~'].contains(byte) {
-            out.push(*byte as char);
-        } else {
-            out.push('%');
-            out.push_str(&format!("{:02X}", byte));
-        }
-    }
-    out
 }

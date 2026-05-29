@@ -15,6 +15,7 @@ pub mod okr;
 pub mod postgres;
 pub mod redaction;
 pub mod task;
+mod url_encoding;
 
 #[cfg(feature = "postgres")]
 pub use audit_outbox::{

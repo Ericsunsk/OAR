@@ -365,10 +365,16 @@ fn batch_get_request_uses_get_and_query_parameters() {
         .as_ref()
         .expect("captured request");
     assert_eq!(sent.method, "GET");
-    assert!(sent.url.contains("user_id_type=open_id"));
-    assert!(sent.url.contains("okr_ids=okr_1"));
-    assert!(sent.url.contains("okr_ids=okr_2"));
-    assert!(sent.url.contains("lang=zh_cn"));
+    assert_eq!(
+        sent.url,
+        concat!(
+            "https://open.feishu.cn/open-apis/okr/v1/okrs/batch_get?",
+            "user_id_type=open_id",
+            "&okr_ids=okr_1",
+            "&okr_ids=okr_2",
+            "&lang=zh_cn"
+        )
+    );
     assert_eq!(sent.body, json!({}));
     let debug = format!("{sent:?}");
     assert!(!debug.contains("u-very-secret-token"));

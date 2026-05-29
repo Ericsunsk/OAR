@@ -6,6 +6,7 @@ use serde_json::{json, Map};
 
 use crate::config::FeishuOpenApiConfig;
 use crate::redaction::SecretString;
+use crate::url_encoding::encode_query;
 
 use super::http::{AsyncHttpClient, HttpClient, HttpRequest, HttpResponse};
 
@@ -114,11 +115,7 @@ impl FeishuOAuthLoginConfig {
         if let Some(scope) = &self.scope {
             pairs.push(("scope", scope.as_str()));
         }
-        let query = pairs
-            .into_iter()
-            .map(|(key, value)| format!("{}={}", key, percent_encode(value)))
-            .collect::<Vec<_>>()
-            .join("&");
+        let query = encode_query(pairs);
         format!(
             "{}{}?{}",
             self.authorize_base_url.trim_end_matches('/'),
@@ -491,18 +488,6 @@ fn required_string(
     Ok(trimmed.to_string())
 }
 
-fn percent_encode(value: &str) -> String {
-    let mut output = String::new();
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            output.push(char::from(byte));
-        } else {
-            output.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    output
-}
-
 #[derive(Deserialize)]
 struct FeishuTokenResponse {
     code: Option<i64>,
@@ -572,14 +557,17 @@ mod tests {
     fn authorization_url_uses_latest_authorize_endpoint_and_encodes_query() {
         let url = config().authorization_url("state with space");
 
-        assert!(url.starts_with("https://open.feishu.cn/open-apis/authen/v1/authorize?"));
-        assert!(url.contains("client_id=cli_test"));
-        assert!(url.contains("response_type=code"));
-        assert!(url.contains("state=state%20with%20space"));
-        assert!(
-            url.contains("redirect_uri=https%3A%2F%2Foar.example.test%2Fauth%2Ffeishu%2Fcallback")
+        assert_eq!(
+            url,
+            concat!(
+                "https://open.feishu.cn/open-apis/authen/v1/authorize?",
+                "client_id=cli_test",
+                "&response_type=code",
+                "&redirect_uri=https%3A%2F%2Foar.example.test%2Fauth%2Ffeishu%2Fcallback",
+                "&state=state%20with%20space",
+                "&scope=auth%3Auser.id%3Aread%20offline_access"
+            )
         );
-        assert!(url.contains("scope=auth%3Auser.id%3Aread%20offline_access"));
     }
 
     #[test]

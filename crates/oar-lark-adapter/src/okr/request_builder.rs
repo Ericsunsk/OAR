@@ -2,6 +2,7 @@ use serde_json::Value;
 
 use crate::config::FeishuOpenApiConfig;
 use crate::oauth::HttpRequest;
+use crate::url_encoding::{encode_query, percent_encode};
 
 use super::types::{
     FeishuOkrBatchGetRequest, FeishuOkrCycleListRequest, FeishuOkrCycleObjectivesListRequest,
@@ -124,7 +125,7 @@ fn build_get_request(
     query: Vec<(&str, String)>,
     user_access_token: crate::redaction::SecretString,
 ) -> HttpRequest {
-    let query_string = encode_query(&query);
+    let query_string = encode_query(query);
     let url = if query_string.is_empty() {
         format!("{}{}", config.base_url.trim_end_matches('/'), path)
     } else {
@@ -168,25 +169,4 @@ fn build_page_query(
         query.push(("lang", lang));
     }
     query
-}
-
-fn encode_query(parts: &[(&str, String)]) -> String {
-    parts
-        .iter()
-        .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-fn percent_encode(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for byte in input.as_bytes() {
-        if byte.is_ascii_alphanumeric() || [b'-', b'_', b'.', b'~'].contains(byte) {
-            out.push(*byte as char);
-        } else {
-            out.push('%');
-            out.push_str(&format!("{:02X}", byte));
-        }
-    }
-    out
 }
