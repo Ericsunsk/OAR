@@ -1,10 +1,15 @@
+import CryptoKit
 import Foundation
 
 @Observable
 @MainActor
 final class AgentSettingsViewModel {
-    var baseURL = ""
-    var apiKey = ""
+    var baseURL = "" {
+        didSet { invalidateDetectedCatalogIfInputChanged() }
+    }
+    var apiKey = "" {
+        didSet { invalidateDetectedCatalogIfInputChanged() }
+    }
     var selectedModelID = ""
     var detectedProtocol: String?
     var models: [AgentModelCandidate] = []
@@ -19,6 +24,8 @@ final class AgentSettingsViewModel {
 
     private let provider: AgentSettingsProviding
     private var savedUserBaseURL: String?
+    private var lastDetectedInput: DetectionInput?
+    private var isApplyingSnapshot = false
 
     init(provider: AgentSettingsProviding) {
         self.provider = provider
@@ -35,9 +42,10 @@ final class AgentSettingsViewModel {
     var canSave: Bool {
         canConfigure
             && !isSaving
-            && !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !trimmedBaseURL.isEmpty
             && hasUsableAPIKey
-            && !selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && currentDetectionInput == lastDetectedInput
+            && selectedModelIsInDetectedCatalog
             && detectedProtocol != nil
     }
 
@@ -47,11 +55,34 @@ final class AgentSettingsViewModel {
 
     private var hasSavedUserKeyForCurrentBaseURL: Bool {
         guard source == .user, apiKeyStatus == .saved else { return false }
-        return savedUserBaseURL == baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return savedUserBaseURL == trimmedBaseURL
+    }
+
+    private var trimmedBaseURL: String {
+        baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedAPIKey: String {
         apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var currentDetectionInput: DetectionInput? {
+        guard !trimmedBaseURL.isEmpty else { return nil }
+        if !trimmedAPIKey.isEmpty {
+            return DetectionInput(
+                baseURL: trimmedBaseURL,
+                apiKey: .explicit(fingerprint: Self.apiKeyFingerprint(trimmedAPIKey))
+            )
+        }
+        if hasSavedUserKeyForCurrentBaseURL {
+            return DetectionInput(baseURL: trimmedBaseURL, apiKey: .savedUserKey)
+        }
+        return nil
+    }
+
+    private var selectedModelIsInDetectedCatalog: Bool {
+        let selectedModelID = selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return models.contains(where: { $0.id == selectedModelID })
     }
 
     func load() async {
@@ -73,7 +104,9 @@ final class AgentSettingsViewModel {
     }
 
     func detect() async {
-        guard canDetect else { return }
+        guard canDetect, let detectionInput = currentDetectionInput else { return }
+        let requestBaseURL = trimmedBaseURL
+        let requestAPIKey = trimmedAPIKey.nilIfEmpty
         isDetecting = true
         statusMessage = nil
         errorMessage = nil
@@ -81,14 +114,17 @@ final class AgentSettingsViewModel {
 
         do {
             let catalog = try await provider.detectModels(
-                baseURL: baseURL,
-                apiKey: trimmedAPIKey.nilIfEmpty
+                baseURL: requestBaseURL,
+                apiKey: requestAPIKey
             )
+            guard currentDetectionInput == detectionInput else { return }
+            lastDetectedInput = detectionInput
             detectedProtocol = catalog.detectedProtocol
             models = catalog.models
             selectedModelID = catalog.recommendedModel ?? catalog.models.first?.id ?? ""
             statusMessage = "已检测到 \(catalog.models.count) 个模型"
         } catch {
+            lastDetectedInput = nil
             models = []
             selectedModelID = ""
             detectedProtocol = nil
@@ -98,6 +134,9 @@ final class AgentSettingsViewModel {
 
     func save() async {
         guard canSave else { return }
+        let requestBaseURL = trimmedBaseURL
+        let requestAPIKey = trimmedAPIKey.nilIfEmpty
+        let requestModel = selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines)
         isSaving = true
         statusMessage = nil
         errorMessage = nil
@@ -105,12 +144,12 @@ final class AgentSettingsViewModel {
 
         do {
             let snapshot = try await provider.saveSettings(
-                baseURL: baseURL,
-                apiKey: trimmedAPIKey.nilIfEmpty,
-                selectedModel: selectedModelID
+                baseURL: requestBaseURL,
+                apiKey: requestAPIKey,
+                selectedModel: requestModel
             )
             apply(snapshot: snapshot)
-            apiKey = ""
+            clearAPIKeyAfterSaving()
             statusMessage = "已保存"
         } catch {
             errorMessage = localizedMessage(error)
@@ -129,6 +168,7 @@ final class AgentSettingsViewModel {
             apply(snapshot: snapshot)
             apiKey = ""
             models = []
+            lastDetectedInput = nil
             statusMessage = "已清除"
         } catch {
             errorMessage = localizedMessage(error)
@@ -136,10 +176,13 @@ final class AgentSettingsViewModel {
     }
 
     private func apply(snapshot: AgentModelSettingsSnapshot) {
+        isApplyingSnapshot = true
+        defer { isApplyingSnapshot = false }
+
         source = snapshot.source
-        detectedProtocol = snapshot.detectedProtocol
         baseURL = snapshot.baseURL ?? ""
         savedUserBaseURL = snapshot.source == .user ? snapshot.baseURL : nil
+        detectedProtocol = snapshot.detectedProtocol
         selectedModelID = snapshot.selectedModel ?? ""
         apiKeyStatus = snapshot.apiKeyStatus
         canConfigure = snapshot.canConfigure
@@ -153,11 +196,44 @@ final class AgentSettingsViewModel {
                 )
             ]
         }
+        lastDetectedInput = currentDetectionInput
     }
 
     private func localizedMessage(_ error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? "Agent 设置暂时不可用。"
     }
+
+    private func invalidateDetectedCatalogIfInputChanged() {
+        guard !isApplyingSnapshot, lastDetectedInput != nil else { return }
+        guard currentDetectionInput != lastDetectedInput else { return }
+        lastDetectedInput = nil
+        detectedProtocol = nil
+        models = []
+        selectedModelID = ""
+        statusMessage = nil
+    }
+
+    private func clearAPIKeyAfterSaving() {
+        isApplyingSnapshot = true
+        apiKey = ""
+        isApplyingSnapshot = false
+        lastDetectedInput = currentDetectionInput
+    }
+
+    private static func apiKeyFingerprint(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+private struct DetectionInput: Equatable {
+    let baseURL: String
+    let apiKey: DetectionAPIKeyInput
+}
+
+private enum DetectionAPIKeyInput: Equatable {
+    case explicit(fingerprint: String)
+    case savedUserKey
 }
 
 private extension String {
