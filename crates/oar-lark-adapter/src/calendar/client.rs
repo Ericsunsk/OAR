@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use crate::config::FeishuOpenApiConfig;
+use crate::http_headers::bearer_json_headers;
 use crate::oauth::{AsyncHttpClient, HttpClient, HttpRequest};
-use crate::redaction::SecretString;
 
 use super::error::FeishuCalendarReadError;
 use super::types::{
@@ -12,7 +12,6 @@ use super::types::{
 };
 
 const FREE_BUSY_BATCH_PATH: &str = "/open-apis/calendar/v4/freebusy/batch";
-const OAR_USER_AGENT: &str = concat!("oar-lark-adapter/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone)]
 pub struct FeishuCalendarReadClient<H> {
@@ -95,7 +94,7 @@ pub fn build_free_busy_batch_request(
     Ok(HttpRequest {
         method: "POST".to_string(),
         url,
-        headers: calendar_request_headers(&request.user_access_token),
+        headers: bearer_json_headers(&request.user_access_token),
         body: json!({
             "time_min": request.time_min.trim(),
             "time_max": request.time_max.trim(),
@@ -123,21 +122,6 @@ fn validate_request(request: &CalendarFreeBusyBatchRequest) -> Result<(), Feishu
         return Err(FeishuCalendarReadError::InvalidRequest);
     }
     Ok(())
-}
-
-fn calendar_request_headers(user_access_token: &SecretString) -> Vec<(String, String)> {
-    vec![
-        (
-            "Authorization".to_string(),
-            format!("Bearer {}", user_access_token.expose_secret()),
-        ),
-        ("Accept".to_string(), "application/json".to_string()),
-        (
-            "Content-Type".to_string(),
-            "application/json; charset=utf-8".to_string(),
-        ),
-        ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
-    ]
 }
 
 fn map_status_or_parse_free_busy(

@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::config::FeishuOpenApiConfig;
+use crate::http_headers::bearer_json_headers;
 use crate::oauth::{AsyncHttpClient, HttpClient, HttpRequest};
-use crate::redaction::SecretString;
 use crate::url_encoding::{encode_query, percent_encode};
 
 use super::error::FeishuTaskReadError;
@@ -13,7 +13,6 @@ use super::types::{
 };
 
 const TASK_GET_PATH_PREFIX: &str = "/open-apis/task/v2/tasks";
-const OAR_USER_AGENT: &str = concat!("oar-lark-adapter/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone)]
 pub struct FeishuTaskReadClient<H> {
@@ -141,7 +140,7 @@ pub fn build_get_task_request(
     HttpRequest {
         method: "GET".to_string(),
         url,
-        headers: task_request_headers(&request.user_access_token),
+        headers: bearer_json_headers(&request.user_access_token),
         body: Value::Object(serde_json::Map::new()),
         max_response_bytes: config.max_response_bytes,
     }
@@ -177,25 +176,10 @@ pub fn build_list_tasks_request(
     HttpRequest {
         method: "GET".to_string(),
         url,
-        headers: task_request_headers(&request.user_access_token),
+        headers: bearer_json_headers(&request.user_access_token),
         body: Value::Object(serde_json::Map::new()),
         max_response_bytes: config.max_response_bytes,
     }
-}
-
-fn task_request_headers(user_access_token: &SecretString) -> Vec<(String, String)> {
-    vec![
-        (
-            "Authorization".to_string(),
-            format!("Bearer {}", user_access_token.expose_secret()),
-        ),
-        ("Accept".to_string(), "application/json".to_string()),
-        (
-            "Content-Type".to_string(),
-            "application/json; charset=utf-8".to_string(),
-        ),
-        ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
-    ]
 }
 
 fn map_status_or_parse_task(

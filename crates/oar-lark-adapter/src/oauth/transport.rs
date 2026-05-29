@@ -10,6 +10,7 @@ use serde_json::{json, Map, Value};
 
 use crate::config::FeishuOpenApiConfig;
 use crate::error::{classify_feishu_refresh_failure, safe_error_for_failure_class};
+use crate::http_headers::json_accept_headers;
 use crate::redaction::SecretString;
 
 use super::envelope::{
@@ -23,7 +24,6 @@ use super::types::{
 };
 
 const REFRESH_TOKEN_PATH: &str = "/open-apis/authen/v2/oauth/token";
-const OAR_USER_AGENT: &str = concat!("oar-lark-adapter/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum FeishuOAuthTransportError {
@@ -259,14 +259,7 @@ pub(super) fn build_refresh_request(
             config.base_url.trim_end_matches('/'),
             REFRESH_TOKEN_PATH
         ),
-        headers: vec![
-            (
-                "Content-Type".to_string(),
-                "application/json; charset=utf-8".to_string(),
-            ),
-            ("Accept".to_string(), "application/json".to_string()),
-            ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
-        ],
+        headers: json_accept_headers(),
         body: Value::Object(body),
         max_response_bytes: config.max_response_bytes,
     }

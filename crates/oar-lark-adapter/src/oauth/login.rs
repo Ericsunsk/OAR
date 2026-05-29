@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde_json::{json, Map};
 
 use crate::config::FeishuOpenApiConfig;
+use crate::http_headers::{bearer_json_headers_from_raw_token, json_headers};
 use crate::redaction::SecretString;
 use crate::url_encoding::encode_query;
 
@@ -13,7 +14,6 @@ use super::http::{AsyncHttpClient, HttpClient, HttpRequest, HttpResponse};
 const AUTHORIZE_PATH: &str = "/open-apis/authen/v1/authorize";
 const TOKEN_PATH: &str = "/open-apis/authen/v2/oauth/token";
 const USER_INFO_PATH: &str = "/open-apis/authen/v1/user_info";
-const OAR_USER_AGENT: &str = concat!("oar-lark-adapter/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Clone)]
 pub struct FeishuOAuthLoginConfig {
@@ -339,13 +339,7 @@ pub fn build_token_request(config: &FeishuOAuthLoginConfig, code: &str) -> HttpR
             config.open_api.base_url.trim_end_matches('/'),
             TOKEN_PATH
         ),
-        headers: vec![
-            (
-                "Content-Type".to_string(),
-                "application/json; charset=utf-8".to_string(),
-            ),
-            ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
-        ],
+        headers: json_headers(),
         body: json!(body),
         max_response_bytes: config.open_api.max_response_bytes,
     }
@@ -359,17 +353,7 @@ pub fn build_user_info_request(config: &FeishuOAuthLoginConfig, access_token: &s
             config.open_api.base_url.trim_end_matches('/'),
             USER_INFO_PATH
         ),
-        headers: vec![
-            (
-                "Authorization".to_string(),
-                format!("Bearer {access_token}"),
-            ),
-            (
-                "Content-Type".to_string(),
-                "application/json; charset=utf-8".to_string(),
-            ),
-            ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
-        ],
+        headers: bearer_json_headers_from_raw_token(access_token),
         body: json!({}),
         max_response_bytes: config.open_api.max_response_bytes,
     }

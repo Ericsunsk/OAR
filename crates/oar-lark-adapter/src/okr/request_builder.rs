@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::config::FeishuOpenApiConfig;
+use crate::http_headers::bearer_accept_headers;
 use crate::oauth::HttpRequest;
 use crate::url_encoding::{encode_query, percent_encode};
 
@@ -14,7 +15,6 @@ const OKR_BATCH_GET_PATH: &str = "/open-apis/okr/v1/okrs/batch_get";
 const OKR_CYCLES_PATH: &str = "/open-apis/okr/v2/cycles";
 const OKR_OBJECTIVES_PATH: &str = "/open-apis/okr/v2/objectives";
 const OKR_KEY_RESULTS_PATH: &str = "/open-apis/okr/v2/key_results";
-const OAR_USER_AGENT: &str = concat!("oar-lark-adapter/", env!("CARGO_PKG_VERSION"));
 pub(super) const DEFAULT_PROGRESS_PAGE_SIZE: u32 = 100;
 
 pub fn build_batch_get_okr_request(
@@ -140,14 +140,7 @@ fn build_get_request(
     HttpRequest {
         method: "GET".to_string(),
         url,
-        headers: vec![
-            (
-                "Authorization".to_string(),
-                format!("Bearer {}", user_access_token.expose_secret()),
-            ),
-            ("Accept".to_string(), "application/json".to_string()),
-            ("User-Agent".to_string(), OAR_USER_AGENT.to_string()),
-        ],
+        headers: bearer_accept_headers(&user_access_token),
         body: Value::Object(serde_json::Map::new()),
         max_response_bytes: config.max_response_bytes,
     }
