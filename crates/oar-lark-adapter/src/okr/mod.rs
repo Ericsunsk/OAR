@@ -1,5 +1,6 @@
 mod client;
 mod error;
+mod parser;
 mod review_inbox;
 mod types;
 

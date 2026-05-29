@@ -301,23 +301,4 @@ impl fmt::Debug for LiveGrantRefreshError {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
-    use super::*;
-    use crate::AuthenticatedContext;
-
-    #[test]
-    fn live_read_refresh_trace_id_does_not_embed_session_or_grant() {
-        let auth_context = AuthenticatedContext {
-            session_id: "oar_session_secret".to_string(),
-            tenant_id: "tenant_x".to_string(),
-            user_id: "feishu_user_secret".to_string(),
-        };
-
-        let trace_id = safe_live_read_trace_id(&auth_context, "grant_secret", 42);
-
-        assert!(trace_id.starts_with("live-feishu-read-"));
-        assert!(!trace_id.contains("oar_session_secret"));
-        assert!(!trace_id.contains("grant_secret"));
-        assert!(!trace_id.contains("feishu_user_secret"));
-    }
-}
+mod tests;
