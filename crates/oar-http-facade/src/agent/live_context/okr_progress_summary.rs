@@ -2,19 +2,15 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use oar_lark_adapter::{
-    AsyncFeishuOkrRead, FeishuOkrCycleListRequest, FeishuOkrCycleObjectivesListRequest,
-    FeishuOkrObjectiveKeyResultsListRequest, FeishuOkrProgressListRequest,
-    FeishuOkrProgressListTarget, FeishuOkrReadClient, OkrDepartmentIdType, OkrReadKeyResult,
-    OkrReadObjective, OkrReadProgressPage, OkrReadProgressRecord, OkrUserIdType,
-    ReqwestAsyncHttpClient, SecretString,
+    AsyncFeishuOkrRead, FeishuOkrProgressListRequest, FeishuOkrProgressListTarget,
+    FeishuOkrReadError, OkrDepartmentIdType, OkrReadKeyResult, OkrReadObjective,
+    OkrReadProgressPage, OkrReadProgressRecord, OkrUserIdType, SecretString,
 };
 
+use super::okr_topology::OkrTopologyRead;
 use super::summary::{compact_text, finalize_summary, truncate_chars};
 
 const TOOL_LABEL: &str = "工具 feishu.okr.summarize_my_progress";
-const CYCLE_PAGE_SIZE: u32 = 50;
-const OBJECTIVE_PAGE_SIZE: u32 = 50;
-const KEY_RESULT_PAGE_SIZE: u32 = 50;
 const PROGRESS_PAGE_SIZE: u32 = 20;
 const CYCLE_EXPAND_LIMIT: usize = 3;
 const OBJECTIVE_DISCOVERY_LIMIT: usize = 10;
@@ -25,33 +21,25 @@ const TITLE_LIMIT: usize = 20;
 const VALUE_LIMIT: usize = 24;
 const STATUS_COUNT_LIMIT: usize = 4;
 
-pub(super) async fn read_my_okr_progress_summary(
-    okr_client: &mut FeishuOkrReadClient<ReqwestAsyncHttpClient>,
+pub(super) async fn read_my_okr_progress_summary_from_topology<C>(
+    okr_client: &mut C,
     access_token: SecretString,
-    lark_open_id: &str,
-) -> Result<String, oar_lark_adapter::FeishuOkrReadError> {
-    let response = okr_client
-        .list_cycles(FeishuOkrCycleListRequest {
-            user_access_token: access_token.clone(),
-            user_id_type: OkrUserIdType::OpenId,
-            user_id: lark_open_id.to_string(),
-            page_size: Some(CYCLE_PAGE_SIZE),
-            page_token: None,
-            lang: None,
-        })
-        .await?;
-    let Some(data) = response.data else {
+    topology: &OkrTopologyRead,
+) -> Result<String, FeishuOkrReadError>
+where
+    C: AsyncFeishuOkrRead,
+{
+    let OkrTopologyRead::Snapshot(snapshot) = topology else {
         return Ok(format!("{TOOL_LABEL}｜实时：Feishu 返回空数据。"));
     };
-    let cycles_page = oar_lark_adapter::OkrReadCyclesPage::from_cycle_list_data(&data);
     let mut aggregation = OkrProgressAggregation {
-        cycles_total: cycles_page.cycles.len(),
-        cycle_pages_with_more: usize::from(cycles_page.has_more),
-        skipped_cycles: cycles_page.cycles.len().saturating_sub(CYCLE_EXPAND_LIMIT),
+        cycles_total: snapshot.cycles.len(),
+        cycle_pages_with_more: usize::from(snapshot.has_more_cycles),
+        skipped_cycles: snapshot.cycles.len().saturating_sub(CYCLE_EXPAND_LIMIT),
         ..OkrProgressAggregation::default()
     };
 
-    if cycles_page.cycles.is_empty() {
+    if snapshot.cycles.is_empty() {
         return Ok(build_okr_progress_live_summary(&aggregation));
     }
 
@@ -60,34 +48,19 @@ pub(super) async fn read_my_okr_progress_summary(
     let mut objective_discovery_count = 0_usize;
     let mut key_result_discovery_count = 0_usize;
 
-    for cycle in cycles_page.cycles.iter().take(CYCLE_EXPAND_LIMIT) {
-        let Some(cycle_id) = cycle.cycle_id.as_deref().filter(|id| !id.trim().is_empty()) else {
+    for topology_cycle in snapshot.cycles.iter().take(CYCLE_EXPAND_LIMIT) {
+        if topology_cycle.stable_cycle_id().is_none() {
             aggregation.skipped_missing_ids += 1;
             continue;
-        };
+        }
         aggregation.cycles_expanded += 1;
-        let objectives_response = okr_client
-            .list_cycle_objectives(FeishuOkrCycleObjectivesListRequest {
-                user_access_token: access_token.clone(),
-                user_id_type: OkrUserIdType::OpenId,
-                cycle_id: cycle_id.to_string(),
-                page_size: Some(OBJECTIVE_PAGE_SIZE),
-                page_token: None,
-                lang: None,
-            })
-            .await?;
-        let Some(objectives_data) = objectives_response.data else {
+        let Some(objectives) = topology_cycle.objectives.as_ref() else {
             continue;
         };
-        let objectives_page =
-            oar_lark_adapter::OkrReadObjectivesPage::from_cycle_objectives_list_data(
-                cycle_id,
-                &objectives_data,
-            );
-        aggregation.objectives_seen += objectives_page.objectives.len();
-        aggregation.objective_pages_with_more += usize::from(objectives_page.has_more);
+        aggregation.objectives_seen += objectives.len();
+        aggregation.objective_pages_with_more += usize::from(topology_cycle.objectives_has_more);
 
-        for objective in &objectives_page.objectives {
+        for objective in objectives {
             if objective_discovery_count >= OBJECTIVE_DISCOVERY_LIMIT {
                 aggregation.skipped_objectives += 1;
                 continue;
@@ -108,25 +81,10 @@ pub(super) async fn read_my_okr_progress_summary(
                 &mut aggregation,
             );
 
-            let objective_id = objective_target.id.clone();
-            let krs_response = okr_client
-                .list_objective_key_results(FeishuOkrObjectiveKeyResultsListRequest {
-                    user_access_token: access_token.clone(),
-                    user_id_type: OkrUserIdType::OpenId,
-                    objective_id: objective_id.clone(),
-                    page_size: Some(KEY_RESULT_PAGE_SIZE),
-                    page_token: None,
-                    lang: None,
-                })
-                .await?;
-            let Some(krs_data) = krs_response.data else {
+            let Some(krs_page) = topology_cycle.key_results_for_objective(&objective_target.id)
+            else {
                 continue;
             };
-            let krs_page =
-                oar_lark_adapter::OkrReadKeyResultsPage::from_objective_key_results_list_data(
-                    objective_id,
-                    &krs_data,
-                );
             aggregation.key_results_seen += krs_page.krs.len();
             aggregation.key_result_pages_with_more += usize::from(krs_page.has_more);
 

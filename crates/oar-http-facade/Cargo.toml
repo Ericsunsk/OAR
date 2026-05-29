@@ -22,3 +22,6 @@ tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "syn
 tokio-stream.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true

@@ -18,6 +18,7 @@ mod calendar_summary;
 mod grant;
 mod okr_progress_summary;
 mod okr_summary;
+mod okr_topology;
 mod refs;
 mod source_registry;
 mod summary;
@@ -29,8 +30,9 @@ use grant::{
     refresh_grant_before_live_read, resolve_grant_id_for_user, resolve_lark_open_id_for_grant,
     system_time_to_ms,
 };
-use okr_progress_summary::read_my_okr_progress_summary;
-use okr_summary::read_my_okr_summary;
+use okr_progress_summary::read_my_okr_progress_summary_from_topology;
+use okr_summary::build_my_okr_summary_from_topology;
+use okr_topology::{read_my_okr_topology, OkrTopologyReadOptions};
 use source_registry::{gate_evidence_refs_by_scope, resolve_evidence_refs, LiveEvidenceResolution};
 use summary::{
     build_live_summary, build_task_live_summary, calendar_read_error_reason, degraded_summary,
@@ -219,51 +221,66 @@ async fn assemble_live_feishu_summaries(
     {
         let mut okr_client = FeishuOkrReadClient::new(open_api_config.clone(), http_client.clone());
 
-        if should_read_okr_tool {
+        if should_read_okr_tool || should_read_okr_progress_tool {
             match &lark_open_id_for_tool_reads {
                 Some(Ok(lark_open_id)) => {
-                    match read_my_okr_summary(&mut okr_client, access_token.clone(), lark_open_id)
-                        .await
-                    {
-                        Ok(summary) => live_summaries.push(summary),
-                        Err(error) => live_summaries.push(format!(
-                            "工具 feishu.okr.summarize_my_okr｜实时读取降级：{}。",
-                            okr_read_error_reason(error)
-                        )),
-                    }
-                }
-                Some(Err(reason)) => evidence_resolution
-                    .degraded
-                    .push(format!("未读取到实时 Feishu OKR 证据：{}。", reason)),
-                None => {}
-            }
-        }
-
-        if should_read_okr_progress_tool {
-            match &lark_open_id_for_tool_reads {
-                Some(Ok(lark_open_id)) => {
-                    match read_my_okr_progress_summary(
+                    let topology_result = read_my_okr_topology(
                         &mut okr_client,
                         access_token.clone(),
                         lark_open_id,
+                        OkrTopologyReadOptions::for_requested_tools(
+                            should_read_okr_tool,
+                            should_read_okr_progress_tool,
+                        ),
                     )
-                    .await
-                    {
-                        Ok(summary) => live_summaries.push(summary),
-                        Err(error) => live_summaries.push(format!(
-                            "工具 feishu.okr.summarize_my_progress｜实时读取降级：{}。",
-                            okr_read_error_reason(error)
-                        )),
+                    .await;
+                    match topology_result {
+                        Ok(topology) => {
+                            if should_read_okr_tool {
+                                live_summaries.push(build_my_okr_summary_from_topology(&topology));
+                            }
+                            if should_read_okr_progress_tool {
+                                match read_my_okr_progress_summary_from_topology(
+                                    &mut okr_client,
+                                    access_token.clone(),
+                                    &topology,
+                                )
+                                .await
+                                {
+                                    Ok(summary) => live_summaries.push(summary),
+                                    Err(error) => live_summaries.push(format!(
+                                        "工具 feishu.okr.summarize_my_progress｜实时读取降级：{}。",
+                                        okr_read_error_reason(error)
+                                    )),
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            push_okr_tool_degraded_summaries(
+                                &mut live_summaries,
+                                should_read_okr_tool,
+                                should_read_okr_progress_tool,
+                                okr_read_error_reason(error),
+                            );
+                        }
                     }
                 }
-                Some(Err(reason)) => live_summaries.push(format!(
-                    "工具 feishu.okr.summarize_my_progress｜实时读取降级：{}。",
-                    reason
-                )),
-                None => live_summaries.push(
-                    "工具 feishu.okr.summarize_my_progress｜实时读取降级：用户身份未解析。"
-                        .to_string(),
-                ),
+                Some(Err(reason)) => {
+                    push_okr_tool_degraded_summaries(
+                        &mut live_summaries,
+                        should_read_okr_tool,
+                        should_read_okr_progress_tool,
+                        reason,
+                    );
+                }
+                None => {
+                    push_okr_tool_degraded_summaries(
+                        &mut live_summaries,
+                        should_read_okr_tool,
+                        should_read_okr_progress_tool,
+                        "用户身份未解析",
+                    );
+                }
             }
         }
 
@@ -375,6 +392,26 @@ async fn assemble_live_feishu_summaries(
 
     live_summaries.extend(evidence_resolution.degraded);
     live_summaries
+}
+
+fn push_okr_tool_degraded_summaries(
+    live_summaries: &mut Vec<String>,
+    include_summary: bool,
+    include_progress: bool,
+    reason: &str,
+) {
+    if include_summary {
+        live_summaries.push(format!(
+            "工具 feishu.okr.summarize_my_okr｜实时读取降级：{}。",
+            reason
+        ));
+    }
+    if include_progress {
+        live_summaries.push(format!(
+            "工具 feishu.okr.summarize_my_progress｜实时读取降级：{}。",
+            reason
+        ));
+    }
 }
 
 fn gate_read_tools_by_scope(
@@ -492,6 +529,26 @@ mod tests {
         assert!(degraded[1].contains("okr:okr.period:readonly"));
         assert!(degraded[1].contains("okr:okr.progress:readonly"));
         assert!(degraded[2].contains("calendar:calendar.free_busy:read"));
+
+        let mut tools = vec![
+            AgentReadTool::FeishuOkrSummarizeMyOkr,
+            AgentReadTool::FeishuOkrSummarizeMyProgress,
+        ];
+        let mut degraded = Vec::new();
+
+        gate_read_tools_by_scope(
+            &[
+                FeishuScope::OkrPeriodRead.as_str().to_string(),
+                FeishuScope::OkrContentRead.as_str().to_string(),
+            ],
+            &mut tools,
+            &mut degraded,
+        );
+
+        assert_eq!(tools, vec![AgentReadTool::FeishuOkrSummarizeMyOkr]);
+        assert_eq!(degraded.len(), 1);
+        assert!(degraded[0].contains("feishu.okr.summarize_my_progress"));
+        assert!(degraded[0].contains("okr:okr.progress:readonly"));
 
         let mut tools = vec![
             AgentReadTool::FeishuOkrSummarizeMyOkr,
