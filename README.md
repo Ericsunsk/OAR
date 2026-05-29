@@ -218,9 +218,11 @@ swift run
 `GET /review-inbox/snapshot` 目前返回空快照，decision 写路径明确返回不支持。前端期望的 HTTP endpoint 记录在
 [`apps/oar/README.md`](apps/oar/README.md)。
 
-Agent 模型服务只在后端配置。macOS 前端通过 `POST /agent/stream` 发送会话上下文和消息，
-并携带 OAR session bearer；后端再按 `OAR_AGENT_PROVIDER` 选择 OpenAI-compatible 或
-Anthropic adapter 调模型服务，不会让前端保存或直连模型 `baseURL` / `apiKey`。本地验证 Agent 需要额外配置：
+Agent 模型请求只从后端发出。macOS 前端通过 `POST /agent/stream` 发送会话上下文和消息，
+并携带 OAR session bearer；后端优先使用用户级 BYOK 设置，没有用户设置时再按
+`OAR_AGENT_PROVIDER` 选择 OpenAI-compatible 或 Anthropic 默认 adapter。前端设置页只提交
+`baseURL` / `apiKey` 给后端做协议和模型检测，API key 会用 `OAR_GRANT_KEY_*` 加密落库，
+不会让前端直连模型服务。本地验证默认 Agent 需要额外配置：
 
 ```bash
 OAR_AGENT_PROVIDER=openai-compatible
@@ -260,6 +262,7 @@ docker compose -f docker/compose.dev.yml up --build
 ```bash
 docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql
 docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0002_review_inbox_domain.sql
+docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0003_agent_model_settings.sql
 ```
 
 生产 / 云端 compose 只启动 backend，必须显式提供外部 `DATABASE_URL`：

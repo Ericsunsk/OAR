@@ -107,6 +107,14 @@ impl FeishuGrantPersistenceRuntime {
     pub(crate) fn pool(&self) -> PgPool {
         self.pool.clone()
     }
+
+    pub(crate) fn grant_key_id(&self) -> &str {
+        &self.grant_key_id
+    }
+
+    pub(crate) fn grant_key_material(&self) -> [u8; 32] {
+        self.grant_key_material
+    }
 }
 
 pub(crate) struct FeishuLoginRuntime {

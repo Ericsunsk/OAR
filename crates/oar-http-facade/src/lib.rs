@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod agent;
+mod agent_routes;
 mod config;
 mod feishu_auth;
 mod response;
@@ -11,10 +12,9 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
-use http_body_util::{BodyExt, StreamBody};
 use hyper::body::Incoming;
-use hyper::header::{ACCEPT, AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
-use hyper::http::{HeaderValue, Method, StatusCode};
+use hyper::header::{ACCEPT, AUTHORIZATION};
+use hyper::http::{Method, StatusCode};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
@@ -27,10 +27,7 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
-use agent::{
-    decode_agent_stream_request, AgentRequestError, AgentRuntime, AgentRuntimeConfigError,
-    AgentStreamError,
-};
+use agent::{AgentModelSettingsRuntime, AgentRuntime, AgentRuntimeConfigError};
 use feishu_auth::{
     auth_session_events_id, auth_session_status_id, complete_feishu_login_callback,
     create_feishu_login_session, feishu_login_session_event,
@@ -51,6 +48,7 @@ pub use response::FacadeResponse;
 pub struct OarHttpFacadeRuntime {
     feishu_login: Option<Arc<FeishuLoginRuntime>>,
     agent: Option<Arc<AgentRuntime>>,
+    agent_settings: Option<Arc<AgentModelSettingsRuntime>>,
 }
 
 impl fmt::Debug for OarHttpFacadeRuntime {
@@ -58,6 +56,7 @@ impl fmt::Debug for OarHttpFacadeRuntime {
         f.debug_struct("OarHttpFacadeRuntime")
             .field("feishu_login", &self.feishu_login.is_some())
             .field("agent", &self.agent.is_some())
+            .field("agent_settings", &self.agent_settings.is_some())
             .finish()
     }
 }
@@ -145,12 +144,24 @@ impl OarHttpFacadeRuntime {
         let agent = AgentRuntime::from_env_map(env)
             .map_err(agent_runtime_config_error)?
             .map(Arc::new);
+        let agent_settings = match grant_persistence.as_ref() {
+            Some(persistence) => Some(Arc::new(
+                AgentModelSettingsRuntime::new(
+                    persistence.pool(),
+                    persistence.grant_key_id().to_string(),
+                    persistence.grant_key_material(),
+                )
+                .map_err(agent_runtime_config_error)?,
+            )),
+            None => None,
+        };
         let feishu_login = FeishuLoginRuntime::from_env_map(env, grant_persistence)
             .map_err(feishu_runtime_config_error)?
             .map(Arc::new);
         Ok(Self {
             feishu_login,
             agent,
+            agent_settings,
         })
     }
 }
@@ -252,16 +263,16 @@ pub async fn handle_hyper_request_with_runtime(
         .get(ACCEPT)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    if is_agent_stream_route(&method, &path) {
-        if !accepts_event_stream(accept.as_deref()) {
-            return Ok(
-                event_stream_required("Agent stream requires Accept: text/event-stream.")
-                    .into_hyper_response(),
-            );
-        }
-        return Ok(
-            agent_stream_response(runtime, authorization.as_deref(), request.into_body()).await,
-        );
+    if agent_routes::is_body_route(&method, &path) {
+        return Ok(agent_routes::body_route_response(
+            runtime,
+            &method,
+            &path,
+            authorization.as_deref(),
+            accept.as_deref(),
+            request.into_body(),
+        )
+        .await);
     }
 
     if is_auth_session_events_route(&method, &path) {
@@ -338,6 +349,10 @@ pub async fn dispatch_request_with_runtime(
             };
             return review_decision_not_wired_for_context(&auth_context);
         }
+        _ if agent_routes::is_facade_route(method, path) => {
+            return agent_routes::facade_route_response(&runtime, method, path, authorization)
+                .await;
+        }
         _ => {}
     }
 
@@ -374,9 +389,9 @@ pub fn dispatch_request(
             authorization,
             "Review decisions require verified OAR session storage.",
         ),
-        (&Method::POST, "/agent/stream") => protected_route_requires_session_store(
+        _ if agent_routes::is_route(method, path) => protected_route_requires_session_store(
             authorization,
-            "Agent stream requires verified OAR session storage.",
+            "Agent routes require verified OAR session storage.",
         ),
         _ if is_auth_session_status_route(method, path) => service_unavailable(
             "feishu_auth_not_configured",
@@ -495,95 +510,6 @@ fn review_decision_not_wired_for_context(context: &AuthenticatedContext) -> Faca
             "safe_message": "Review decisions are disabled until the ConfirmedAction ledger path is connected."
         }),
     )
-}
-
-async fn agent_stream_response(
-    runtime: Arc<OarHttpFacadeRuntime>,
-    authorization: Option<&str>,
-    body: Incoming,
-) -> Response<ResponseBody> {
-    let auth_context = match authenticate_oar_session(&runtime, authorization).await {
-        Ok(context) => context,
-        Err(error) => return oar_session_auth_error_response(error).into_hyper_response(),
-    };
-    let _ = (
-        &auth_context.session_id,
-        &auth_context.tenant_id,
-        &auth_context.user_id,
-    );
-
-    let Some(agent_runtime) = runtime.agent.clone() else {
-        return service_unavailable(
-            "agent_model_not_configured",
-            "Agent model provider is not configured in this backend facade.",
-        )
-        .into_hyper_response();
-    };
-
-    let body = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
-            return json_facade_response(
-                StatusCode::BAD_REQUEST,
-                json!({
-                    "error": "agent_request_body_unreadable",
-                    "safe_message": "Agent request body could not be read."
-                }),
-            )
-            .into_hyper_response();
-        }
-    };
-    let request = match decode_agent_stream_request(&body) {
-        Ok(request) => request,
-        Err(error) => return agent_request_error_response(error).into_hyper_response(),
-    };
-
-    let stream = match agent_runtime.open_stream(request).await {
-        Ok(stream) => stream,
-        Err(error) => return agent_stream_error_response(error).into_hyper_response(),
-    };
-    let body = StreamBody::new(stream).boxed();
-    let mut response = Response::new(body);
-    *response.status_mut() = StatusCode::OK;
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
-    response
-        .headers_mut()
-        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
-}
-
-fn agent_request_error_response(error: AgentRequestError) -> FacadeResponse {
-    match error {
-        AgentRequestError::InvalidJson => json_facade_response(
-            StatusCode::BAD_REQUEST,
-            json!({
-                "error": "agent_request_invalid_json",
-                "safe_message": "Agent request must be valid JSON."
-            }),
-        ),
-    }
-}
-
-fn agent_stream_error_response(error: AgentStreamError) -> FacadeResponse {
-    match error {
-        AgentStreamError::UpstreamUnauthorized => json_facade_response(
-            StatusCode::BAD_GATEWAY,
-            json!({
-                "error": "agent_upstream_unauthorized",
-                "safe_message": "Agent model provider authentication failed."
-            }),
-        ),
-        AgentStreamError::UpstreamUnavailable => service_unavailable(
-            "agent_upstream_unavailable",
-            "Agent model provider is temporarily unavailable.",
-        ),
-    }
-}
-
-fn is_agent_stream_route(method: &Method, path: &str) -> bool {
-    *method == Method::POST && path == "/agent/stream"
 }
 
 fn accepts_event_stream(accept: Option<&str>) -> bool {

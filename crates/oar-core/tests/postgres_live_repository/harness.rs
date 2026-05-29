@@ -84,6 +84,7 @@ pub(crate) use sqlx::{AssertSqlSafe, PgPool, Row};
 const MIGRATION_0001_SQL: &str =
     include_str!("../../migrations/0001_phase_0_6_identity_action_audit.sql");
 const MIGRATION_0002_SQL: &str = include_str!("../../migrations/0002_review_inbox_domain.sql");
+const MIGRATION_0003_SQL: &str = include_str!("../../migrations/0003_agent_model_settings.sql");
 
 static SCHEMA_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -490,6 +491,9 @@ pub(crate) async fn create_schema_and_pool(
         .execute(&admin_pool)
         .await?;
     sqlx::raw_sql(AssertSqlSafe(MIGRATION_0002_SQL.to_string()))
+        .execute(&admin_pool)
+        .await?;
+    sqlx::raw_sql(AssertSqlSafe(MIGRATION_0003_SQL.to_string()))
         .execute(&admin_pool)
         .await?;
     admin_pool.close().await;

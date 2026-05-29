@@ -2,6 +2,7 @@ mod anthropic;
 mod openai;
 mod prompt;
 mod request;
+mod settings;
 mod stream;
 
 use std::fmt;
@@ -12,6 +13,11 @@ use reqwest::Url;
 use anthropic::AnthropicAgentProvider;
 use openai::OpenAICompatibleAgentProvider;
 pub(crate) use request::{decode_agent_stream_request, AgentStreamRequest};
+pub(crate) use settings::{
+    decode_agent_model_catalog_request, decode_agent_settings_update_request,
+    AgentModelCatalogRequest, AgentModelSettingsError, AgentModelSettingsRuntime,
+    AgentSettingsUpdateRequest,
+};
 pub(crate) use stream::AgentFrameStream;
 
 use crate::util::non_empty_env;
@@ -44,6 +50,16 @@ impl AgentRuntime {
         request: AgentStreamRequest,
     ) -> Result<AgentFrameStream, AgentStreamError> {
         self.provider.open_stream(request).await
+    }
+
+    pub(crate) fn from_provider_config(
+        config: AgentProviderConfig,
+    ) -> Result<Self, AgentRuntimeConfigError> {
+        AgentProvider::from_provider_config(config).map(|provider| Self { provider })
+    }
+
+    pub(crate) fn config_summary(&self) -> AgentProviderConfigSummary {
+        self.provider.config_summary()
     }
 }
 
@@ -170,6 +186,93 @@ impl AgentProvider {
             Self::Anthropic(provider) => provider.open_stream(request).await,
         }
     }
+
+    fn from_provider_config(config: AgentProviderConfig) -> Result<Self, AgentRuntimeConfigError> {
+        match config.protocol {
+            AgentProtocol::OpenAICompatible => Ok(Self::OpenAICompatible(
+                OpenAICompatibleAgentProvider::from_provider_config(config)?,
+            )),
+            AgentProtocol::Anthropic => Ok(Self::Anthropic(
+                AnthropicAgentProvider::from_provider_config(config)?,
+            )),
+        }
+    }
+
+    fn config_summary(&self) -> AgentProviderConfigSummary {
+        match self {
+            Self::OpenAICompatible(provider) => provider.config_summary(),
+            Self::Anthropic(provider) => provider.config_summary(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AgentProtocol {
+    OpenAICompatible,
+    Anthropic,
+}
+
+impl AgentProtocol {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAICompatible => "openai-compatible",
+            Self::Anthropic => "anthropic",
+        }
+    }
+
+    pub(super) fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "openai-compatible" => Some(Self::OpenAICompatible),
+            "anthropic" => Some(Self::Anthropic),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct AgentProviderConfig {
+    protocol: AgentProtocol,
+    base_url: Url,
+    api_key: String,
+    model: String,
+    anthropic_version: Option<String>,
+}
+
+impl fmt::Debug for AgentProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgentProviderConfig")
+            .field("protocol", &self.protocol)
+            .field("base_url", &self.base_url.as_str())
+            .field("api_key", &"[REDACTED]")
+            .field("model", &self.model)
+            .field("anthropic_version", &self.anthropic_version)
+            .finish()
+    }
+}
+
+impl AgentProviderConfig {
+    pub(super) fn new(
+        protocol: AgentProtocol,
+        base_url: Url,
+        api_key: String,
+        model: String,
+        anthropic_version: Option<String>,
+    ) -> Self {
+        Self {
+            protocol,
+            base_url,
+            api_key,
+            model,
+            anthropic_version,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentProviderConfigSummary {
+    pub(crate) protocol: &'static str,
+    pub(crate) base_url: String,
+    pub(crate) model: String,
 }
 
 fn is_allowed_agent_base_url(url: &Url) -> bool {

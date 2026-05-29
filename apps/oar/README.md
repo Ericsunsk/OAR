@@ -73,10 +73,12 @@ Docker, the backend may set
 `OAR_HTTP_BIND_ADDR=0.0.0.0:8080`; the macOS client remains hardwired to the
 local backend origin until in-app server settings are introduced.
 
-The Agent sidecar no longer stores model `baseURL` or `apiKey` in the frontend.
-It streams through `/agent/stream` with the current OAR session; model provider
-configuration lives in the backend via `OAR_AGENT_PROVIDER` plus either the
-`OAR_AGENT_OPENAI_*` or `OAR_AGENT_ANTHROPIC_*` env group.
+The Agent sidecar never calls model APIs directly. It streams through
+`/agent/stream` with the current OAR session. Users can enter `baseURL` and
+`apiKey` in the Agent settings sheet; the backend detects the protocol/model
+catalog and stores the API key encrypted. If no user BYOK setting exists, the
+backend falls back to `OAR_AGENT_PROVIDER` plus either the `OAR_AGENT_OPENAI_*`
+or `OAR_AGENT_ANTHROPIC_*` env group.
 
 ```bash
 docker build -f ../../docker/backend.Dockerfile -t oar-backend ../..

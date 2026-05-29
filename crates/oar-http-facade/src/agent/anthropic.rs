@@ -13,7 +13,8 @@ use super::stream::{
 use super::stream::{send_agent_stream_frames, AgentFrameSendError, AgentFrameSender};
 use super::{
     agent_http_client, ensure_successful_upstream_response, is_allowed_agent_base_url,
-    non_empty_env, AgentRuntimeConfigError, AgentStreamError,
+    non_empty_env, AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError,
+    AgentStreamError,
 };
 
 const ANTHROPIC_BASE_URL_ENV: &str = "OAR_AGENT_ANTHROPIC_BASE_URL";
@@ -47,6 +48,29 @@ impl fmt::Debug for AnthropicAgentProvider {
 }
 
 impl AnthropicAgentProvider {
+    pub(super) fn from_provider_config(
+        config: AgentProviderConfig,
+    ) -> Result<Self, AgentRuntimeConfigError> {
+        Ok(Self {
+            client: agent_http_client()?,
+            base_url: config.base_url,
+            api_key: config.api_key,
+            model: config.model,
+            version: config
+                .anthropic_version
+                .unwrap_or_else(|| DEFAULT_ANTHROPIC_VERSION.to_string()),
+            max_tokens: DEFAULT_ANTHROPIC_MAX_TOKENS,
+        })
+    }
+
+    pub(super) fn config_summary(&self) -> AgentProviderConfigSummary {
+        AgentProviderConfigSummary {
+            protocol: "anthropic",
+            base_url: self.base_url.as_str().to_string(),
+            model: self.model.clone(),
+        }
+    }
+
     pub(super) fn has_any_env_config(env: &impl Fn(&str) -> Option<String>) -> bool {
         non_empty_env(env, ANTHROPIC_BASE_URL_ENV).is_some()
             || non_empty_env(env, ANTHROPIC_API_KEY_ENV).is_some()

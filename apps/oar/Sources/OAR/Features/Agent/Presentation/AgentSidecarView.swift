@@ -3,19 +3,23 @@ import SwiftUI
 
 struct AgentSidecarView: View {
     @Bindable var model: AgentSidecarViewModel
+    @Bindable var settingsModel: AgentSettingsViewModel
     let item: ReviewInboxDisplayItem?
     let action: ReviewInboxSuggestedAction?
     let evidence: [ReviewInboxDisplayEvidence]
 
     @State private var draft = ""
+    @State private var showsSettings = false
 
     init(
         model: AgentSidecarViewModel,
+        settingsModel: AgentSettingsViewModel,
         item: ReviewInboxDisplayItem?,
         action: ReviewInboxSuggestedAction?,
         evidence: [ReviewInboxDisplayEvidence]
     ) {
         self.model = model
+        self.settingsModel = settingsModel
         self.item = item
         self.action = action
         self.evidence = evidence
@@ -80,6 +84,10 @@ struct AgentSidecarView: View {
         .onChange(of: item?.id) { _, _ in
             syncConversation()
         }
+        .sheet(isPresented: $showsSettings) {
+            AgentSettingsSheet(model: settingsModel)
+                .frame(width: 430)
+        }
     }
 
     private var header: some View {
@@ -88,6 +96,16 @@ struct AgentSidecarView: View {
                 .font(.codexDisplay(16, weight: .semibold))
             OARSymbolDot(color: model.isConfigured ? Color.oarMoss : Color.oarAmber, size: 6)
             Spacer()
+            Button {
+                showsSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.codexMuted.opacity(0.72))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Agent 设置")
         }
         .padding(16)
     }

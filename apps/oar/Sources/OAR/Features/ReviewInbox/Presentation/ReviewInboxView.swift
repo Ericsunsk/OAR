@@ -3,11 +3,13 @@ import SwiftUI
 struct ReviewInboxRootView: View {
     @State private var model: ReviewInboxViewModel
     @State private var agentModel: AgentSidecarViewModel
+    @State private var agentSettingsModel: AgentSettingsViewModel
     @State private var showAgent = true
 
     init(
         provider: ReviewInboxDataProviding,
         agentProvider: AgentProviding,
+        agentSettingsProvider: AgentSettingsProviding,
         onSessionInvalidated: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         _model = State(initialValue: ReviewInboxViewModel(
@@ -15,6 +17,7 @@ struct ReviewInboxRootView: View {
             onSessionInvalidated: onSessionInvalidated
         ))
         _agentModel = State(initialValue: AgentSidecarViewModel(provider: agentProvider))
+        _agentSettingsModel = State(initialValue: AgentSettingsViewModel(provider: agentSettingsProvider))
     }
 
     var body: some View {
@@ -33,6 +36,7 @@ struct ReviewInboxRootView: View {
                 if showAgent {
                     AgentSidecarView(
                         model: agentModel,
+                        settingsModel: agentSettingsModel,
                         item: model.selectedItem,
                         action: model.selectedAction,
                         evidence: model.evidenceForSelectedItem

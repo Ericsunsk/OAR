@@ -11,7 +11,8 @@ use super::stream::{
 };
 use super::{
     agent_http_client, ensure_successful_upstream_response, is_allowed_agent_base_url,
-    non_empty_env, AgentRuntimeConfigError, AgentStreamError,
+    non_empty_env, AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError,
+    AgentStreamError,
 };
 
 const OPENAI_COMPATIBLE_BASE_URL_ENV: &str = "OAR_AGENT_OPENAI_BASE_URL";
@@ -37,6 +38,25 @@ impl fmt::Debug for OpenAICompatibleAgentProvider {
 }
 
 impl OpenAICompatibleAgentProvider {
+    pub(super) fn from_provider_config(
+        config: AgentProviderConfig,
+    ) -> Result<Self, AgentRuntimeConfigError> {
+        Ok(Self {
+            client: agent_http_client()?,
+            base_url: config.base_url,
+            api_key: config.api_key,
+            model: config.model,
+        })
+    }
+
+    pub(super) fn config_summary(&self) -> AgentProviderConfigSummary {
+        AgentProviderConfigSummary {
+            protocol: "openai-compatible",
+            base_url: self.base_url.as_str().to_string(),
+            model: self.model.clone(),
+        }
+    }
+
     pub(super) fn has_any_env_config(env: &impl Fn(&str) -> Option<String>) -> bool {
         non_empty_env(env, OPENAI_COMPATIBLE_BASE_URL_ENV).is_some()
             || non_empty_env(env, OPENAI_COMPATIBLE_API_KEY_ENV).is_some()
