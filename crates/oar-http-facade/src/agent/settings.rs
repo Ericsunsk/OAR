@@ -22,7 +22,6 @@ pub(crate) enum AgentModelSettingsError {
     MissingModel,
     InvalidBaseURL,
     DetectionFailed,
-    DetectionAmbiguous,
     UpstreamUnauthorized,
     ModelNotDetected,
     StoreUnavailable,
@@ -39,7 +38,6 @@ impl std::fmt::Display for AgentModelSettingsError {
             Self::MissingModel => write!(f, "agent_settings_model_required"),
             Self::InvalidBaseURL => write!(f, "agent_settings_base_url_invalid"),
             Self::DetectionFailed => write!(f, "agent_settings_model_detection_failed"),
-            Self::DetectionAmbiguous => write!(f, "agent_settings_protocol_detection_ambiguous"),
             Self::UpstreamUnauthorized => write!(f, "agent_settings_api_key_rejected"),
             Self::ModelNotDetected => write!(f, "agent_settings_model_not_detected"),
             Self::StoreUnavailable => write!(f, "agent_settings_store_unavailable"),
@@ -410,7 +408,6 @@ async fn detect_catalog_with_client(
     base_url: Url,
     api_key: &str,
 ) -> Result<CatalogDetection, AgentModelSettingsError> {
-    let mut ambiguous = false;
     let mut unauthorized = false;
     for candidate in agent_base_url_candidates(&base_url) {
         match detect_catalog_for_base_url(client, &candidate, api_key).await {
@@ -420,7 +417,6 @@ async fn detect_catalog_with_client(
                     catalog,
                 });
             }
-            Err(AgentModelSettingsError::DetectionAmbiguous) => ambiguous = true,
             Err(AgentModelSettingsError::UpstreamUnauthorized) => unauthorized = true,
             Err(AgentModelSettingsError::DetectionFailed) => {}
             Err(error) => return Err(error),
@@ -429,8 +425,6 @@ async fn detect_catalog_with_client(
 
     if unauthorized {
         Err(AgentModelSettingsError::UpstreamUnauthorized)
-    } else if ambiguous {
-        Err(AgentModelSettingsError::DetectionAmbiguous)
     } else {
         Err(AgentModelSettingsError::DetectionFailed)
     }
@@ -441,25 +435,50 @@ async fn detect_catalog_for_base_url(
     base_url: &Url,
     api_key: &str,
 ) -> Result<AgentModelCatalog, AgentModelSettingsError> {
-    let openai = probe_openai_models(client, base_url, api_key);
-    let anthropic = probe_anthropic_models(client, base_url, api_key);
-    let (openai, anthropic) = tokio::join!(openai, anthropic);
-    let unauthorized = matches!(&openai, Err(ProbeError::Unauthorized))
-        || matches!(&anthropic, Err(ProbeError::Unauthorized));
+    let mut unauthorized = false;
+    for protocol in protocol_probe_order(base_url) {
+        match probe_protocol_models(protocol, client, base_url, api_key).await {
+            Ok(detected) => return Ok(catalog_from_probe(detected)),
+            Err(ProbeError::Unauthorized) => unauthorized = true,
+            Err(ProbeError::Other) => {}
+        }
+    }
 
-    let detected = match (openai.ok(), anthropic.ok()) {
-        (Some(openai), None) => openai,
-        (None, Some(anthropic)) => anthropic,
-        (Some(openai), Some(anthropic)) => choose_ambiguous_protocol(base_url, openai, anthropic)?,
-        (None, None) if unauthorized => return Err(AgentModelSettingsError::UpstreamUnauthorized),
-        (None, None) => return Err(AgentModelSettingsError::DetectionFailed),
-    };
+    if unauthorized {
+        Err(AgentModelSettingsError::UpstreamUnauthorized)
+    } else {
+        Err(AgentModelSettingsError::DetectionFailed)
+    }
+}
+
+fn protocol_probe_order(base_url: &Url) -> [AgentProtocol; 2] {
+    let host = base_url.host_str().unwrap_or_default();
+    if host.contains("anthropic") {
+        [AgentProtocol::Anthropic, AgentProtocol::OpenAICompatible]
+    } else {
+        [AgentProtocol::OpenAICompatible, AgentProtocol::Anthropic]
+    }
+}
+
+async fn probe_protocol_models(
+    protocol: AgentProtocol,
+    client: &reqwest::Client,
+    base_url: &Url,
+    api_key: &str,
+) -> Result<ProtocolProbe, ProbeError> {
+    match protocol {
+        AgentProtocol::OpenAICompatible => probe_openai_models(client, base_url, api_key).await,
+        AgentProtocol::Anthropic => probe_anthropic_models(client, base_url, api_key).await,
+    }
+}
+
+fn catalog_from_probe(detected: ProtocolProbe) -> AgentModelCatalog {
     let recommended_model = recommended_model(detected.protocol, &detected.models);
-    Ok(AgentModelCatalog {
+    AgentModelCatalog {
         detected_protocol: detected.protocol.as_str().to_string(),
         models: detected.models,
         recommended_model,
-    })
+    }
 }
 
 async fn probe_openai_models(
@@ -533,21 +552,6 @@ async fn models_from_response(
     (!models.is_empty())
         .then_some(models)
         .ok_or(ProbeError::Other)
-}
-
-fn choose_ambiguous_protocol(
-    base_url: &Url,
-    openai: ProtocolProbe,
-    anthropic: ProtocolProbe,
-) -> Result<ProtocolProbe, AgentModelSettingsError> {
-    let host = base_url.host_str().unwrap_or_default();
-    if host.contains("anthropic") {
-        return Ok(anthropic);
-    }
-    if host.contains("openai") {
-        return Ok(openai);
-    }
-    Err(AgentModelSettingsError::DetectionAmbiguous)
 }
 
 fn recommended_model(protocol: AgentProtocol, models: &[AgentModelCandidate]) -> Option<String> {
@@ -788,34 +792,17 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_protocol_uses_host_hint_or_fails_closed() {
-        let openai = ProtocolProbe {
-            protocol: AgentProtocol::OpenAICompatible,
-            models: vec![AgentModelCandidate {
-                id: "gpt-4.1".to_string(),
-                display_name: "gpt-4.1".to_string(),
-            }],
-        };
-        let anthropic = ProtocolProbe {
-            protocol: AgentProtocol::Anthropic,
-            models: vec![AgentModelCandidate {
-                id: "claude-sonnet-4-5".to_string(),
-                display_name: "claude-sonnet-4-5".to_string(),
-            }],
-        };
-
+    fn protocol_probe_order_uses_host_hint_or_openai_compatible_default() {
         let anthropic_url = Url::parse("https://api.anthropic.com/v1").expect("url");
         let generic_url = Url::parse("https://llm.example.test/v1").expect("url");
 
         assert_eq!(
-            choose_ambiguous_protocol(&anthropic_url, openai.clone(), anthropic.clone())
-                .expect("host hint")
-                .protocol,
-            AgentProtocol::Anthropic
+            protocol_probe_order(&anthropic_url),
+            [AgentProtocol::Anthropic, AgentProtocol::OpenAICompatible]
         );
         assert_eq!(
-            choose_ambiguous_protocol(&generic_url, openai, anthropic).expect_err("ambiguous"),
-            AgentModelSettingsError::DetectionAmbiguous
+            protocol_probe_order(&generic_url),
+            [AgentProtocol::OpenAICompatible, AgentProtocol::Anthropic]
         );
     }
 

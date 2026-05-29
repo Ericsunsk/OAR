@@ -5,7 +5,7 @@ final class AppEnvironmentTests: XCTestCase {
     func testCurrentUsesDefaultBackendBaseURLAndMockFlagsOff() {
         let environment = AppEnvironment.current()
 
-        XCTAssertEqual(environment.oarBackendBaseURL, URL(string: "http://127.0.0.1:8080"))
+        XCTAssertEqual(environment.oarBackendBaseURL, URL(string: "https://seven-eels-do.loca.lt"))
         XCTAssertFalse(environment.allowsMockAuthFallback)
         XCTAssertFalse(environment.allowsMockReviewInboxFallback)
         XCTAssertFalse(environment.allowsMockAgentFallback)

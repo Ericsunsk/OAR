@@ -1,7 +1,7 @@
 import Foundation
 
 struct AppEnvironment {
-    static let defaultBackendBaseURL = URL(string: "http://127.0.0.1:8080")!
+    static let defaultBackendBaseURL = URL(string: "https://seven-eels-do.loca.lt")!
 
     let oarBackendBaseURL: URL?
     let allowsMockAuthFallback: Bool
