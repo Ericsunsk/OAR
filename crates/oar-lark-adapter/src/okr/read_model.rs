@@ -176,7 +176,7 @@ impl From<&FeishuOkr> for OkrReadOkr {
         Self {
             okr_id: value.id.clone(),
             period_id: value.period_id.clone(),
-            okr_name: value.name.clone(),
+            okr_name: value.name.clone().and_then(non_empty),
             objectives: value
                 .objective_list
                 .iter()

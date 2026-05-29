@@ -139,6 +139,11 @@ fn batch_get_typed_model_tolerates_missing_optional_fields_and_normalizes() {
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "id":"okr_blank_name",
+                        "name":"   ",
+                        "objective_list":[]
                     }
                 ]
             }
@@ -152,13 +157,14 @@ fn batch_get_typed_model_tolerates_missing_optional_fields_and_normalizes() {
     let parsed = client.batch_get_okrs(sample_request()).expect("success");
     let data = parsed.data.expect("data");
     let snapshot = OkrReadSnapshot::from_batch_get_data(&data);
-    assert_eq!(snapshot.okrs.len(), 1);
+    assert_eq!(snapshot.okrs.len(), 2);
     assert_eq!(snapshot.okrs[0].okr_id.as_deref(), Some("okr_1"));
     assert_eq!(
         snapshot.okrs[0].period_id.as_deref(),
         Some("period_2026_q2")
     );
     assert_eq!(snapshot.okrs[0].okr_name.as_deref(), Some("north star"));
+    assert!(snapshot.okrs[1].okr_name.is_none());
     assert_eq!(snapshot.okrs[0].objectives.len(), 1);
     assert_eq!(
         snapshot.okrs[0].objectives[0].progress_record_ids,
