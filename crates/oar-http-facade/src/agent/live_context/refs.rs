@@ -1,7 +1,4 @@
-use oar_core::action::capability::FeishuScope;
 use oar_lark_adapter::parse_task_source_ref;
-
-use crate::agent::request::AgentEvidenceRefDTO;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ParsedOkrEvidenceRef {
@@ -42,42 +39,6 @@ pub(super) fn parse_task_evidence_ref(source_ref: &str) -> Option<ParsedTaskEvid
         source_ref: normalized,
         task_id: parsed.task_id,
     })
-}
-
-pub(super) fn is_okr_source_type(source_type: &str) -> bool {
-    let source_type = source_type.trim().to_ascii_lowercase();
-    source_type == "okr" || source_type == "feishu_okr" || source_type == "lark_okr"
-}
-
-pub(super) fn is_task_source_type(source_type: &str) -> bool {
-    let source_type = source_type.trim().to_ascii_lowercase();
-    source_type == "task" || source_type == "feishu_task" || source_type == "lark_task"
-}
-
-pub(super) fn gate_refs_by_scope<'a>(
-    scopes: &[String],
-    okr_refs: &mut Vec<(&'a AgentEvidenceRefDTO, ParsedOkrEvidenceRef)>,
-    task_refs: &mut Vec<(&'a AgentEvidenceRefDTO, ParsedTaskEvidenceRef)>,
-    degraded: &mut Vec<String>,
-) {
-    if !okr_refs.is_empty() && !has_okr_content_read_scope(scopes) {
-        degraded.push("未读取到实时 Feishu OKR 证据：授权缺少 OKR 内容读取权限。".to_string());
-        okr_refs.clear();
-    }
-    if !task_refs.is_empty() && !has_task_read_scope(scopes) {
-        degraded.push("未读取到实时 Feishu 任务证据：授权缺少任务读取权限。".to_string());
-        task_refs.clear();
-    }
-}
-
-pub(super) fn has_okr_content_read_scope(scopes: &[String]) -> bool {
-    let required = FeishuScope::OkrContentRead.as_str();
-    scopes.iter().any(|scope| scope.trim() == required)
-}
-
-pub(super) fn has_task_read_scope(scopes: &[String]) -> bool {
-    let required = FeishuScope::TaskRead.as_str();
-    scopes.iter().any(|scope| scope.trim() == required)
 }
 
 fn parse_path_style_ref(value: &str) -> Option<ParsedOkrEvidenceRef> {
@@ -133,4 +94,73 @@ fn valid_platform_ref_segment(value: &str) -> bool {
         && !trimmed.contains('/')
         && !trimmed.contains('?')
         && !trimmed.contains('#')
+        && trimmed
+            .chars()
+            .all(|character| !character.is_whitespace() && !character.is_control())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_okr_ref_supports_path_style() {
+        let parsed =
+            parse_okr_evidence_ref("okr://okr_demo/objectives/obj_demo/krs/kr_demo").expect("okr");
+        assert_eq!(parsed.okr_id, "okr_demo");
+        assert_eq!(parsed.objective_id, "obj_demo");
+        assert_eq!(parsed.kr_id, "kr_demo");
+    }
+
+    #[test]
+    fn parse_okr_ref_supports_colon_style() {
+        let parsed =
+            parse_okr_evidence_ref("okr:okr_demo:objective:obj_demo:kr:kr_demo").expect("okr");
+        assert_eq!(parsed.okr_id, "okr_demo");
+        assert_eq!(parsed.objective_id, "obj_demo");
+        assert_eq!(parsed.kr_id, "kr_demo");
+    }
+
+    #[test]
+    fn parse_okr_ref_rejects_invalid_format() {
+        assert!(parse_okr_evidence_ref("okr://okr_demo/objectives/obj_demo").is_none());
+        assert!(parse_okr_evidence_ref("okr:okr_demo:obj:obj_demo:kr:kr_demo").is_none());
+    }
+
+    #[test]
+    fn parse_okr_ref_rejects_unsafe_segments() {
+        assert!(parse_okr_evidence_ref(&format!(
+            "okr://{}/objectives/obj_demo/krs/kr_demo",
+            "x".repeat(101)
+        ))
+        .is_none());
+        assert!(parse_okr_evidence_ref("okr:okr?demo:objective:obj_demo:kr:kr_demo").is_none());
+        assert!(parse_okr_evidence_ref("okr:okr_demo:objective:obj#demo:kr:kr_demo").is_none());
+        assert!(parse_okr_evidence_ref("okr://okr demo/objectives/obj_demo/krs/kr_demo").is_none());
+        assert!(
+            parse_okr_evidence_ref("okr://okr_demo/objectives/obj\n_demo/krs/kr_demo").is_none()
+        );
+        assert!(parse_okr_evidence_ref("okr:okr_demo:objective:obj_demo:kr:kr\t_demo").is_none());
+    }
+
+    #[test]
+    fn parse_task_ref_supports_task_and_feishu_task_schemes() {
+        let task = parse_task_evidence_ref(" task://task_123 ").expect("task ref");
+        assert_eq!(task.source_ref, "task://task_123");
+        assert_eq!(task.task_id, "task_123");
+
+        let feishu_task = parse_task_evidence_ref("feishu://task/task_456").expect("feishu task");
+        assert_eq!(feishu_task.source_ref, "task://task_456");
+        assert_eq!(feishu_task.task_id, "task_456");
+    }
+
+    #[test]
+    fn parse_task_ref_rejects_unsafe_shapes() {
+        assert!(parse_task_evidence_ref("task://").is_none());
+        assert!(parse_task_evidence_ref("task://task_123/subtask").is_none());
+        assert!(parse_task_evidence_ref("feishu://task/task_123?debug=true").is_none());
+        assert!(
+            parse_task_evidence_ref("okr://okr_demo/objectives/obj_demo/krs/kr_demo").is_none()
+        );
+    }
 }

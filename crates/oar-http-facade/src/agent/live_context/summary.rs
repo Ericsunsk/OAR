@@ -159,12 +159,8 @@ pub(super) fn okr_read_error_reason(error: FeishuOkrReadError) -> &'static str {
     }
 }
 
-pub(super) fn degraded_summary(evidence_ref: &AgentEvidenceRefDTO, reason: &str) -> String {
-    finalize_summary(format!(
-        "{}｜实时读取降级：{}。",
-        summary_label(evidence_ref),
-        reason
-    ))
+pub(super) fn degraded_summary(_evidence_ref: &AgentEvidenceRefDTO, reason: &str) -> String {
+    finalize_summary(format!("证据｜实时读取降级：{}。", reason))
 }
 
 pub(super) fn summary_label(evidence_ref: &AgentEvidenceRefDTO) -> String {
@@ -203,4 +199,25 @@ pub(super) fn truncate_chars(value: &str, limit: usize) -> String {
         .collect::<String>();
     truncated.push('…');
     truncated
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn degraded_summary_does_not_echo_evidence_summary_or_ref() {
+        let evidence_ref = AgentEvidenceRefDTO {
+            source_type: "task".to_string(),
+            source_ref: "task://sk-secret-ref".to_string(),
+            summary: "sk-secret auth code raw transcript".to_string(),
+        };
+
+        let summary = degraded_summary(&evidence_ref, "任务实时读取暂不可用");
+
+        assert_eq!(summary, "证据｜实时读取降级：任务实时读取暂不可用。");
+        assert!(!summary.contains("sk-secret"));
+        assert!(!summary.contains("auth code"));
+        assert!(!summary.contains("raw transcript"));
+    }
 }
