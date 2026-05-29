@@ -1,6 +1,6 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 
 use super::{
     agent_http_client, AgentProtocol, AgentProviderConfig, AgentProviderConfigSummary,
@@ -10,12 +10,14 @@ use super::{
 mod base_url;
 mod catalog;
 mod secret;
+mod store;
 
 use base_url::{
     base_urls_share_detection_candidate, optional_trimmed_api_key, parse_base_url, required_trimmed,
 };
 use catalog::detect_catalog_with_client;
 use secret::{decrypt_secret, encrypt_secret, secret_fingerprint};
+use store::{delete_setting, upsert_setting, AgentModelSettingUpsert, StoredAgentModelSetting};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AgentModelSettingsError {
@@ -210,43 +212,21 @@ impl AgentModelSettingsRuntime {
             secret_fingerprint(&self.key_material, &self.key_id, api_key.as_bytes());
         let anthropic_version =
             (protocol == AgentProtocol::Anthropic).then(|| DEFAULT_ANTHROPIC_VERSION.to_string());
-        sqlx::query(
-            r#"
-            INSERT INTO agent_model_settings (
-                tenant_id,
-                user_id,
-                detected_protocol,
+        upsert_setting(
+            &self.pool,
+            tenant_id,
+            user_id,
+            AgentModelSettingUpsert {
+                protocol,
                 base_url,
                 selected_model,
                 encrypted_api_key,
-                api_key_key_id,
+                api_key_key_id: self.key_id.clone(),
                 api_key_fingerprint,
-                anthropic_version
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (tenant_id, user_id) DO UPDATE SET
-                detected_protocol = EXCLUDED.detected_protocol,
-                base_url = EXCLUDED.base_url,
-                selected_model = EXCLUDED.selected_model,
-                encrypted_api_key = EXCLUDED.encrypted_api_key,
-                api_key_key_id = EXCLUDED.api_key_key_id,
-                api_key_fingerprint = EXCLUDED.api_key_fingerprint,
-                anthropic_version = EXCLUDED.anthropic_version,
-                updated_at = now()
-            "#,
+                anthropic_version,
+            },
         )
-        .bind(tenant_id)
-        .bind(user_id)
-        .bind(protocol.as_str())
-        .bind(base_url.as_str())
-        .bind(&selected_model)
-        .bind(encrypted_api_key)
-        .bind(&self.key_id)
-        .bind(api_key_fingerprint)
-        .bind(anthropic_version)
-        .execute(&self.pool)
-        .await
-        .map_err(|_| AgentModelSettingsError::StoreUnavailable)?;
+        .await?;
 
         self.snapshot(tenant_id, user_id, default_runtime).await
     }
@@ -257,17 +237,7 @@ impl AgentModelSettingsRuntime {
         user_id: &str,
         default_runtime: Option<&AgentRuntime>,
     ) -> Result<AgentSettingsSnapshot, AgentModelSettingsError> {
-        sqlx::query(
-            r#"
-            DELETE FROM agent_model_settings
-            WHERE tenant_id = $1 AND user_id = $2
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|_| AgentModelSettingsError::StoreUnavailable)?;
+        delete_setting(&self.pool, tenant_id, user_id).await?;
 
         self.snapshot(tenant_id, user_id, default_runtime).await
     }
@@ -295,55 +265,7 @@ impl AgentModelSettingsRuntime {
         tenant_id: &str,
         user_id: &str,
     ) -> Result<Option<StoredAgentModelSetting>, AgentModelSettingsError> {
-        let row = sqlx::query(
-            r#"
-            SELECT detected_protocol,
-                   base_url,
-                   selected_model,
-                   encrypted_api_key,
-                   api_key_key_id,
-                   anthropic_version
-            FROM agent_model_settings
-            WHERE tenant_id = $1 AND user_id = $2
-            "#,
-        )
-        .bind(tenant_id)
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| AgentModelSettingsError::StoreUnavailable)?;
-
-        row.map(|row| {
-            let protocol: String = row
-                .try_get("detected_protocol")
-                .map_err(|_| AgentModelSettingsError::StoreUnavailable)?;
-            let protocol = AgentProtocol::from_str(&protocol)
-                .ok_or(AgentModelSettingsError::InvalidStoredProtocol)?;
-            let base_url: String = row
-                .try_get("base_url")
-                .map_err(|_| AgentModelSettingsError::StoreUnavailable)?;
-            let base_url = parse_base_url(&base_url)?;
-            let stored_key_id: String = row
-                .try_get("api_key_key_id")
-                .map_err(|_| AgentModelSettingsError::StoreUnavailable)?;
-            if stored_key_id != self.key_id {
-                return Err(AgentModelSettingsError::SecretCryptoFailed);
-            }
-            Ok(StoredAgentModelSetting {
-                protocol,
-                base_url,
-                selected_model: row
-                    .try_get("selected_model")
-                    .map_err(|_| AgentModelSettingsError::StoreUnavailable)?,
-                encrypted_api_key: row
-                    .try_get("encrypted_api_key")
-                    .map_err(|_| AgentModelSettingsError::StoreUnavailable)?,
-                anthropic_version: row
-                    .try_get("anthropic_version")
-                    .map_err(|_| AgentModelSettingsError::StoreUnavailable)?,
-            })
-        })
-        .transpose()
+        store::load_setting(&self.pool, &self.key_id, tenant_id, user_id).await
     }
 
     async fn api_key_for_request(
@@ -366,15 +288,6 @@ impl AgentModelSettingsRuntime {
 
         decrypt_secret(&self.key_material, &setting.encrypted_api_key)
     }
-}
-
-#[derive(Debug)]
-struct StoredAgentModelSetting {
-    protocol: AgentProtocol,
-    base_url: Url,
-    selected_model: String,
-    encrypted_api_key: Vec<u8>,
-    anthropic_version: Option<String>,
 }
 
 fn snapshot_from_summary(summary: AgentProviderConfigSummary) -> AgentSettingsSnapshot {
