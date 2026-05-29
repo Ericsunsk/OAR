@@ -3,6 +3,7 @@ use super::request::AgentConversationContextDTO;
 const EVIDENCE_SUMMARY_LIMIT: usize = 4;
 const WORKSPACE_SECTION_LIMIT: usize = 5;
 const LIVE_FEISHU_SECTION_LIMIT: usize = 4;
+const ACTIVATED_SKILL_SECTION_LIMIT: usize = 4;
 
 #[derive(Default)]
 pub(super) struct AgentSystemPromptBuilder;
@@ -34,6 +35,11 @@ impl AgentSystemPromptBuilder {
             LIVE_FEISHU_SECTION_LIMIT,
             "暂无实时 Feishu 读取结果。",
         );
+        let activated_skills = numbered_section(
+            &context.activated_skill_summaries,
+            ACTIVATED_SKILL_SECTION_LIMIT,
+            "本轮没有激活内置 skill。",
+        );
 
         format!(
             r#"你是 OAR 的工作区级 Agent，协助用户处理 OAR 工作区里的复盘、风险和待确认动作。当前焦点只是本轮请求提供的工作区信号之一，不定义你的全部身份；不要声称已经读取后端未提供的飞书、日历、文档或其他外部系统。
@@ -42,10 +48,11 @@ impl AgentSystemPromptBuilder {
 - 当前会话历史。
 - 当前焦点/工作区信号。
 - 后端/前端提供的工作区摘要、证据摘要和 dry-run 摘要。
+- 已激活内置 skill 的领域说明和后端工具说明。
 - 后端 tool result 提供的只读实时 Feishu 读取结果。
 - 用户在对话中补充的信息。
 
-来规划下一步、分析风险、起草动作或检查证据缺口。实时 Feishu 读取结果只能来自后端 tool result 或后端 live context，不要把自己的推断当成实时读取。如果需要更多平台事实，要求用户补充或让 OAR 后端重新读取 live platform state，不要编造。
+来规划下一步、分析风险、起草动作或检查证据缺口。内置 skill 只是领域和工具说明，不代表你能直接调用飞书；真实平台读取只能来自后端 tool runtime/live context。实时 Feishu 读取结果只能来自后端 tool result 或后端 live context，不要把自己的推断当成实时读取。如果需要更多平台事实，要求用户补充或让 OAR 后端重新读取 live platform state，不要编造。
 
 安全边界：
 - 你可以规划、分析和起草，但不能代表用户确认、拒绝或执行动作。
@@ -67,6 +74,9 @@ Top 工作区信号：
 待处理动作摘要：
 {pending_actions}
 
+已激活内置 skill：
+{activated_skills}
+
 实时 Feishu 读取结果（来自后端 tool result；可能由 evidence refs live read 或只读 tool runtime 产生）：
 {live_feishu}
 
@@ -82,6 +92,7 @@ Top 工作区信号：
             workspace_summary = workspace_summary,
             workspace_signals = workspace_signals,
             pending_actions = pending_actions,
+            activated_skills = activated_skills,
             live_feishu = live_feishu
         )
     }
@@ -143,6 +154,7 @@ mod tests {
                 "实时 4".to_string(),
                 "实时 5".to_string(),
             ],
+            activated_skill_summaries: vec!["feishu.okr｜Feishu OKR｜用途：读取 OKR".to_string()],
         });
 
         assert!(prompt.contains("工作区级 Agent"));
@@ -150,6 +162,8 @@ mod tests {
         assert!(prompt.contains("不要声称已经读取后端未提供的飞书"));
         assert!(prompt.contains("当前会话历史"));
         assert!(prompt.contains("后端/前端提供的工作区摘要、证据摘要和 dry-run 摘要"));
+        assert!(prompt.contains("已激活内置 skill 的领域说明和后端工具说明"));
+        assert!(prompt.contains("内置 skill 只是领域和工具说明"));
         assert!(prompt.contains("必须先有 dry-run"));
         assert!(
             prompt.contains("ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent")
@@ -165,6 +179,8 @@ mod tests {
         assert!(prompt.contains("1. 动作 1"));
         assert!(prompt.contains("5. 动作 5"));
         assert!(!prompt.contains("动作 6"));
+        assert!(prompt.contains("已激活内置 skill"));
+        assert!(prompt.contains("feishu.okr｜Feishu OKR"));
         assert!(prompt.contains("实时 Feishu 读取结果"));
         assert!(prompt.contains("后端 tool result 提供的只读实时 Feishu 读取结果"));
         assert!(prompt.contains("实时 Feishu 读取结果只能来自后端 tool result"));
@@ -188,6 +204,9 @@ mod tests {
             live_feishu_read_summaries: vec![
                 "工具 feishu.okr.summarize_my_okr｜实时：我的 OKR 当前有 2 条目标；仅返回安全摘要。"
                     .to_string(),
+            ],
+            activated_skill_summaries: vec![
+                "feishu.okr｜Feishu OKR｜可用后端工具：feishu.okr.summarize_my_okr".to_string(),
             ],
         });
 

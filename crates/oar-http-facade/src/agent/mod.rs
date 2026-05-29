@@ -4,6 +4,7 @@ mod openai;
 mod prompt;
 mod request;
 mod settings;
+mod skills;
 mod stream;
 mod tools;
 

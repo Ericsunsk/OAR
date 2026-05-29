@@ -47,6 +47,8 @@ pub(super) struct AgentConversationContextDTO {
     pub(super) pending_action_summaries: Vec<String>,
     #[serde(skip)]
     pub(super) live_feishu_read_summaries: Vec<String>,
+    #[serde(skip)]
+    pub(super) activated_skill_summaries: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

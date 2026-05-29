@@ -312,6 +312,7 @@ mod tests {
                 workspace_signals: vec![],
                 pending_action_summaries: vec![],
                 live_feishu_read_summaries: vec![],
+                activated_skill_summaries: vec![],
             },
         };
 

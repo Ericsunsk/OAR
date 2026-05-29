@@ -18,6 +18,7 @@ struct OARApp: App {
 /// window while keyboard events still go to Terminal / Xcode.
 final class OARAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SystemLogNoiseFilter.install()
         NSApp.setActivationPolicy(.regular)
         if #available(macOS 14.0, *) {
             NSApp.activate()

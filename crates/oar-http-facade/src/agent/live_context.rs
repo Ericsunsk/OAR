@@ -10,7 +10,8 @@ use oar_lark_adapter::{
 };
 
 use super::request::{AgentEvidenceRefDTO, AgentStreamRequest};
-use super::tools::{plan_read_tools, AgentReadTool};
+use super::skills::select_skills;
+use super::tools::{plan_read_tools_for_skills, AgentReadTool};
 use crate::{AuthenticatedContext, OarHttpFacadeRuntime};
 
 mod grant;
@@ -40,7 +41,12 @@ pub(crate) async fn inject_live_feishu_context(
     auth_context: &AuthenticatedContext,
     request: &mut AgentStreamRequest,
 ) {
-    let read_tools = plan_read_tools(request);
+    let active_skills = select_skills(request);
+    request.context.activated_skill_summaries = active_skills
+        .iter()
+        .map(|skill| skill.prompt_summary())
+        .collect();
+    let read_tools = plan_read_tools_for_skills(&active_skills);
     let summaries = assemble_live_feishu_summaries(
         runtime,
         auth_context,
@@ -521,6 +527,7 @@ mod tests {
                 workspace_signals: vec![],
                 pending_action_summaries: vec![],
                 live_feishu_read_summaries: vec![],
+                activated_skill_summaries: vec![],
             },
         };
         let runtime = OarHttpFacadeRuntime::disabled();
@@ -555,6 +562,7 @@ mod tests {
                 workspace_signals: vec![],
                 pending_action_summaries: vec![],
                 live_feishu_read_summaries: vec![],
+                activated_skill_summaries: vec![],
             },
         };
         let runtime = OarHttpFacadeRuntime::disabled();
@@ -566,6 +574,8 @@ mod tests {
 
         inject_live_feishu_context(&runtime, &auth_context, &mut request).await;
 
+        assert_eq!(request.context.activated_skill_summaries.len(), 1);
+        assert!(request.context.activated_skill_summaries[0].contains("feishu.okr"));
         assert_eq!(request.context.live_feishu_read_summaries.len(), 1);
         let summary = &request.context.live_feishu_read_summaries[0];
         assert!(summary.contains("后端未配置 Feishu 授权存储"));
@@ -592,6 +602,7 @@ mod tests {
                 workspace_signals: vec![],
                 pending_action_summaries: vec![],
                 live_feishu_read_summaries: vec![],
+                activated_skill_summaries: vec![],
             },
         };
         let runtime = OarHttpFacadeRuntime::disabled();
