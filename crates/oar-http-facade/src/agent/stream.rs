@@ -40,6 +40,22 @@ pub(super) fn agent_frame_channel() -> (AgentFrameSender, AgentFrameStream) {
     (sender, ReceiverStream::new(receiver))
 }
 
+pub(super) fn spawn_upstream_sse_response<F>(
+    response: reqwest::Response,
+    map_frame: F,
+) -> AgentFrameStream
+where
+    F: FnMut(&str) -> Vec<AgentStreamFrame> + Send + 'static,
+{
+    let (sender, receiver) = agent_frame_channel();
+    tokio::spawn(stream_upstream_sse_response(
+        response.bytes_stream(),
+        sender,
+        map_frame,
+    ));
+    receiver
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum AgentStreamFrame {
     Delta(String),

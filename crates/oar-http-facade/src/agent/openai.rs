@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::prompt::AgentSystemPromptBuilder;
 use super::request::AgentStreamRequest;
 use super::stream::{
-    agent_frame_channel, sse_data_payload, stream_upstream_sse_response, AgentFrameStream,
-    AgentStreamFrame,
+    spawn_upstream_sse_response, sse_data_payload, AgentFrameStream, AgentStreamFrame,
 };
 use super::{
     agent_http_client, ensure_successful_upstream_response, is_allowed_agent_base_url,
@@ -114,13 +113,7 @@ impl OpenAICompatibleAgentProvider {
 
         ensure_successful_upstream_response(&response)?;
 
-        let (sender, receiver) = agent_frame_channel();
-        tokio::spawn(stream_upstream_sse_response(
-            response.bytes_stream(),
-            sender,
-            openai_frame_events,
-        ));
-        Ok(receiver)
+        Ok(spawn_upstream_sse_response(response, openai_frame_events))
     }
 }
 
