@@ -67,3 +67,47 @@ impl AgentSkill {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_skill_specs_expose_expected_manifests_and_tools() {
+        assert_feishu_okr_spec(AgentSkill::FeishuOkr.spec());
+        assert_feishu_task_spec(AgentSkill::FeishuTask.spec());
+        assert_feishu_calendar_spec(AgentSkill::FeishuCalendar.spec());
+    }
+
+    fn assert_feishu_okr_spec(spec: AgentSkillSpec) {
+        assert_eq!(spec.id, "feishu.okr");
+        assert_eq!(spec.display_name, "Feishu OKR");
+        assert_eq!(spec.tools.len(), 1);
+        assert_eq!(spec.tools[0].name, "feishu.okr.summarize_my_okr");
+        assert!(spec.safety.contains("后端 tool runtime"));
+        assert!(spec.manifest_markdown.contains("## Activation"));
+        assert!(spec
+            .manifest_markdown
+            .contains("feishu.okr.summarize_my_okr"));
+    }
+
+    fn assert_feishu_task_spec(spec: AgentSkillSpec) {
+        assert_eq!(spec.id, "feishu.task");
+        assert_eq!(spec.display_name, "Feishu Task");
+        assert!(spec.purpose.contains("飞书任务"));
+        assert_eq!(spec.tools.len(), 1);
+        assert_eq!(spec.tools[0].name, "feishu.task.summarize_my_tasks");
+        assert!(spec.tools[0].description.contains("只读汇总"));
+        assert!(spec.manifest_markdown.contains("# Feishu Task"));
+    }
+
+    fn assert_feishu_calendar_spec(spec: AgentSkillSpec) {
+        assert_eq!(spec.id, "feishu.calendar");
+        assert_eq!(spec.display_name, "Feishu Calendar");
+        assert!(spec.purpose.contains("忙闲"));
+        assert_eq!(spec.tools.len(), 1);
+        assert_eq!(spec.tools[0].name, "feishu.calendar.summarize_my_free_busy");
+        assert!(spec.tools[0].description.contains("未来 7 天"));
+        assert!(spec.manifest_markdown.contains("# Feishu Calendar"));
+    }
+}
