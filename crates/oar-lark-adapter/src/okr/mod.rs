@@ -3,6 +3,7 @@ mod error;
 mod feishu_types;
 mod parser;
 mod read_model;
+mod response_parser;
 mod review_inbox;
 mod types;
 
