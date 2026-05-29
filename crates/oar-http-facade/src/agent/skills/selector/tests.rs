@@ -5,7 +5,10 @@ use crate::agent::request::{AgentConversationContextDTO, AgentMessageDTO};
 fn selects_feishu_okr_for_explicit_user_okr_read() {
     let request = request_with_latest_user_text("查下我的飞书 OKR 有没有内容");
 
-    assert!(okr::latest_user_requests_feishu_okr_summary(&request));
+    assert_eq!(
+        select_feishu_okr_read_intents(&request),
+        vec![FeishuOkrReadIntent::Summary]
+    );
     assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
 }
 
@@ -74,6 +77,65 @@ fn selects_feishu_okr_for_independent_kr_token() {
 }
 
 #[test]
+fn selects_feishu_okr_progress_intent_for_self_progress_variants() {
+    for text in [
+        "我的 OKR 进展",
+        "我的 OKR 进度",
+        "我的 OKR 更新记录",
+        "我的 OKR 最近更新",
+        "我的 OKR 上次更新",
+        "我的 OKR 风险",
+        "我的 OKR 延期",
+        "show my OKR progress",
+        "show my OKR update records",
+        "show my OKR latest updates",
+        "show my OKR risk",
+        "my OKR stale",
+    ] {
+        let request = request_with_latest_user_text(text);
+        assert_eq!(
+            select_feishu_okr_read_intents(&request),
+            vec![FeishuOkrReadIntent::Progress],
+            "{text}"
+        );
+        assert_eq!(
+            select_skills(&request),
+            vec![AgentSkill::FeishuOkr],
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn selects_both_okr_intents_when_latest_request_asks_count_and_progress() {
+    let request = request_with_latest_user_text("查我的 OKR 有几条，以及最近进展");
+
+    assert_eq!(
+        select_feishu_okr_read_intents(&request),
+        vec![FeishuOkrReadIntent::Summary, FeishuOkrReadIntent::Progress]
+    );
+    assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
+}
+
+#[test]
+fn selects_only_progress_for_target_progress_phrasing() {
+    for text in ["看我的 OKR 目标进展", "show my OKR objective progress"] {
+        let request = request_with_latest_user_text(text);
+
+        assert_eq!(
+            select_feishu_okr_read_intents(&request),
+            vec![FeishuOkrReadIntent::Progress],
+            "{text}"
+        );
+        assert_eq!(
+            select_skills(&request),
+            vec![AgentSkill::FeishuOkr],
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn selects_feishu_okr_for_contextual_feishu_count_after_okr_topic() {
     let mut request = request_with_latest_user_text("你看下我飞书目前有几条?");
     request.messages.insert(
@@ -84,7 +146,10 @@ fn selects_feishu_okr_for_contextual_feishu_count_after_okr_topic() {
         },
     );
 
-    assert!(okr::latest_user_requests_feishu_okr_summary(&request));
+    assert_eq!(
+        select_feishu_okr_read_intents(&request),
+        vec![FeishuOkrReadIntent::Summary]
+    );
     assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
 }
 
@@ -101,6 +166,40 @@ fn does_not_select_feishu_okr_for_non_self_or_non_read_questions() {
     assert!(select_skills(&request_with_latest_user_text("我们团队 OKR 有几条")).is_empty());
     assert!(select_skills(&request_with_latest_user_text("看下张三 OKR")).is_empty());
     assert!(select_skills(&request_with_latest_user_text("show my team OKR")).is_empty());
+}
+
+#[test]
+fn does_not_select_feishu_okr_progress_for_writes_non_self_or_generic_risk() {
+    for text in [
+        "帮我更新我的 OKR 进度",
+        "新增我的 OKR 进展",
+        "创建我的 OKR 进展",
+        "删除我的 OKR 进展",
+        "提交我的 OKR 进展",
+        "发布我的 OKR 进展",
+        "评论我的 OKR 进展",
+        "提醒我的 OKR 进展",
+        "update my OKR progress",
+        "set my OKR progress",
+        "write my OKR progress",
+        "delete my OKR progress",
+        "submit my OKR progress",
+        "post my OKR progress",
+        "comment my OKR progress",
+        "remind my OKR progress",
+        "查团队 OKR 进展",
+        "看其他人 OKR 风险",
+        "show my team OKR progress",
+        "查我的飞书目标客户风险",
+        "解释这个风险",
+    ] {
+        let request = request_with_latest_user_text(text);
+        assert!(
+            select_feishu_okr_read_intents(&request).is_empty(),
+            "{text}"
+        );
+        assert!(select_skills(&request).is_empty(), "{text}");
+    }
 }
 
 #[test]

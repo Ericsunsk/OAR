@@ -1,24 +1,29 @@
-#[cfg(test)]
 use crate::agent::request::AgentStreamRequest;
-use crate::agent::skills::AgentSkill;
+use crate::agent::skills::{AgentSkill, FeishuOkrReadIntent};
 
 use super::registry::AgentReadTool;
 
-#[cfg(test)]
 pub(in crate::agent) fn plan_read_tools(request: &AgentStreamRequest) -> Vec<AgentReadTool> {
     let active_skills = crate::agent::skills::select_skills(request);
-    plan_read_tools_for_skills(&active_skills)
+    let okr_intents = crate::agent::skills::select_feishu_okr_read_intents(request);
+    plan_read_tools_for_selected_intents(&active_skills, &okr_intents)
 }
 
-pub(in crate::agent) fn plan_read_tools_for_skills(
+fn plan_read_tools_for_selected_intents(
     active_skills: &[AgentSkill],
+    okr_intents: &[FeishuOkrReadIntent],
 ) -> Vec<AgentReadTool> {
     let mut tools = Vec::new();
     if active_skills.contains(&AgentSkill::FeishuCalendar) {
         tools.push(AgentReadTool::FeishuCalendarSummarizeMyFreeBusy);
     }
     if active_skills.contains(&AgentSkill::FeishuOkr) {
-        tools.push(AgentReadTool::FeishuOkrSummarizeMyOkr);
+        if okr_intents.contains(&FeishuOkrReadIntent::Summary) {
+            tools.push(AgentReadTool::FeishuOkrSummarizeMyOkr);
+        }
+        if okr_intents.contains(&FeishuOkrReadIntent::Progress) {
+            tools.push(AgentReadTool::FeishuOkrSummarizeMyProgress);
+        }
     }
     if active_skills.contains(&AgentSkill::FeishuTask) {
         tools.push(AgentReadTool::FeishuTaskSummarizeMyTasks);
@@ -59,6 +64,77 @@ mod tests {
             vec![FeishuScope::OkrPeriodRead, FeishuScope::OkrContentRead]
         );
         assert_eq!(spec.effect, AgentToolEffect::Read);
+    }
+
+    #[test]
+    fn planner_requests_my_okr_progress_without_summary_for_progress_intent() {
+        let request = request_with_latest_user_text("我的 OKR 最近更新和风险");
+
+        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
+        assert_eq!(
+            plan_read_tools(&request),
+            vec![AgentReadTool::FeishuOkrSummarizeMyProgress]
+        );
+        let spec = AgentReadTool::FeishuOkrSummarizeMyProgress.spec();
+        assert_eq!(spec.name, "feishu.okr.summarize_my_progress");
+        assert!(spec.description.contains("最近更新"));
+        assert_eq!(
+            spec.required_action_types,
+            &[
+                CapabilityActionType::OkrPeriodRead,
+                CapabilityActionType::OkrContentRead,
+                CapabilityActionType::OkrProgressRead
+            ]
+        );
+        assert!(!spec
+            .required_action_types
+            .contains(&CapabilityActionType::OkrProgressCreate));
+        assert!(!spec
+            .required_action_types
+            .contains(&CapabilityActionType::OkrProgressUpdate));
+        let scopes = spec.required_feishu_scopes().expect("scopes");
+        assert_eq!(
+            scopes,
+            vec![
+                FeishuScope::OkrPeriodRead,
+                FeishuScope::OkrContentRead,
+                FeishuScope::OkrProgressRead
+            ]
+        );
+        assert!(!scopes.contains(&FeishuScope::OkrProgressWrite));
+        assert_eq!(spec.effect, AgentToolEffect::Read);
+    }
+
+    #[test]
+    fn planner_requests_only_progress_for_target_progress_phrasing() {
+        for text in ["看我的 OKR 目标进展", "show my OKR objective progress"] {
+            let request = request_with_latest_user_text(text);
+
+            assert_eq!(
+                select_skills(&request),
+                vec![AgentSkill::FeishuOkr],
+                "{text}"
+            );
+            assert_eq!(
+                plan_read_tools(&request),
+                vec![AgentReadTool::FeishuOkrSummarizeMyProgress],
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn planner_requests_both_okr_tools_for_count_and_progress_intent() {
+        let request = request_with_latest_user_text("查我的 OKR 有几条，以及最近进展");
+
+        assert_eq!(select_skills(&request), vec![AgentSkill::FeishuOkr]);
+        assert_eq!(
+            plan_read_tools(&request),
+            vec![
+                AgentReadTool::FeishuOkrSummarizeMyOkr,
+                AgentReadTool::FeishuOkrSummarizeMyProgress
+            ]
+        );
     }
 
     #[test]
@@ -113,6 +189,9 @@ mod tests {
         assert!(plan_read_tools(&request_with_latest_user_text("查团队 OKR")).is_empty());
         assert!(plan_read_tools(&request_with_latest_user_text("帮我查团队 OKR")).is_empty());
         assert!(plan_read_tools(&request_with_latest_user_text("查我的目标客户数量")).is_empty());
+        assert!(
+            plan_read_tools(&request_with_latest_user_text("帮我更新我的 OKR 进度")).is_empty()
+        );
     }
 
     #[test]

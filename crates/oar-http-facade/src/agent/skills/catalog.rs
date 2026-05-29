@@ -82,13 +82,17 @@ mod tests {
     fn assert_feishu_okr_spec(spec: AgentSkillSpec) {
         assert_eq!(spec.id, "feishu.okr");
         assert_eq!(spec.display_name, "Feishu OKR");
-        assert_eq!(spec.tools.len(), 1);
+        assert_eq!(spec.tools.len(), 2);
         assert_eq!(spec.tools[0].name, "feishu.okr.summarize_my_okr");
+        assert_eq!(spec.tools[1].name, "feishu.okr.summarize_my_progress");
         assert!(spec.safety.contains("后端 tool runtime"));
         assert!(spec.manifest_markdown.contains("## Activation"));
         assert!(spec
             .manifest_markdown
             .contains("feishu.okr.summarize_my_okr"));
+        assert!(spec
+            .manifest_markdown
+            .contains("feishu.okr.summarize_my_progress"));
     }
 
     fn assert_feishu_task_spec(spec: AgentSkillSpec) {

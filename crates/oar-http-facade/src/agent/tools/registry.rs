@@ -7,6 +7,7 @@ use oar_core::action::capability::{
 pub(in crate::agent) enum AgentReadTool {
     FeishuCalendarSummarizeMyFreeBusy,
     FeishuOkrSummarizeMyOkr,
+    FeishuOkrSummarizeMyProgress,
     FeishuTaskSummarizeMyTasks,
 }
 
@@ -27,6 +28,11 @@ const FEISHU_OKR_SUMMARIZE_MY_OKR_ACTION_TYPES: &[CapabilityActionType] = &[
     CapabilityActionType::OkrPeriodRead,
     CapabilityActionType::OkrContentRead,
 ];
+const FEISHU_OKR_SUMMARIZE_MY_PROGRESS_ACTION_TYPES: &[CapabilityActionType] = &[
+    CapabilityActionType::OkrPeriodRead,
+    CapabilityActionType::OkrContentRead,
+    CapabilityActionType::OkrProgressRead,
+];
 const FEISHU_TASK_SUMMARIZE_MY_TASKS_ACTION_TYPES: &[CapabilityActionType] =
     &[CapabilityActionType::TaskRead];
 const FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES: &[CapabilityActionType] =
@@ -45,6 +51,12 @@ impl AgentReadTool {
                 name: "feishu.okr.summarize_my_okr",
                 description: "只读汇总当前用户的 Feishu OKR 周期、Objective 和 KR 数量。",
                 required_action_types: FEISHU_OKR_SUMMARIZE_MY_OKR_ACTION_TYPES,
+                effect: AgentToolEffect::Read,
+            },
+            Self::FeishuOkrSummarizeMyProgress => AgentToolSpec {
+                name: "feishu.okr.summarize_my_progress",
+                description: "只读汇总当前用户的 Feishu OKR 进展、最近更新、延期和风险信号。",
+                required_action_types: FEISHU_OKR_SUMMARIZE_MY_PROGRESS_ACTION_TYPES,
                 effect: AgentToolEffect::Read,
             },
             Self::FeishuTaskSummarizeMyTasks => AgentToolSpec {
@@ -104,6 +116,24 @@ mod tests {
         assert_eq!(
             spec.required_feishu_scopes().expect("scopes"),
             vec![FeishuScope::OkrPeriodRead, FeishuScope::OkrContentRead]
+        );
+
+        let spec = AgentReadTool::FeishuOkrSummarizeMyProgress.spec();
+        assert_eq!(
+            spec.required_action_types,
+            &[
+                CapabilityActionType::OkrPeriodRead,
+                CapabilityActionType::OkrContentRead,
+                CapabilityActionType::OkrProgressRead
+            ]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![
+                FeishuScope::OkrPeriodRead,
+                FeishuScope::OkrContentRead,
+                FeishuScope::OkrProgressRead
+            ]
         );
 
         let spec = AgentReadTool::FeishuTaskSummarizeMyTasks.spec();

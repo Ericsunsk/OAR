@@ -5,22 +5,53 @@ use super::common::{
     mentions_feishu, targets_non_self,
 };
 
-pub(super) fn latest_user_requests_feishu_okr_summary(request: &AgentStreamRequest) -> bool {
-    let Some(latest_user_text) = latest_user_text(request) else {
-        return false;
-    };
-
-    latest_user_has_explicit_self_okr_read_intent(latest_user_text)
-        || (latest_user_has_contextual_feishu_count_intent(latest_user_text)
-            && request_has_recent_okr_topic(request))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::agent) enum FeishuOkrReadIntent {
+    Summary,
+    Progress,
 }
 
-fn latest_user_has_explicit_self_okr_read_intent(text: &str) -> bool {
+pub(in crate::agent) fn latest_user_feishu_okr_read_intents(
+    request: &AgentStreamRequest,
+) -> Vec<FeishuOkrReadIntent> {
+    let Some(latest_user_text) = latest_user_text(request) else {
+        return Vec::new();
+    };
+
+    if asks_okr_write(latest_user_text) {
+        return Vec::new();
+    }
+
+    let mut intents = Vec::new();
+    if latest_user_has_explicit_self_okr_summary_intent(latest_user_text)
+        || (latest_user_has_contextual_feishu_count_intent(latest_user_text)
+            && request_has_recent_okr_topic(request))
+    {
+        intents.push(FeishuOkrReadIntent::Summary);
+    }
+    if latest_user_has_explicit_self_okr_progress_intent(latest_user_text) {
+        intents.push(FeishuOkrReadIntent::Progress);
+    }
+
+    intents
+}
+
+fn latest_user_has_explicit_self_okr_summary_intent(text: &str) -> bool {
+    let asks_for_summary = asks_to_count(text) || mentions_summary_content(text);
     mentions_okr(text)
         && asks_to_read(text)
         && is_self_scoped(text)
         && !targets_non_self(text)
         && !mentions_non_okr_goal_context(text)
+        && (asks_for_summary || !mentions_progress_context(text))
+}
+
+fn latest_user_has_explicit_self_okr_progress_intent(text: &str) -> bool {
+    mentions_okr(text)
+        && is_self_scoped(text)
+        && !targets_non_self(text)
+        && !mentions_non_okr_goal_context(text)
+        && mentions_progress_context(text)
 }
 
 fn latest_user_has_contextual_feishu_count_intent(text: &str) -> bool {
@@ -69,6 +100,67 @@ fn mentions_okr(text: &str) -> bool {
         || text.contains("飞书 OKR")
         || text.contains("飞书okr")
         || text.contains("飞书目标")
+}
+
+fn mentions_summary_content(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("内容") || text.contains("有没有") || contains_latin_token(&normalized, "content")
+}
+
+fn mentions_progress_context(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("进展")
+        || text.contains("进度")
+        || text.contains("更新记录")
+        || text.contains("最近更新")
+        || text.contains("上次更新")
+        || text.contains("风险")
+        || text.contains("延期")
+        || contains_latin_token(&normalized, "progress")
+        || contains_latin_token(&normalized, "updates")
+        || mentions_okr_english_update_read(&normalized)
+        || contains_latin_token(&normalized, "stale")
+        || contains_latin_token(&normalized, "risk")
+}
+
+fn asks_okr_write(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    text.contains("新增")
+        || text.contains("创建")
+        || text.contains("新建")
+        || text.contains("删除")
+        || text.contains("提交")
+        || text.contains("发布")
+        || text.contains("评论")
+        || text.contains("提醒")
+        || text.contains("修改")
+        || text.contains("设置")
+        || asks_okr_chinese_update_write(text)
+        || (contains_latin_token(&normalized, "update")
+            && !mentions_okr_english_update_read(&normalized))
+        || contains_latin_token(&normalized, "set")
+        || contains_latin_token(&normalized, "write")
+        || contains_latin_token(&normalized, "delete")
+        || contains_latin_token(&normalized, "submit")
+        || contains_latin_token(&normalized, "post")
+        || contains_latin_token(&normalized, "comment")
+        || contains_latin_token(&normalized, "remind")
+}
+
+fn asks_okr_chinese_update_write(text: &str) -> bool {
+    text.contains("更新")
+        && !text.contains("更新记录")
+        && !text.contains("最近更新")
+        && !text.contains("上次更新")
+}
+
+fn mentions_okr_english_update_read(normalized: &str) -> bool {
+    normalized.contains("update record")
+        || normalized.contains("update records")
+        || normalized.contains("latest update")
+        || normalized.contains("latest updates")
+        || normalized.contains("recent update")
+        || normalized.contains("recent updates")
 }
 
 fn mentions_non_okr_goal_context(text: &str) -> bool {

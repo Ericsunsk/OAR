@@ -75,6 +75,7 @@ Agent tool manifest 与 core capability 的当前对齐：
 | Agent tool | Required `action_type` | 派生 Feishu scope | Effect | 边界 |
 | --- | --- | --- | --- | --- |
 | `feishu.okr.summarize_my_okr` | `okr.period.read`、`okr.content.read` | `okr:okr.period:readonly`、`okr:okr.content:readonly` | Read | 只读汇总当前用户本人 OKR 周期、Objective 和 KR 数量；不读取团队/他人 OKR，不生成 `ProposedAction` 或 `ConfirmedAction` |
+| `feishu.okr.summarize_my_progress` | `okr.period.read`、`okr.content.read`、`okr.progress.read` | `okr:okr.period:readonly`、`okr:okr.content:readonly`、`okr:okr.progress:readonly` | Read | 只读汇总当前用户本人 OKR progress、最近更新、延期和风险信号；不读取团队/他人 OKR，不生成 `ProposedAction` 或 `ConfirmedAction` |
 | `feishu.task.summarize_my_tasks` | `task.read` | `task:task:read` | Read | 只读汇总当前用户本人“我负责的”任务数量、状态和示例标题；不创建/更新/删除/指派任务，不生成 `ProposedAction` 或 `ConfirmedAction` |
 | `feishu.calendar.summarize_my_free_busy` | `calendar.free_busy.read` | `calendar:calendar.free_busy:read` | Read | 只读汇总当前用户本人未来 7 天主日历忙碌窗口数量和示例时间段；不返回日程标题、详情、参会人或会议内容，不生成 `ProposedAction` 或 `ConfirmedAction` |
 
@@ -128,7 +129,7 @@ Agent tool manifest 与 core capability 的当前对齐：
 当前 MVP 只允许：
 
 - 自动读取授权范围内的 OKR 周期、Objective、KR 和 progress。
-- Agent 已启用 `feishu.okr.summarize_my_okr`、`feishu.task.summarize_my_tasks` 和 `feishu.calendar.summarize_my_free_busy` 只读工具，用于当前用户本人 OKR、“我负责的”任务和未来 7 天主日历忙闲安全摘要；边界见上方 manifest 对齐表。
+- Agent 已启用 `feishu.okr.summarize_my_okr`、`feishu.okr.summarize_my_progress`、`feishu.task.summarize_my_tasks` 和 `feishu.calendar.summarize_my_free_busy` 只读工具，用于当前用户本人 OKR、“我负责的”任务和未来 7 天主日历忙闲安全摘要；边界见上方 manifest 对齐表。
 - 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy 和 task 摘要列为 `AutoRead`；calendar free-busy 与 task read 已接入只读 adapter，这些读能力不进入写执行 allowlist。
 - 自动生成风险、证据摘要、周报和建议动作。
 - 将 task 创建和 bot 消息发送登记为 `DraftOnly`；当前只允许生成草稿或待评审项合同，不进入生产写执行 allowlist。
