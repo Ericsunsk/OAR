@@ -1,6 +1,8 @@
 mod client;
 mod error;
+mod feishu_types;
 mod parser;
+mod read_model;
 mod review_inbox;
 mod types;
 
