@@ -1,14 +1,14 @@
 use reqwest::Url;
-use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use super::{
-    agent_http_client, AgentProtocol, AgentProviderConfig, AgentProviderConfigSummary,
-    AgentRuntime, AgentRuntimeConfigError, DEFAULT_ANTHROPIC_VERSION,
+    agent_http_client, AgentProtocol, AgentProviderConfig, AgentRuntime, AgentRuntimeConfigError,
+    DEFAULT_ANTHROPIC_VERSION,
 };
 
 mod base_url;
 mod catalog;
+mod contract;
 mod secret;
 mod store;
 
@@ -16,6 +16,10 @@ use base_url::{
     base_urls_share_detection_candidate, optional_trimmed_api_key, parse_base_url, required_trimmed,
 };
 use catalog::detect_catalog_with_client;
+pub(crate) use contract::{
+    decode_agent_model_catalog_request, decode_agent_settings_update_request, AgentModelCandidate,
+    AgentModelCatalog, AgentModelCatalogRequest, AgentSettingsSnapshot, AgentSettingsUpdateRequest,
+};
 use secret::{decrypt_secret, encrypt_secret, secret_fingerprint};
 use store::{delete_setting, upsert_setting, AgentModelSettingUpsert, StoredAgentModelSetting};
 
@@ -50,54 +54,6 @@ impl std::fmt::Display for AgentModelSettingsError {
             Self::InvalidStoredProtocol => write!(f, "agent_settings_protocol_invalid"),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct AgentSettingsSnapshot {
-    pub(crate) source: &'static str,
-    pub(crate) detected_protocol: Option<String>,
-    pub(crate) base_url: Option<String>,
-    pub(crate) selected_model: Option<String>,
-    pub(crate) api_key_status: &'static str,
-    pub(crate) can_configure: bool,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct AgentModelCatalog {
-    pub(crate) detected_protocol: String,
-    pub(crate) models: Vec<AgentModelCandidate>,
-    pub(crate) recommended_model: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct AgentModelCandidate {
-    pub(crate) id: String,
-    pub(crate) display_name: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct AgentModelCatalogRequest {
-    base_url: String,
-    api_key: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct AgentSettingsUpdateRequest {
-    base_url: String,
-    api_key: Option<String>,
-    selected_model: String,
-}
-
-pub(crate) fn decode_agent_model_catalog_request(
-    body: &[u8],
-) -> Result<AgentModelCatalogRequest, AgentModelSettingsError> {
-    serde_json::from_slice(body).map_err(|_| AgentModelSettingsError::InvalidJson)
-}
-
-pub(crate) fn decode_agent_settings_update_request(
-    body: &[u8],
-) -> Result<AgentSettingsUpdateRequest, AgentModelSettingsError> {
-    serde_json::from_slice(body).map_err(|_| AgentModelSettingsError::InvalidJson)
 }
 
 #[derive(Clone)]
@@ -151,17 +107,13 @@ impl AgentModelSettingsRuntime {
         }
 
         if let Some(default_runtime) = default_runtime {
-            return Ok(snapshot_from_summary(default_runtime.config_summary()));
+            return Ok(AgentSettingsSnapshot::from_summary(
+                default_runtime.config_summary(),
+                true,
+            ));
         }
 
-        Ok(AgentSettingsSnapshot {
-            source: "none",
-            detected_protocol: None,
-            base_url: None,
-            selected_model: None,
-            api_key_status: "missing",
-            can_configure: true,
-        })
+        Ok(AgentSettingsSnapshot::missing(true))
     }
 
     pub(crate) async fn detect_catalog(
@@ -287,16 +239,5 @@ impl AgentModelSettingsRuntime {
         }
 
         decrypt_secret(&self.key_material, &setting.encrypted_api_key)
-    }
-}
-
-fn snapshot_from_summary(summary: AgentProviderConfigSummary) -> AgentSettingsSnapshot {
-    AgentSettingsSnapshot {
-        source: "env",
-        detected_protocol: Some(summary.protocol.to_string()),
-        base_url: Some(summary.base_url),
-        selected_model: Some(summary.model),
-        api_key_status: "saved",
-        can_configure: true,
     }
 }

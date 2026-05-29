@@ -3,11 +3,12 @@ use std::sync::Arc;
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::http::{Method, StatusCode};
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::agent::{
     decode_agent_model_catalog_request, decode_agent_settings_update_request,
-    AgentModelCatalogRequest, AgentModelSettingsError, AgentRuntime, AgentSettingsUpdateRequest,
+    AgentModelCatalogRequest, AgentModelSettingsError, AgentRuntime, AgentSettingsSnapshot,
+    AgentSettingsUpdateRequest,
 };
 use crate::response::{json_facade_response, not_found, service_unavailable, FacadeResponse};
 use crate::{
@@ -175,28 +176,9 @@ async fn delete_settings_response(
 
 fn settings_without_store_response(default_runtime: Option<&AgentRuntime>) -> FacadeResponse {
     let snapshot = default_runtime
-        .map(|runtime| {
-            let summary = runtime.config_summary();
-            json!({
-                "source": "env",
-                "detected_protocol": summary.protocol,
-                "base_url": summary.base_url,
-                "selected_model": summary.model,
-                "api_key_status": "saved",
-                "can_configure": false
-            })
-        })
-        .unwrap_or_else(|| {
-            json!({
-                "source": "none",
-                "detected_protocol": Value::Null,
-                "base_url": Value::Null,
-                "selected_model": Value::Null,
-                "api_key_status": "missing",
-                "can_configure": false
-            })
-        });
-    json_facade_response(StatusCode::OK, snapshot)
+        .map(|runtime| AgentSettingsSnapshot::from_summary(runtime.config_summary(), false))
+        .unwrap_or_else(|| AgentSettingsSnapshot::missing(false));
+    json_facade_response(StatusCode::OK, json!(snapshot))
 }
 
 fn agent_model_settings_error_response(error: AgentModelSettingsError) -> FacadeResponse {

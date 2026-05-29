@@ -21,5 +21,5 @@ pub(crate) use runtime::{AgentRuntime, AgentRuntimeConfigError, AgentStreamError
 pub(crate) use settings::{
     decode_agent_model_catalog_request, decode_agent_settings_update_request,
     AgentModelCatalogRequest, AgentModelSettingsError, AgentModelSettingsRuntime,
-    AgentSettingsUpdateRequest,
+    AgentSettingsSnapshot, AgentSettingsUpdateRequest,
 };
