@@ -278,6 +278,46 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_frame_events_maps_invalid_json_to_error() {
+        assert_eq!(
+            anthropic_frame_events("data: {not-json"),
+            vec![AgentStreamFrame::Error("invalid_upstream_event")]
+        );
+    }
+
+    #[test]
+    fn anthropic_frame_events_maps_upstream_error_to_error() {
+        assert_eq!(
+            anthropic_frame_events(r#"data: {"type":"error"}"#),
+            vec![AgentStreamFrame::Error("upstream_error")]
+        );
+    }
+
+    #[test]
+    fn anthropic_frame_events_ignores_non_text_delta() {
+        assert_eq!(
+            anthropic_frame_events(
+                r#"data: {"type":"content_block_delta","delta":{"type":"input_json_delta","text":"ignored"}}"#,
+            ),
+            Vec::<AgentStreamFrame>::new()
+        );
+    }
+
+    #[test]
+    fn anthropic_frame_events_ignores_missing_delta_or_empty_text() {
+        assert_eq!(
+            anthropic_frame_events(r#"data: {"type":"content_block_delta"}"#),
+            Vec::<AgentStreamFrame>::new()
+        );
+        assert_eq!(
+            anthropic_frame_events(
+                r#"data: {"type":"content_block_delta","delta":{"type":"text_delta","text":""}}"#,
+            ),
+            Vec::<AgentStreamFrame>::new()
+        );
+    }
+
+    #[test]
     fn anthropic_messages_drop_leading_assistant_and_merge_adjacent_roles() {
         let request = AgentStreamRequest {
             messages: vec![

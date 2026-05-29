@@ -251,4 +251,41 @@ mod tests {
         assert_eq!(messages.last().expect("user").content, "解释风险");
         assert_eq!(messages.len(), 2);
     }
+
+    #[test]
+    fn frame_done_maps_to_completed() {
+        assert_eq!(
+            openai_frame_events("data: [DONE]\n\n"),
+            vec![AgentStreamFrame::Completed]
+        );
+    }
+
+    #[test]
+    fn frame_invalid_json_maps_to_error() {
+        assert_eq!(
+            openai_frame_events("data: not-json\n\n"),
+            vec![AgentStreamFrame::Error("invalid_upstream_event")]
+        );
+    }
+
+    #[test]
+    fn frame_multiple_content_choices_map_to_ordered_deltas() {
+        let frame =
+            r#"data: {"choices":[{"delta":{"content":"first"}},{"delta":{"content":"second"}}]}"#;
+
+        assert_eq!(
+            openai_frame_events(frame),
+            vec![
+                AgentStreamFrame::Delta("first".to_string()),
+                AgentStreamFrame::Delta("second".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn frame_empty_or_missing_content_emits_no_frames() {
+        let frame = r#"data: {"choices":[{"delta":{"content":""}},{"delta":{}}]}"#;
+
+        assert_eq!(openai_frame_events(frame), vec![]);
+    }
 }
