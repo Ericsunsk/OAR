@@ -7,11 +7,9 @@ use crate::oauth::{AsyncHttpClient, HttpClient, HttpRequest};
 use crate::url_encoding::{encode_query, percent_encode};
 
 use super::error::FeishuTaskReadError;
+use super::feishu_types::{FeishuTaskGetResponse, FeishuTaskListResponse};
 use super::source_ref::{parse_task_source_ref, TaskSourceRef};
-use super::types::{
-    FeishuTaskGetRequest, FeishuTaskGetResponse, FeishuTaskListRequest, FeishuTaskListResponse,
-    TaskReadPage, TaskReadSummary,
-};
+use super::types::{FeishuTaskGetRequest, FeishuTaskListRequest, TaskReadPage, TaskReadSummary};
 
 const TASK_GET_PATH_PREFIX: &str = "/open-apis/task/v2/tasks";
 
