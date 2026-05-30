@@ -8,15 +8,12 @@ use hyper::body::Frame;
 use hyper::header::{CACHE_CONTROL, CONTENT_TYPE};
 use hyper::http::{HeaderValue, StatusCode};
 use hyper::Response;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, Notify};
 use tokio::time;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::session::{
-    auth_event_is_terminal, auth_event_json, auth_event_name, expire_session_if_needed,
-    session_status_json,
-};
+use super::session::{expire_session_if_needed, session_status_json};
 use super::FeishuLoginRuntime;
 use crate::response::{
     json_facade_response, service_unavailable, sse_facade_response, FacadeResponse, ResponseBody,
@@ -172,4 +169,30 @@ fn feishu_login_event_snapshot(
         version: session.event_version,
         notify: Arc::clone(&session.notify),
     })
+}
+
+fn auth_event_json(session_id: &str, event: &str, status: &Value) -> Value {
+    json!({
+        "event": event,
+        "session_id": session_id,
+        "qr_session": status.get("qr_session").cloned().unwrap_or(Value::Null),
+        "oar_session": status.get("oar_session").cloned().unwrap_or(Value::Null),
+        "user": status.get("user").cloned().unwrap_or(Value::Null),
+        "safe_message": status.get("safe_message").cloned().unwrap_or(Value::Null),
+        "event_id": format!("auth_evt_{}_{}", session_id, event)
+    })
+}
+
+fn auth_event_name(status: &Value) -> &'static str {
+    match status.get("status").and_then(Value::as_str) {
+        Some("pending") => "pending",
+        Some("authorized") => "authorized",
+        Some("denied") => "denied",
+        Some("expired") => "expired",
+        _ => "keepalive",
+    }
+}
+
+fn auth_event_is_terminal(event: &str) -> bool {
+    matches!(event, "authorized" | "denied" | "expired")
 }

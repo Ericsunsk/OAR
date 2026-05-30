@@ -114,29 +114,3 @@ pub(super) fn session_status_json(session: &FeishuLoginSession) -> Value {
         }),
     }
 }
-
-pub(super) fn auth_event_json(session_id: &str, event: &str, status: &Value) -> Value {
-    json!({
-        "event": event,
-        "session_id": session_id,
-        "qr_session": status.get("qr_session").cloned().unwrap_or(Value::Null),
-        "oar_session": status.get("oar_session").cloned().unwrap_or(Value::Null),
-        "user": status.get("user").cloned().unwrap_or(Value::Null),
-        "safe_message": status.get("safe_message").cloned().unwrap_or(Value::Null),
-        "event_id": format!("auth_evt_{}_{}", session_id, event)
-    })
-}
-
-pub(super) fn auth_event_name(status: &Value) -> &'static str {
-    match status.get("status").and_then(Value::as_str) {
-        Some("pending") => "pending",
-        Some("authorized") => "authorized",
-        Some("denied") => "denied",
-        Some("expired") => "expired",
-        _ => "keepalive",
-    }
-}
-
-pub(super) fn auth_event_is_terminal(event: &str) -> bool {
-    matches!(event, "authorized" | "denied" | "expired")
-}
