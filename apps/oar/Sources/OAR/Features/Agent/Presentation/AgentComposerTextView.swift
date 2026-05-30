@@ -4,6 +4,7 @@ import SwiftUI
 struct ChatInputBar: View {
     @Binding var draft: String
     let isSending: Bool
+    let isEnabled: Bool
     let send: () -> Void
 
     var body: some View {
@@ -11,6 +12,7 @@ struct ChatInputBar: View {
             ZStack(alignment: .topLeading) {
                 AgentComposerTextView(text: $draft, submit: send)
                     .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 64)
+                    .disabled(!isEnabled)
 
                 if draft.isEmpty {
                     Text("问计划、风险、证据或动作")
@@ -40,7 +42,7 @@ struct ChatInputBar: View {
     }
 
     private var sendDisabled: Bool {
-        isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !isEnabled || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

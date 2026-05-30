@@ -3,6 +3,107 @@ import XCTest
 
 @MainActor
 final class AgentSettingsViewModelTests: XCTestCase {
+    func testLoadIfNeededLoadsOnceAndMarksMissingConfiguration() async {
+        let provider = RecordingAgentSettingsProvider()
+        let model = AgentSettingsViewModel(provider: provider)
+
+        await model.loadIfNeeded()
+        await model.loadIfNeeded()
+
+        XCTAssertEqual(provider.loadCount, 1)
+        XCTAssertEqual(model.configurationState, .missingModel)
+        XCTAssertFalse(model.isReadyForChat)
+    }
+
+    func testUnavailableProviderMarksChatUnavailable() async {
+        let provider = RecordingAgentSettingsProvider()
+        provider.isAvailable = false
+        let model = AgentSettingsViewModel(provider: provider)
+
+        await model.loadIfNeeded()
+
+        XCTAssertEqual(model.configurationState, .unavailable)
+        XCTAssertFalse(model.isReadyForChat)
+        XCTAssertFalse(model.canConfigure)
+    }
+
+    func testEnvSnapshotIsReadyButDoesNotOfferBlankAPIKeyReuse() async {
+        let provider = RecordingAgentSettingsProvider()
+        provider.nextSnapshot = AgentModelSettingsSnapshot(
+            source: .env,
+            detectedProtocol: "anthropic",
+            baseURL: "https://api.anthropic.com/v1",
+            selectedModel: "claude-sonnet-4-5",
+            apiKeyStatus: .saved,
+            canConfigure: false
+        )
+        let model = AgentSettingsViewModel(provider: provider)
+
+        await model.load()
+
+        XCTAssertEqual(model.configurationState, .ready)
+        XCTAssertTrue(model.isReadyForChat)
+        XCTAssertFalse(model.canConfigure)
+        XCTAssertFalse(model.canReuseSavedAPIKey)
+        XCTAssertEqual(model.apiKeyPlaceholder, "sk-...")
+        XCTAssertFalse(model.canDetect)
+    }
+
+    func testUserSnapshotAllowsBlankAPIKeyReuseForSameBaseURL() async {
+        let provider = RecordingAgentSettingsProvider()
+        provider.nextSnapshot = AgentModelSettingsSnapshot(
+            source: .user,
+            detectedProtocol: "openai-compatible",
+            baseURL: "https://api.example.test/v1",
+            selectedModel: "gpt-4.1",
+            apiKeyStatus: .saved,
+            canConfigure: true
+        )
+        let model = AgentSettingsViewModel(provider: provider)
+
+        await model.load()
+
+        XCTAssertEqual(model.configurationState, .ready)
+        XCTAssertTrue(model.canReuseSavedAPIKey)
+        XCTAssertEqual(model.apiKeyPlaceholder, "已保存，留空复用")
+        XCTAssertTrue(model.canDetect)
+    }
+
+    func testLoadingSnapshotCollapsesStaleDetectedCatalog() async {
+        let provider = RecordingAgentSettingsProvider()
+        provider.nextCatalog = AgentModelCatalog(
+            detectedProtocol: "openai-compatible",
+            models: [
+                AgentModelCandidate(id: "gpt-4.1", displayName: "gpt-4.1"),
+                AgentModelCandidate(id: "gpt-4o", displayName: "gpt-4o")
+            ],
+            recommendedModel: "gpt-4.1"
+        )
+        let model = AgentSettingsViewModel(provider: provider)
+        model.baseURL = "https://api.example.test/v1"
+        model.apiKey = "sk-one"
+
+        await model.detect()
+        XCTAssertEqual(model.models.count, 2)
+
+        provider.nextSnapshot = AgentModelSettingsSnapshot(
+            source: .env,
+            detectedProtocol: "openai-compatible",
+            baseURL: "https://other.example.test/v1",
+            selectedModel: "gpt-4.1",
+            apiKeyStatus: .saved,
+            canConfigure: true
+        )
+
+        await model.load()
+
+        XCTAssertEqual(model.models, [
+            AgentModelCandidate(id: "gpt-4.1", displayName: "gpt-4.1")
+        ])
+        XCTAssertEqual(model.baseURL, "https://other.example.test/v1")
+        XCTAssertFalse(model.canReuseSavedAPIKey)
+    }
+
     func testEditingBaseURLAfterDetectInvalidatesCatalogAndPreventsSave() async {
         let provider = RecordingAgentSettingsProvider()
         let model = AgentSettingsViewModel(provider: provider)
@@ -108,6 +209,14 @@ final class AgentSettingsViewModelTests: XCTestCase {
 
 private final class RecordingAgentSettingsProvider: AgentSettingsProviding {
     var isAvailable: Bool = true
+    var nextSnapshot = AgentModelSettingsSnapshot(
+        source: .none,
+        detectedProtocol: nil,
+        baseURL: nil,
+        selectedModel: nil,
+        apiKeyStatus: .missing,
+        canConfigure: true
+    )
     var nextCatalog = AgentModelCatalog(
         detectedProtocol: "openai-compatible",
         models: [
@@ -115,18 +224,13 @@ private final class RecordingAgentSettingsProvider: AgentSettingsProviding {
         ],
         recommendedModel: "gpt-4.1"
     )
+    private(set) var loadCount = 0
     private(set) var detectRequests: [DetectRequest] = []
     private(set) var saveRequests: [SaveRequest] = []
 
     func loadSettings() async throws -> AgentModelSettingsSnapshot {
-        AgentModelSettingsSnapshot(
-            source: .none,
-            detectedProtocol: nil,
-            baseURL: nil,
-            selectedModel: nil,
-            apiKeyStatus: .missing,
-            canConfigure: true
-        )
+        loadCount += 1
+        return nextSnapshot
     }
 
     func detectModels(baseURL: String, apiKey: String?) async throws -> AgentModelCatalog {

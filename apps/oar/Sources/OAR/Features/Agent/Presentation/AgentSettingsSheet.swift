@@ -29,7 +29,7 @@ struct AgentSettingsSheet: View {
                 }
 
                 AgentSettingsField(title: "API Key") {
-                    SecureField(model.apiKeyStatus == .saved ? "已保存，留空复用" : "sk-...", text: $model.apiKey)
+                    SecureField(model.apiKeyPlaceholder, text: $model.apiKey)
                         .textFieldStyle(.plain)
                 }
 

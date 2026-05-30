@@ -26,6 +26,7 @@ final class AgentSettingsViewModel {
     private var savedUserBaseURL: String?
     private var lastDetectedInput: DetectionInput?
     private var isApplyingSnapshot = false
+    private var didLoadSettings = false
 
     init(provider: AgentSettingsProviding) {
         self.provider = provider
@@ -47,6 +48,26 @@ final class AgentSettingsViewModel {
             && currentDetectionInput == lastDetectedInput
             && selectedModelIsInDetectedCatalog
             && detectedProtocol != nil
+    }
+
+    var configurationState: AgentSettingsConfigurationState {
+        if isLoading { return .loading }
+        if source != .none, !selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .ready
+        }
+        return canConfigure ? .missingModel : .unavailable
+    }
+
+    var isReadyForChat: Bool {
+        configurationState == .ready
+    }
+
+    var canReuseSavedAPIKey: Bool {
+        hasSavedUserKeyForCurrentBaseURL
+    }
+
+    var apiKeyPlaceholder: String {
+        canReuseSavedAPIKey ? "已保存，留空复用" : "sk-..."
     }
 
     private var hasUsableAPIKey: Bool {
@@ -89,6 +110,7 @@ final class AgentSettingsViewModel {
         guard provider.isAvailable else {
             canConfigure = false
             errorMessage = AgentSettingsProviderError.missingBackendConfiguration.localizedDescription
+            didLoadSettings = true
             return
         }
 
@@ -98,9 +120,16 @@ final class AgentSettingsViewModel {
         do {
             apply(snapshot: try await provider.loadSettings())
             errorMessage = nil
+            didLoadSettings = true
         } catch {
             errorMessage = localizedMessage(error)
+            didLoadSettings = true
         }
+    }
+
+    func loadIfNeeded() async {
+        guard !didLoadSettings, !isLoading else { return }
+        await load()
     }
 
     func detect() async {
@@ -188,7 +217,7 @@ final class AgentSettingsViewModel {
         canConfigure = snapshot.canConfigure
         if selectedModelID.isEmpty {
             models = []
-        } else if !models.contains(where: { $0.id == selectedModelID }) {
+        } else {
             models = [
                 AgentModelCandidate(
                     id: selectedModelID,
@@ -224,6 +253,13 @@ final class AgentSettingsViewModel {
         let digest = SHA256.hash(data: Data(value.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
+}
+
+enum AgentSettingsConfigurationState: Equatable {
+    case unavailable
+    case loading
+    case missingModel
+    case ready
 }
 
 private struct DetectionInput: Equatable {

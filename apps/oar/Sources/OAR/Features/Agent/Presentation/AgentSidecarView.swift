@@ -74,12 +74,21 @@ struct AgentSidecarView: View {
             }
 
             AgentShortcutStrip(send: send)
+                .disabled(!agentInputEnabled)
 
-            ChatInputBar(draft: $draft, isSending: model.isSending, send: sendDraft)
+            ChatInputBar(
+                draft: $draft,
+                isSending: model.isSending,
+                isEnabled: agentInputEnabled,
+                send: sendDraft
+            )
         }
         .background(.thinMaterial)
         .background(Color.white.opacity(0.16))
         .onAppear(perform: syncFocus)
+        .task {
+            await settingsModel.loadIfNeeded()
+        }
         .onChange(of: item?.id) { _, _ in
             syncFocus()
         }
@@ -93,7 +102,7 @@ struct AgentSidecarView: View {
         HStack(spacing: 8) {
             Text("OAR Agent")
                 .font(.codexDisplay(16, weight: .semibold))
-            OARSymbolDot(color: model.isConfigured ? Color.oarMoss : Color.oarAmber, size: 6)
+            OARSymbolDot(color: readinessColor, size: 6)
             Spacer()
             Button {
                 showsSettings = true
@@ -115,10 +124,27 @@ struct AgentSidecarView: View {
 
     private func send(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !model.isSending else { return }
+        guard !text.isEmpty, !model.isSending, agentInputEnabled else { return }
         draft = ""
         Task {
             await model.send(text, context: context)
+        }
+    }
+
+    private var agentInputEnabled: Bool {
+        model.isConfigured && settingsModel.isReadyForChat
+    }
+
+    private var readinessColor: Color {
+        switch settingsModel.configurationState {
+        case .ready:
+            return Color.oarMoss
+        case .loading:
+            return Color.codexMuted
+        case .missingModel:
+            return Color.oarAmber
+        case .unavailable:
+            return Color.codexMuted
         }
     }
 
