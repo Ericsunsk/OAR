@@ -7,9 +7,9 @@ use sqlx::{AssertSqlSafe, PgPool};
 
 use super::constants::{MIGRATION_0001_SQL, MIGRATION_0002_SQL};
 
-pub(super) type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+pub(crate) type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-pub(super) fn run_live_postgres_test<F, Fut>(test_name: &str, test: F)
+pub(crate) fn run_live_postgres_test<F, Fut>(test_name: &str, test: F)
 where
     F: FnOnce(PgPool) -> Fut,
     Fut: Future<Output = TestResult>,
@@ -23,7 +23,9 @@ where
         let schema = unique_schema_name(test_name);
         let pool = create_schema_and_pool(&database_url, &schema)
             .await
-            .unwrap_or_else(|error| panic!("failed to create live postgres schema {schema}: {error}"));
+            .unwrap_or_else(|error| {
+                panic!("failed to create live postgres schema {schema}: {error}")
+            });
 
         let test_result = test(pool.clone()).await;
         pool.close().await;
@@ -32,18 +34,19 @@ where
         if let Err(error) = cleanup_result {
             panic!("failed to drop live postgres schema {schema}: {error}");
         }
-        test_result.unwrap_or_else(|error| panic!("live postgres test {test_name} failed: {error}"));
+        test_result
+            .unwrap_or_else(|error| panic!("live postgres test {test_name} failed: {error}"));
     });
 }
 
-pub(super) fn runtime() -> tokio::runtime::Runtime {
+pub(crate) fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("tokio runtime should build")
 }
 
-pub(super) fn unique_schema_name(test_name: &str) -> String {
+pub(crate) fn unique_schema_name(test_name: &str) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time should be after unix epoch")
@@ -61,7 +64,10 @@ pub(super) fn unique_schema_name(test_name: &str) -> String {
     .to_ascii_lowercase()
 }
 
-pub(super) async fn create_schema_and_pool(database_url: &str, schema: &str) -> Result<PgPool, sqlx::Error> {
+pub(crate) async fn create_schema_and_pool(
+    database_url: &str,
+    schema: &str,
+) -> Result<PgPool, sqlx::Error> {
     let admin_pool = PgPoolOptions::new()
         .max_connections(1)
         .connect(database_url)
@@ -97,7 +103,7 @@ pub(super) async fn create_schema_and_pool(database_url: &str, schema: &str) -> 
         .await
 }
 
-pub(super) async fn drop_schema(database_url: &str, schema: &str) -> Result<(), sqlx::Error> {
+pub(crate) async fn drop_schema(database_url: &str, schema: &str) -> Result<(), sqlx::Error> {
     let admin_pool = PgPoolOptions::new()
         .max_connections(1)
         .connect(database_url)

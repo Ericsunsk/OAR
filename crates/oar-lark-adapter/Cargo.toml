@@ -27,3 +27,8 @@ oar-core = { path = "../oar-core", features = ["postgres"] }
 serde_json.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
+
+[[test]]
+name = "postgres_refresh_integration"
+path = "tests/postgres_refresh_integration/mod.rs"
+required-features = ["postgres"]

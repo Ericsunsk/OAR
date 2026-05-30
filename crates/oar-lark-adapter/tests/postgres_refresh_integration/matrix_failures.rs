@@ -12,9 +12,9 @@ use sqlx::PgPool;
 
 use super::harness::{
     assert_feishu_refresh_headers, assert_no_byte_secret, assert_no_sensitive_text, audit_context,
-    encrypted_blob_from_plaintext, make_material_provider, run_live_postgres_test,
-    seed_identity_graph, seed_refresh_candidate_grant, failure_body, RecordingAsyncHttpClient,
-    ACTOR_ID, KEY_ID, OLD_FP, SEED_ACCESS_TOKEN, SEED_REFRESH_TOKEN, TENANT_ID, TestResult,
+    encrypted_blob_from_plaintext, failure_body, make_material_provider, run_live_postgres_test,
+    seed_identity_graph, seed_refresh_candidate_grant, RecordingAsyncHttpClient, TestResult,
+    ACTOR_ID, KEY_ID, OLD_FP, SEED_ACCESS_TOKEN, SEED_REFRESH_TOKEN, TENANT_ID,
 };
 
 #[derive(Clone)]
@@ -93,8 +93,12 @@ async fn run_failure_case(pool: PgPool, case: FailureCase) -> TestResult {
     let key = [7; 32];
     seed_identity_graph(&pool).await?;
 
-    let initial_blob =
-        encrypted_blob_from_plaintext(key, 1_779_465_000_000, SEED_ACCESS_TOKEN, SEED_REFRESH_TOKEN);
+    let initial_blob = encrypted_blob_from_plaintext(
+        key,
+        1_779_465_000_000,
+        SEED_ACCESS_TOKEN,
+        SEED_REFRESH_TOKEN,
+    );
     seed_refresh_candidate_grant(&pool, case.grant_id, initial_blob.clone()).await?;
 
     let material_provider = make_material_provider(pool.clone(), key);
@@ -155,10 +159,7 @@ async fn run_failure_case(pool: PgPool, case: FailureCase) -> TestResult {
             .map(|execution| &execution.status),
         Some(&ExecutionStatus::Succeeded)
     );
-    assert_eq!(
-        report.event.actor.as_ref().map(|actor| actor.actor_id.as_str()),
-        Some(ACTOR_ID)
-    );
+    assert_eq!(report.event.actor.actor_id, ACTOR_ID);
 
     let updated = PostgresTokenGrantRepository::new(pool.clone())
         .get_by_id(TENANT_ID, case.grant_id)

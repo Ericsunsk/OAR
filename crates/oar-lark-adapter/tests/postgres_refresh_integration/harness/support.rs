@@ -19,24 +19,24 @@ use super::constants::{
 };
 
 #[derive(Clone)]
-pub(super) struct RecordingAsyncHttpClient {
+pub(crate) struct RecordingAsyncHttpClient {
     result: Result<HttpResponse, HttpClientFailure>,
     requests: Arc<Mutex<Vec<HttpRequest>>>,
 }
 
 impl RecordingAsyncHttpClient {
-    pub(super) fn from_response(response: HttpResponse) -> Self {
+    pub(crate) fn from_response(response: HttpResponse) -> Self {
         Self::from_result(Ok(response))
     }
 
-    pub(super) fn from_result(result: Result<HttpResponse, HttpClientFailure>) -> Self {
+    pub(crate) fn from_result(result: Result<HttpResponse, HttpClientFailure>) -> Self {
         Self {
             result,
             requests: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    pub(super) fn requests(&self) -> Vec<HttpRequest> {
+    pub(crate) fn requests(&self) -> Vec<HttpRequest> {
         self.requests
             .lock()
             .expect("fake http request mutex")
@@ -56,8 +56,8 @@ impl AsyncHttpClient for RecordingAsyncHttpClient {
 }
 
 #[derive(Clone)]
-pub(super) struct FixedKeyResolver {
-    pub(super) key: [u8; 32],
+pub(crate) struct FixedKeyResolver {
+    pub(crate) key: [u8; 32],
 }
 
 impl AesGcmKeyResolver for FixedKeyResolver {
@@ -70,8 +70,8 @@ impl AesGcmKeyResolver for FixedKeyResolver {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct FixedClock {
-    pub(super) now_ms: u64,
+pub(crate) struct FixedClock {
+    pub(crate) now_ms: u64,
 }
 
 impl GrantTimeSource for FixedClock {
@@ -80,7 +80,7 @@ impl GrantTimeSource for FixedClock {
     }
 }
 
-pub(super) fn success_body() -> String {
+pub(crate) fn success_body() -> String {
     serde_json::json!({
         "code": 0,
         "access_token": NEW_ACCESS_TOKEN,
@@ -93,7 +93,7 @@ pub(super) fn success_body() -> String {
     .to_string()
 }
 
-pub(super) fn failure_body(code: i64) -> String {
+pub(crate) fn failure_body(code: i64) -> String {
     serde_json::json!({
         "code": code,
         "error": "server_error",
@@ -102,7 +102,7 @@ pub(super) fn failure_body(code: i64) -> String {
     .to_string()
 }
 
-pub(super) fn assert_feishu_refresh_headers(headers: &[(String, String)]) {
+pub(crate) fn assert_feishu_refresh_headers(headers: &[(String, String)]) {
     assert_eq!(
         headers,
         &[
@@ -119,7 +119,7 @@ pub(super) fn assert_feishu_refresh_headers(headers: &[(String, String)]) {
     );
 }
 
-pub(super) fn assert_no_sensitive_text(text: &str) {
+pub(crate) fn assert_no_sensitive_text(text: &str) {
     for needle in [
         SEED_ACCESS_TOKEN,
         SEED_REFRESH_TOKEN,
@@ -143,7 +143,7 @@ pub(super) fn assert_no_sensitive_text(text: &str) {
     }
 }
 
-pub(super) fn assert_no_byte_secret(bytes: &[u8]) {
+pub(crate) fn assert_no_byte_secret(bytes: &[u8]) {
     for needle in [
         SEED_ACCESS_TOKEN,
         SEED_REFRESH_TOKEN,
@@ -157,7 +157,7 @@ pub(super) fn assert_no_byte_secret(bytes: &[u8]) {
     }
 }
 
-pub(super) fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
+pub(crate) fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty()
         && needle.len() <= haystack.len()
         && haystack
@@ -165,7 +165,7 @@ pub(super) fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
             .any(|window| window == needle)
 }
 
-pub(super) fn encrypted_blob_from_plaintext(
+pub(crate) fn encrypted_blob_from_plaintext(
     key: [u8; 32],
     now_ms: u64,
     access_token: &str,
@@ -188,10 +188,13 @@ pub(super) fn encrypted_blob_from_plaintext(
     )
     .expect("seed grant encryption should succeed");
 
-    oar_lark_adapter::compose_encrypted_grant_blob(envelope.encrypted_primary, envelope.encrypted_renewal)
+    oar_lark_adapter::material::compose_encrypted_grant_blob(
+        envelope.encrypted_primary,
+        envelope.encrypted_renewal,
+    )
 }
 
-pub(super) fn make_material_provider(
+pub(crate) fn make_material_provider(
     pool: PgPool,
     key: [u8; 32],
 ) -> oar_lark_adapter::FeishuStoredRefreshMaterialProvider<
@@ -206,11 +209,11 @@ pub(super) fn make_material_provider(
     )
 }
 
-pub(super) async fn seed_refresh_candidate_grant(
+pub(crate) async fn seed_refresh_candidate_grant(
     pool: &PgPool,
     grant_id: &str,
     blob: Vec<u8>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), oar_core::storage::postgres::PostgresRepositoryError> {
     PostgresTokenGrantRepository::new(pool.clone())
         .upsert_encrypted_grant(&EncryptedTokenGrantRecord {
             id: grant_id.to_string(),
@@ -235,10 +238,11 @@ pub(super) async fn seed_refresh_candidate_grant(
             oauth_grant_fingerprint: OLD_FP.to_string(),
             revocation_reason: None,
         })
-        .await
+        .await?;
+    Ok(())
 }
 
-pub(super) fn audit_context(trace_id: &str, sequence: i32) -> TokenRefreshAuditContext {
+pub(crate) fn audit_context(trace_id: &str, sequence: u64) -> TokenRefreshAuditContext {
     TokenRefreshAuditContext {
         trace_id: trace_id.to_string(),
         sequence,
@@ -252,7 +256,7 @@ pub(super) fn audit_context(trace_id: &str, sequence: i32) -> TokenRefreshAuditC
     }
 }
 
-pub(super) async fn seed_identity_graph(pool: &PgPool) -> Result<(), sqlx::Error> {
+pub(crate) async fn seed_identity_graph(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO tenants (id, display_name, status)

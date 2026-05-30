@@ -11,7 +11,7 @@ use super::harness::{
     assert_feishu_refresh_headers, assert_no_byte_secret, assert_no_sensitive_text, audit_context,
     encrypted_blob_from_plaintext, run_live_postgres_test, seed_identity_graph,
     seed_refresh_candidate_grant, success_body, RecordingAsyncHttpClient, ACTOR_ID, GRANT_ID,
-    KEY_ID, NEW_REFRESH_TOKEN, OLD_FP, SEED_REFRESH_TOKEN, TENANT_ID, TRACE_ID, TestResult,
+    KEY_ID, NEW_REFRESH_TOKEN, OLD_FP, SEED_REFRESH_TOKEN, TENANT_ID, TRACE_ID,
 };
 
 #[test]
@@ -78,16 +78,16 @@ fn postgres_live_feishu_adapter_success_rotates_grant_and_appends_audit() {
                 .map(|execution| &execution.status),
             Some(&ExecutionStatus::Succeeded)
         );
-        assert_eq!(
-            report.event.actor.as_ref().map(|actor| actor.actor_id.as_str()),
-            Some(ACTOR_ID)
-        );
+        assert_eq!(report.event.actor.actor_id, ACTOR_ID);
 
         let rotated = PostgresTokenGrantRepository::new(pool.clone())
             .get_by_id(TENANT_ID, GRANT_ID)
             .await?
             .expect("grant should still exist");
-        assert_eq!(rotated.state, oar_core::domain::identity::TokenGrantState::Valid);
+        assert_eq!(
+            rotated.state,
+            oar_core::domain::identity::TokenGrantState::Valid
+        );
         assert_eq!(rotated.oauth_grant_key_id, KEY_ID);
         assert_ne!(rotated.oauth_grant_fingerprint, OLD_FP);
         assert_ne!(rotated.encrypted_oauth_grant, initial_blob);

@@ -11,9 +11,9 @@ use sqlx::PgPool;
 
 use super::harness::{
     assert_no_byte_secret, assert_no_sensitive_text, audit_context, encrypted_blob_from_plaintext,
-    make_material_provider, run_live_postgres_test, seed_identity_graph, seed_refresh_candidate_grant,
-    success_body, RecordingAsyncHttpClient, KEY_ID, OLD_FP, SEED_ACCESS_TOKEN, SEED_REFRESH_TOKEN,
-    TENANT_ID, TestResult,
+    make_material_provider, run_live_postgres_test, seed_identity_graph,
+    seed_refresh_candidate_grant, success_body, RecordingAsyncHttpClient, TestResult, KEY_ID,
+    OLD_FP, SEED_ACCESS_TOKEN, SEED_REFRESH_TOKEN, TENANT_ID,
 };
 
 #[derive(Clone)]
