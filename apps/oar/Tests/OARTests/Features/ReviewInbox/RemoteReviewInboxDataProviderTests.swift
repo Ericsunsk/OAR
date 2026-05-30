@@ -24,11 +24,7 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
             )
         }
 
-        let provider = RemoteReviewInboxDataProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
 
         let snapshot = try await provider.loadSnapshot()
 
@@ -58,11 +54,7 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
             )
         }
 
-        let provider = RemoteReviewInboxDataProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
 
         _ = try await provider.submitDecision(
             .approve(actionID: "pa_1", version: 2, expectedSyncCursor: 42, note: "确认"),
@@ -105,11 +97,7 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
             )
         }
 
-        let provider = RemoteReviewInboxDataProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
 
         do {
             _ = try await provider.loadSnapshot()
@@ -149,11 +137,7 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
             )
         }
 
-        let provider = RemoteReviewInboxDataProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
 
         do {
             _ = try await provider.loadSnapshot()
@@ -174,6 +158,14 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TestURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    private static func provider() -> RemoteReviewInboxDataProvider {
+        RemoteReviewInboxDataProvider(
+            baseURL: URL(string: "https://oar.example.test")!,
+            appSession: appSession,
+            urlSession: urlSession
+        )
     }
 
     private static func bodyData(from request: URLRequest) throws -> Data {
