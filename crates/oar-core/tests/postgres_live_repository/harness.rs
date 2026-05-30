@@ -1,9 +1,5 @@
 #![cfg(feature = "postgres")]
 
-pub(crate) use std::collections::VecDeque;
-pub(crate) use std::env;
-pub(crate) use std::future::Future;
-pub(crate) use std::sync::atomic::{AtomicU64, Ordering};
 pub(crate) use std::sync::{Arc, Mutex};
 pub(crate) use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -45,20 +41,13 @@ pub(crate) use oar_core::domain::review_inbox::{
 pub(crate) use oar_core::domain::scheduler::{
     SchedulerJobKind, SchedulerJobOutcome, SchedulerJobStatus, SchedulerLeaseAcquire,
 };
-pub(crate) use oar_core::domain::token_refresh::service::{
-    AsyncAuthRefreshAdapter, AuthRefreshAdapter,
-};
 pub(crate) use oar_core::domain::token_refresh::types::{
     EncryptedGrantBlob, EncryptedGrantMaterial, RefreshOutcome, TokenRefreshAuditSummary,
     TokenRefreshCommandKind, TokenRefreshCommandReport, TokenRefreshDecisionKind,
     TokenRefreshGrantSnapshot, TokenRefreshPlannedCommand, TokenRefreshReportStatus,
     TokenRefreshRepositoryCommand,
 };
-pub(crate) use oar_core::lark::auth::adapter::{
-    AsyncFeishuAuthRefreshClient, FeishuAuthRefreshAdapter, FeishuAuthRefreshClient,
-};
-pub(crate) use oar_core::lark::auth::parser::parse_feishu_auth_refresh_response;
-pub(crate) use oar_core::lark::auth::types::{FeishuAuthRefreshRequest, FeishuAuthRefreshResponse};
+pub(crate) use oar_core::lark::auth::adapter::FeishuAuthRefreshAdapter;
 pub(crate) use oar_core::lark::fixtures::{
     AUTH_REFRESH_PLAINTEXT_TOKEN_LEAK_JSON, AUTH_REFRESH_REAUTH_REQUIRED_JSON,
     AUTH_REFRESH_ROTATED_ENCRYPTED_JSON,
@@ -84,229 +73,18 @@ pub(crate) use oar_core::storage::postgres::{
 };
 pub(crate) use serde_json::json;
 pub(crate) use sqlx::postgres::PgPoolOptions;
-pub(crate) use sqlx::{AssertSqlSafe, PgPool, Row};
+pub(crate) use sqlx::{PgPool, Row};
 
-const MIGRATION_0001_SQL: &str =
-    include_str!("../../migrations/0001_phase_0_6_identity_action_audit.sql");
-const MIGRATION_0002_SQL: &str = include_str!("../../migrations/0002_review_inbox_domain.sql");
-const MIGRATION_0003_SQL: &str = include_str!("../../migrations/0003_agent_model_settings.sql");
+#[path = "harness/live_db.rs"]
+mod live_db;
+#[path = "harness/test_doubles.rs"]
+mod test_doubles;
 
-static SCHEMA_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-pub(crate) type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
-#[derive(Clone, Default)]
-pub(crate) struct LiveMockAdapter {
-    state: Arc<Mutex<LiveMockAdapterState>>,
-}
-
-#[derive(Default)]
-struct LiveMockAdapterState {
-    dry_run_calls: usize,
-    execute_calls: usize,
-    execute_error: Option<AdapterError>,
-}
-
-impl LiveMockAdapter {
-    pub(crate) fn succeeding() -> Self {
-        Self::default()
-    }
-
-    pub(crate) fn failing(code: &str, message: &str) -> Self {
-        let adapter = Self::default();
-        adapter.state.lock().expect("adapter mutex").execute_error =
-            Some(AdapterError::from_safe_message(code, message));
-        adapter
-    }
-
-    pub(crate) fn dry_run_calls(&self) -> usize {
-        self.state.lock().expect("adapter mutex").dry_run_calls
-    }
-
-    pub(crate) fn execute_calls(&self) -> usize {
-        self.state.lock().expect("adapter mutex").execute_calls
-    }
-}
-
-impl ActionAdapter for LiveMockAdapter {
-    fn dry_run(
-        &mut self,
-        _request: &ConfirmedExecutionRequest,
-    ) -> Result<AdapterDryRun, AdapterError> {
-        self.state.lock().expect("adapter mutex").dry_run_calls += 1;
-        Ok(AdapterDryRun {
-            before: Some(summary("before")),
-            after: Some(summary("dry-run projected")),
-        })
-    }
-
-    fn execute(
-        &mut self,
-        _request: &ConfirmedExecutionRequest,
-    ) -> Result<AdapterExecution, AdapterError> {
-        let mut state = self.state.lock().expect("adapter mutex");
-        state.execute_calls += 1;
-        if let Some(error) = state.execute_error.clone() {
-            return Err(error);
-        }
-
-        Ok(AdapterExecution {
-            adapter_operation_id: "lark-op-live".to_string(),
-            before: Some(summary("before")),
-            after: Some(summary("applied")),
-        })
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct LiveOutboxDispatcher {
-    outcomes: Arc<Mutex<Vec<AuditOutboxDelivery>>>,
-}
-
-impl LiveOutboxDispatcher {
-    pub(crate) fn new(outcomes: impl IntoIterator<Item = AuditOutboxDelivery>) -> Self {
-        Self {
-            outcomes: Arc::new(Mutex::new(outcomes.into_iter().collect())),
-        }
-    }
-}
-
-impl AuditOutboxDispatcher for LiveOutboxDispatcher {
-    type Error = ();
-
-    async fn deliver(
-        &mut self,
-        _message: &AuditOutboxMessage,
-    ) -> Result<AuditOutboxDelivery, Self::Error> {
-        let mut outcomes = self.outcomes.lock().expect("outbox dispatcher mutex");
-        if outcomes.is_empty() {
-            return Ok(AuditOutboxDelivery::Sent);
-        }
-
-        Ok(outcomes.remove(0))
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct LiveRefreshAdapter {
-    outcome: RefreshOutcome,
-    calls: Arc<Mutex<usize>>,
-}
-
-impl LiveRefreshAdapter {
-    pub(crate) fn new(outcome: RefreshOutcome) -> Self {
-        Self {
-            outcome,
-            calls: Arc::new(Mutex::new(0)),
-        }
-    }
-
-    pub(crate) fn calls(&self) -> usize {
-        *self.calls.lock().expect("refresh adapter mutex")
-    }
-}
-
-impl AuthRefreshAdapter for LiveRefreshAdapter {
-    fn refresh(&mut self, _snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
-        let mut calls = self.calls.lock().expect("refresh adapter mutex");
-        *calls += 1;
-        self.outcome.clone()
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncAuthRefreshAdapter for LiveRefreshAdapter {
-    async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
-        AuthRefreshAdapter::refresh(self, snapshot)
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct SequenceRefreshAdapter {
-    outcomes: Arc<Mutex<VecDeque<RefreshOutcome>>>,
-    called_grant_ids: Arc<Mutex<Vec<String>>>,
-}
-
-impl SequenceRefreshAdapter {
-    pub(crate) fn new(outcomes: impl IntoIterator<Item = RefreshOutcome>) -> Self {
-        Self {
-            outcomes: Arc::new(Mutex::new(outcomes.into_iter().collect())),
-            called_grant_ids: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    pub(crate) fn called_grant_ids(&self) -> Vec<String> {
-        self.called_grant_ids
-            .lock()
-            .expect("sequence refresh adapter mutex")
-            .clone()
-    }
-}
-
-impl AuthRefreshAdapter for SequenceRefreshAdapter {
-    fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
-        self.called_grant_ids
-            .lock()
-            .expect("sequence refresh adapter calls mutex")
-            .push(snapshot.grant_id.0.clone());
-        self.outcomes
-            .lock()
-            .expect("sequence refresh adapter outcomes mutex")
-            .pop_front()
-            .expect("sequence refresh outcome")
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncAuthRefreshAdapter for SequenceRefreshAdapter {
-    async fn refresh(&mut self, snapshot: &TokenRefreshGrantSnapshot) -> RefreshOutcome {
-        AuthRefreshAdapter::refresh(self, snapshot)
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct FixtureClient {
-    fixture: &'static str,
-    calls: Arc<Mutex<usize>>,
-}
-
-impl FixtureClient {
-    pub(crate) fn new(fixture: &'static str) -> Self {
-        Self {
-            fixture,
-            calls: Arc::new(Mutex::new(0)),
-        }
-    }
-
-    pub(crate) fn calls(&self) -> usize {
-        *self.calls.lock().expect("fixture client mutex")
-    }
-}
-
-impl FeishuAuthRefreshClient for FixtureClient {
-    type Error = &'static str;
-
-    fn refresh(
-        &mut self,
-        _request: &FeishuAuthRefreshRequest,
-    ) -> Result<FeishuAuthRefreshResponse, Self::Error> {
-        let mut calls = self.calls.lock().expect("fixture client mutex");
-        *calls += 1;
-        parse_feishu_auth_refresh_response(self.fixture).map_err(|_| "fixture_parse_failed")
-    }
-}
-
-#[async_trait::async_trait]
-impl AsyncFeishuAuthRefreshClient for FixtureClient {
-    type Error = &'static str;
-
-    async fn refresh(
-        &mut self,
-        request: &FeishuAuthRefreshRequest,
-    ) -> Result<FeishuAuthRefreshResponse, Self::Error> {
-        FeishuAuthRefreshClient::refresh(self, request)
-    }
-}
+pub(crate) use live_db::{run_live_postgres_test, runtime};
+pub(crate) use test_doubles::{
+    FixtureClient, LiveMockAdapter, LiveOutboxDispatcher, LiveRefreshAdapter,
+    SequenceRefreshAdapter,
+};
 
 pub(crate) fn assert_no_auth_refresh_sensitive_payload(payload_text: &str) {
     for needle in [
@@ -326,13 +104,6 @@ pub(crate) fn assert_no_auth_refresh_sensitive_payload(payload_text: &str) {
             "audit payload leaked auth refresh marker: {needle}"
         );
     }
-}
-
-pub(crate) fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("tokio runtime should build")
 }
 
 pub(crate) fn confirmed_action(
@@ -480,113 +251,6 @@ pub(crate) fn actor_binding(actor_user_id: &str) -> ActionActorBinding {
 
 pub(crate) fn okr_progress_write_policy() -> ExecutionPolicy {
     ExecutionPolicy::from_capabilities(all_capabilities(), [ActorKind::User, ActorKind::Service])
-}
-
-pub(crate) fn unique_schema_name(test_name: &str) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time should be after unix epoch")
-        .as_nanos();
-    let sequence = SCHEMA_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let sanitized_name: String = test_name
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
-        .collect();
-
-    format!(
-        "oar_live_{}_{}_{}_{}",
-        std::process::id(),
-        now,
-        sequence,
-        sanitized_name
-    )
-    .to_ascii_lowercase()
-}
-
-pub(crate) async fn create_schema_and_pool(
-    database_url: &str,
-    schema: &str,
-) -> Result<PgPool, sqlx::Error> {
-    let admin_pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(database_url)
-        .await?;
-
-    sqlx::raw_sql(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(&admin_pool)
-        .await?;
-    sqlx::raw_sql(AssertSqlSafe(format!("SET search_path TO {schema}")))
-        .execute(&admin_pool)
-        .await?;
-    sqlx::raw_sql(AssertSqlSafe(MIGRATION_0001_SQL.to_string()))
-        .execute(&admin_pool)
-        .await?;
-    sqlx::raw_sql(AssertSqlSafe(MIGRATION_0002_SQL.to_string()))
-        .execute(&admin_pool)
-        .await?;
-    sqlx::raw_sql(AssertSqlSafe(MIGRATION_0003_SQL.to_string()))
-        .execute(&admin_pool)
-        .await?;
-    admin_pool.close().await;
-
-    let schema_for_connection = schema.to_string();
-    PgPoolOptions::new()
-        .max_connections(5)
-        .after_connect(move |connection, _metadata| {
-            let schema = schema_for_connection.clone();
-            Box::pin(async move {
-                sqlx::raw_sql(AssertSqlSafe(format!("SET search_path TO {schema}")))
-                    .execute(connection)
-                    .await?;
-                Ok(())
-            })
-        })
-        .connect(database_url)
-        .await
-}
-
-pub(crate) async fn drop_schema(database_url: &str, schema: &str) -> Result<(), sqlx::Error> {
-    let admin_pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(database_url)
-        .await?;
-    sqlx::raw_sql(AssertSqlSafe(format!(
-        "DROP SCHEMA IF EXISTS {schema} CASCADE"
-    )))
-    .execute(&admin_pool)
-    .await?;
-    admin_pool.close().await;
-    Ok(())
-}
-
-pub(crate) fn run_live_postgres_test<F, Fut>(test_name: &str, test: F)
-where
-    F: FnOnce(PgPool) -> Fut,
-    Fut: Future<Output = TestResult>,
-{
-    let Some(database_url) = env::var("DATABASE_URL").ok() else {
-        eprintln!("skip {test_name}: DATABASE_URL is not set");
-        return;
-    };
-
-    runtime().block_on(async move {
-        let schema = unique_schema_name(test_name);
-        let pool = create_schema_and_pool(&database_url, &schema)
-            .await
-            .unwrap_or_else(|error| {
-                panic!("failed to create live postgres schema {schema}: {error}")
-            });
-
-        let test_result = test(pool.clone()).await;
-        pool.close().await;
-        let cleanup_result = drop_schema(&database_url, &schema).await;
-
-        if let Err(error) = cleanup_result {
-            panic!("failed to drop live postgres schema {schema}: {error}");
-        }
-        test_result
-            .unwrap_or_else(|error| panic!("live postgres test {test_name} failed: {error}"));
-    });
 }
 
 pub(crate) async fn seed_user(
