@@ -13,7 +13,7 @@ final class RemoteAgentSettingsProviderTests: XCTestCase {
             XCTAssertEqual(request.url?.absoluteString, "https://oar.example.test/agent/model-catalog/preview")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer oar_session_secret")
 
-            let body = try Self.bodyData(from: request)
+            let body = try URLRequestBodyTestSupport.bodyData(from: request)
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             XCTAssertEqual(json["base_url"] as? String, "https://api.openai.com/v1")
             XCTAssertEqual(json["api_key"] as? String, "sk-test")
@@ -92,7 +92,7 @@ final class RemoteAgentSettingsProviderTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "PUT")
             XCTAssertEqual(request.url?.absoluteString, "https://oar.example.test/agent/settings")
 
-            let body = try Self.bodyData(from: request)
+            let body = try URLRequestBodyTestSupport.bodyData(from: request)
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             XCTAssertEqual(json["base_url"] as? String, "https://api.anthropic.com/v1")
             XCTAssertEqual(json["selected_model"] as? String, "claude-sonnet-4-5")
@@ -179,57 +179,6 @@ final class RemoteAgentSettingsProviderTests: XCTestCase {
         return URLSession(configuration: configuration)
     }
 
-    private static func bodyData(from request: URLRequest) throws -> Data {
-        if let httpBody = request.httpBody {
-            return httpBody
-        }
-
-        let stream = try XCTUnwrap(request.httpBodyStream)
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        let bufferSize = 1_024
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-        defer { buffer.deallocate() }
-
-        while stream.hasBytesAvailable {
-            let bytesRead = stream.read(buffer, maxLength: bufferSize)
-            if bytesRead > 0 {
-                data.append(buffer, count: bytesRead)
-            } else if bytesRead < 0 {
-                throw stream.streamError ?? AgentSettingsProviderError.invalidResponse
-            } else {
-                break
-            }
-        }
-        return data
-    }
 }
 
-private final class AgentSettingsTestURLProtocol: URLProtocol {
-    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        do {
-            let handler = try XCTUnwrap(Self.handler)
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {
-    }
-}
+private final class AgentSettingsTestURLProtocol: HTTPURLProtocolStub {}

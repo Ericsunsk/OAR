@@ -37,7 +37,7 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer oar_session_test")
 
-            let body = try Self.bodyData(from: request)
+            let body = try URLRequestBodyTestSupport.bodyData(from: request)
             let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
             XCTAssertEqual(json?["action_id"] as? String, "pa_1")
             XCTAssertEqual(json?["action_version"] as? Int, 2)
@@ -168,38 +168,6 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
         )
     }
 
-    private static func bodyData(from request: URLRequest) throws -> Data {
-        if let httpBody = request.httpBody {
-            return httpBody
-        }
-
-        let stream = try XCTUnwrap(request.httpBodyStream)
-        stream.open()
-        defer {
-            stream.close()
-        }
-
-        var data = Data()
-        let bufferSize = 1_024
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-        defer {
-            buffer.deallocate()
-        }
-
-        while stream.hasBytesAvailable {
-            let bytesRead = stream.read(buffer, maxLength: bufferSize)
-            if bytesRead > 0 {
-                data.append(buffer, count: bytesRead)
-            } else if bytesRead < 0 {
-                throw stream.streamError ?? ReviewInboxDataProviderError.remoteProviderNotConfigured
-            } else {
-                break
-            }
-        }
-
-        return data
-    }
-
     private static let snapshotJSON = Data(
         """
         {
@@ -245,29 +213,4 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
     )
 }
 
-private final class TestURLProtocol: URLProtocol {
-    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        do {
-            let handler = try XCTUnwrap(Self.handler)
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {
-    }
-}
+private final class TestURLProtocol: HTTPURLProtocolStub {}

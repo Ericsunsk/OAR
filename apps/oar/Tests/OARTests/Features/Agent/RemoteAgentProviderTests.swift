@@ -15,7 +15,7 @@ final class RemoteAgentProviderTests: XCTestCase {
             XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
 
-            let body = try Self.bodyData(from: request)
+            let body = try URLRequestBodyTestSupport.bodyData(from: request)
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
             XCTAssertEqual(messages.count, 13)
@@ -163,57 +163,6 @@ final class RemoteAgentProviderTests: XCTestCase {
         }
     }
 
-    private static func bodyData(from request: URLRequest) throws -> Data {
-        if let httpBody = request.httpBody {
-            return httpBody
-        }
-
-        let stream = try XCTUnwrap(request.httpBodyStream)
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        let bufferSize = 1_024
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-        defer { buffer.deallocate() }
-
-        while stream.hasBytesAvailable {
-            let bytesRead = stream.read(buffer, maxLength: bufferSize)
-            if bytesRead > 0 {
-                data.append(buffer, count: bytesRead)
-            } else if bytesRead < 0 {
-                throw stream.streamError ?? AgentProviderError.invalidResponse
-            } else {
-                break
-            }
-        }
-        return data
-    }
 }
 
-private final class AgentTestURLProtocol: URLProtocol {
-    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        do {
-            let handler = try XCTUnwrap(Self.handler)
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {
-    }
-}
+private final class AgentTestURLProtocol: HTTPURLProtocolStub {}
