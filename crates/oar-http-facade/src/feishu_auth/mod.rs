@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use hyper::http::{Method, StatusCode};
+use hyper::http::StatusCode;
 use oar_core::action::capability::default_agent_feishu_oauth_scope_strings;
 use oar_lark_adapter::{
     AsyncFeishuOAuthLogin, FeishuOAuthLoginClient, FeishuOAuthLoginConfig, FeishuOpenApiConfig,
@@ -15,6 +15,7 @@ use tokio::sync::Notify;
 
 mod events;
 mod persistence;
+mod routes;
 mod session;
 mod util;
 
@@ -22,6 +23,10 @@ pub(crate) use events::{feishu_login_session_event, feishu_login_session_event_s
 use persistence::persist_feishu_login_grant;
 #[cfg(test)]
 pub(crate) use persistence::{build_feishu_login_persistence_plan, FeishuLoginPersistenceError};
+pub(crate) use routes::{
+    auth_session_events_id, auth_session_status_id, is_auth_session_events_route,
+    is_auth_session_status_route,
+};
 use session::{
     expire_session_if_needed, mark_session_denied, notify_session_changed, qr_session_json,
     session_status_json, FeishuLoginSession, FeishuLoginSessionState,
@@ -335,25 +340,6 @@ pub(crate) async fn complete_feishu_login_callback(
     }
 
     callback_html(StatusCode::OK, "OAR 登录成功", "可以回到 OAR 客户端继续。")
-}
-
-pub(crate) fn auth_session_status_id(path: &str) -> Option<&str> {
-    path.strip_prefix("/auth/feishu/qr-sessions/")
-        .filter(|session_id| !session_id.is_empty() && !session_id.ends_with("/events"))
-}
-
-pub(crate) fn auth_session_events_id(path: &str) -> Option<&str> {
-    path.strip_prefix("/auth/feishu/qr-sessions/")
-        .and_then(|session_id| session_id.strip_suffix("/events"))
-        .filter(|session_id| !session_id.is_empty())
-}
-
-pub(crate) fn is_auth_session_status_route(method: &Method, path: &str) -> bool {
-    *method == Method::GET && auth_session_status_id(path).is_some()
-}
-
-pub(crate) fn is_auth_session_events_route(method: &Method, path: &str) -> bool {
-    *method == Method::GET && auth_session_events_id(path).is_some()
 }
 
 #[cfg(test)]
