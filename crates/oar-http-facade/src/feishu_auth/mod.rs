@@ -4,7 +4,6 @@ use std::sync::Mutex;
 
 use oar_core::action::capability::default_agent_feishu_oauth_scope_strings;
 use oar_lark_adapter::{FeishuOAuthLoginConfig, FeishuOpenApiConfig, ReqwestAsyncHttpClient};
-use sqlx::PgPool;
 
 mod events;
 mod handlers;
@@ -98,28 +97,6 @@ fn default_feishu_auth_scope() -> String {
     default_agent_feishu_oauth_scope_strings().join(" ")
 }
 
-impl FeishuGrantPersistenceRuntime {
-    pub(crate) fn new(pool: PgPool, grant_key_id: String, grant_key_material: [u8; 32]) -> Self {
-        Self {
-            pool,
-            grant_key_id,
-            grant_key_material,
-        }
-    }
-
-    pub(crate) fn pool(&self) -> PgPool {
-        self.pool.clone()
-    }
-
-    pub(crate) fn grant_key_id(&self) -> &str {
-        &self.grant_key_id
-    }
-
-    pub(crate) fn grant_key_material(&self) -> [u8; 32] {
-        self.grant_key_material
-    }
-}
-
 pub(crate) struct FeishuLoginRuntime {
     config: FeishuOAuthLoginConfig,
     http_client: ReqwestAsyncHttpClient,
@@ -132,23 +109,6 @@ impl fmt::Debug for FeishuLoginRuntime {
             .field("config", &self.config)
             .field("http_client", &"[REDACTED]")
             .field("sessions", &"[REDACTED]")
-            .finish()
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct FeishuGrantPersistenceRuntime {
-    pool: PgPool,
-    grant_key_id: String,
-    grant_key_material: [u8; 32],
-}
-
-impl fmt::Debug for FeishuGrantPersistenceRuntime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FeishuGrantPersistenceRuntime")
-            .field("pool", &"[REDACTED]")
-            .field("grant_key_id", &"[REDACTED]")
-            .field("grant_key_material", &"[REDACTED]")
             .finish()
     }
 }

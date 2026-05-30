@@ -33,7 +33,7 @@ pub async fn dispatch_request_with_runtime(
         (&Method::GET, "/auth/feishu/callback") => {
             return complete_feishu_login_callback(
                 runtime.feishu_login.as_deref(),
-                runtime.session_persistence(),
+                runtime.persistence(),
                 query,
             )
             .await;

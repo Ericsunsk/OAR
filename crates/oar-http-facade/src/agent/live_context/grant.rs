@@ -16,7 +16,7 @@ use oar_core::storage::postgres::{
 use oar_lark_adapter::build_postgres_async_feishu_auth_refresh_adapter;
 use sha2::{Digest, Sha256};
 
-use crate::{feishu_auth, AuthenticatedContext};
+use crate::{feishu_auth, persistence::FacadePersistenceRuntime, AuthenticatedContext};
 
 mod lookup;
 
@@ -27,7 +27,7 @@ pub(super) const TOKEN_REFRESH_SKEW_MS: u64 = 5 * 60 * 1000;
 pub(super) async fn refresh_grant_before_live_read(
     pool: sqlx::PgPool,
     login: &feishu_auth::FeishuLoginRuntime,
-    persistence: &feishu_auth::FeishuGrantPersistenceRuntime,
+    persistence: &FacadePersistenceRuntime,
     auth_context: &AuthenticatedContext,
     token_grant: &EncryptedTokenGrantRecord,
     now: SystemTime,

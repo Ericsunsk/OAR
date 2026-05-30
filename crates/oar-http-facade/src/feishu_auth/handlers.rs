@@ -12,7 +12,8 @@ use super::session::{
     session_status_json, FeishuLoginSession, FeishuLoginSessionState,
 };
 use super::util::{parse_query, sanitize_session_suffix, secure_random_hex};
-use super::{FeishuGrantPersistenceRuntime, FeishuLoginRuntime};
+use super::FeishuLoginRuntime;
+use crate::persistence::FacadePersistenceRuntime;
 use crate::response::{callback_html, json_facade_response, service_unavailable, FacadeResponse};
 
 fn not_configured_response() -> FacadeResponse {
@@ -75,7 +76,7 @@ pub(crate) fn feishu_login_session_status(
 
 pub(crate) async fn complete_feishu_login_callback(
     runtime: Option<&FeishuLoginRuntime>,
-    persistence: Option<&FeishuGrantPersistenceRuntime>,
+    persistence: Option<&FacadePersistenceRuntime>,
     query: Option<&str>,
 ) -> FacadeResponse {
     let Some(runtime) = runtime else {

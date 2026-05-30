@@ -18,7 +18,7 @@ use oar_lark_adapter::{
 };
 
 use super::util::{stable_prefixed_id, stable_sha256_hex, system_time_to_ms_lossy};
-use super::FeishuGrantPersistenceRuntime;
+use crate::persistence::FacadePersistenceRuntime;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FeishuLoginPersistencePlan {
@@ -54,7 +54,7 @@ impl fmt::Display for FeishuLoginPersistenceError {
 impl Error for FeishuLoginPersistenceError {}
 
 pub(super) async fn persist_feishu_login_grant(
-    persistence: Option<&FeishuGrantPersistenceRuntime>,
+    persistence: Option<&FacadePersistenceRuntime>,
     login: &FeishuOAuthLogin,
     oar_session_id: &str,
 ) -> Result<(), FeishuLoginPersistenceError> {
@@ -65,33 +65,33 @@ pub(super) async fn persist_feishu_login_grant(
     let plan = build_feishu_login_persistence_plan(
         login,
         oar_session_id,
-        &persistence.grant_key_id,
-        persistence.grant_key_material,
+        persistence.grant_key_id(),
+        persistence.grant_key_material(),
         SystemTime::now(),
     )?;
-    PostgresTenantRepository::new(persistence.pool.clone())
+    PostgresTenantRepository::new(persistence.pool())
         .upsert(&plan.tenant)
         .await
         .map_err(|_| FeishuLoginPersistenceError::StoreFailed { stage: "tenant" })?;
-    PostgresWorkspaceUserRepository::new(persistence.pool.clone())
+    PostgresWorkspaceUserRepository::new(persistence.pool())
         .upsert(&plan.user)
         .await
         .map_err(|_| FeishuLoginPersistenceError::StoreFailed {
             stage: "workspace_user",
         })?;
-    PostgresLarkIdentityRepository::new(persistence.pool.clone())
+    PostgresLarkIdentityRepository::new(persistence.pool())
         .upsert(&plan.identity)
         .await
         .map_err(|_| FeishuLoginPersistenceError::StoreFailed {
             stage: "lark_identity",
         })?;
-    PostgresTokenGrantRepository::new(persistence.pool.clone())
+    PostgresTokenGrantRepository::new(persistence.pool())
         .upsert_encrypted_grant(&plan.grant)
         .await
         .map_err(|_| FeishuLoginPersistenceError::StoreFailed {
             stage: "token_grant",
         })?;
-    PostgresDeviceSessionRepository::new(persistence.pool.clone())
+    PostgresDeviceSessionRepository::new(persistence.pool())
         .upsert_with_identity_hash(&plan.session, &plan.session_identity_hash)
         .await
         .map_err(|_| FeishuLoginPersistenceError::StoreFailed {

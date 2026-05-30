@@ -1,5 +1,6 @@
 use super::super::postgres_support::{device_session, run_live_postgres_test, seed_user};
-use crate::feishu_auth::{FeishuGrantPersistenceRuntime, FeishuLoginRuntime};
+use crate::feishu_auth::FeishuLoginRuntime;
+use crate::persistence::FacadePersistenceRuntime;
 use crate::{dispatch_request_with_runtime, OarHttpFacadeRuntime};
 use hyper::http::{Method, StatusCode};
 use oar_core::domain::device_sync::SessionState;
@@ -196,7 +197,7 @@ fn configured_runtime() -> Arc<OarHttpFacadeRuntime> {
 }
 
 fn configured_runtime_with_persistence(pool: sqlx::PgPool) -> Arc<OarHttpFacadeRuntime> {
-    let persistence = FeishuGrantPersistenceRuntime::new(pool, "key-test-v1".to_string(), [7; 32]);
+    let persistence = FacadePersistenceRuntime::new(pool, "key-test-v1".to_string(), [7; 32]);
     let feishu_login = FeishuLoginRuntime::from_env_map(&configured_env)
         .expect("login runtime")
         .expect("configured login runtime");

@@ -102,7 +102,7 @@ fn device_session_repository(
     runtime: &OarHttpFacadeRuntime,
 ) -> Result<PostgresDeviceSessionRepository, OarSessionAuthError> {
     runtime
-        .session_persistence()
+        .persistence()
         .map(|persistence| PostgresDeviceSessionRepository::new(persistence.pool()))
         .ok_or(OarSessionAuthError::StoreUnavailable)
 }

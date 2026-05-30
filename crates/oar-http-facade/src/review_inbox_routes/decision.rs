@@ -34,7 +34,7 @@ pub(super) async fn record_decision_for_context(
     context: &AuthenticatedContext,
     request: ReviewDecisionRequestDto,
 ) -> FacadeResponse {
-    let Some(persistence) = runtime.session_persistence() else {
+    let Some(persistence) = runtime.persistence() else {
         return service_unavailable(
             "review_decision_store_unavailable",
             "Review decision storage is temporarily unavailable.",

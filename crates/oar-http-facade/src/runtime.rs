@@ -6,14 +6,13 @@ use oar_lark_adapter::PostgresFeishuAuthRefreshEnvConfig;
 use sqlx::postgres::PgPoolOptions;
 
 use crate::agent::{AgentModelSettingsRuntime, AgentRuntime, AgentRuntimeConfigError};
-use crate::feishu_auth::{
-    FeishuGrantPersistenceRuntime, FeishuLoginRuntime, FeishuLoginRuntimeConfigError,
-};
+use crate::feishu_auth::{FeishuLoginRuntime, FeishuLoginRuntimeConfigError};
+use crate::persistence::FacadePersistenceRuntime;
 use crate::util::non_empty_env;
 
 #[derive(Clone, Default)]
 pub struct OarHttpFacadeRuntime {
-    pub(crate) persistence: Option<FeishuGrantPersistenceRuntime>,
+    pub(crate) persistence: Option<FacadePersistenceRuntime>,
     pub(crate) feishu_login: Option<Arc<FeishuLoginRuntime>>,
     pub(crate) agent: Option<Arc<AgentRuntime>>,
     pub(crate) agent_settings: Option<Arc<AgentModelSettingsRuntime>>,
@@ -72,7 +71,7 @@ impl OarHttpFacadeRuntime {
         Self::default()
     }
 
-    pub(crate) fn session_persistence(&self) -> Option<&FeishuGrantPersistenceRuntime> {
+    pub(crate) fn persistence(&self) -> Option<&FacadePersistenceRuntime> {
         self.persistence.as_ref()
     }
 
@@ -102,7 +101,7 @@ impl OarHttpFacadeRuntime {
             .map_err(|_| OarHttpFacadeRuntimeError::DatabaseConnectFailed)?;
         Self::from_env_map_with_persistence(
             env,
-            Some(FeishuGrantPersistenceRuntime::new(
+            Some(FacadePersistenceRuntime::new(
                 pool,
                 grant_config.grant_key_id,
                 grant_config.grant_key_material,
@@ -112,12 +111,12 @@ impl OarHttpFacadeRuntime {
 
     fn from_env_map_with_persistence(
         env: &impl Fn(&str) -> Option<String>,
-        grant_persistence: Option<FeishuGrantPersistenceRuntime>,
+        persistence: Option<FacadePersistenceRuntime>,
     ) -> Result<Self, OarHttpFacadeRuntimeError> {
         let agent = AgentRuntime::from_env_map(env)
             .map_err(agent_runtime_config_error)?
             .map(Arc::new);
-        let agent_settings = match grant_persistence.as_ref() {
+        let agent_settings = match persistence.as_ref() {
             Some(persistence) => Some(Arc::new(
                 AgentModelSettingsRuntime::new(
                     persistence.pool(),
@@ -132,7 +131,7 @@ impl OarHttpFacadeRuntime {
             .map_err(feishu_runtime_config_error)?
             .map(Arc::new);
         Ok(Self {
-            persistence: grant_persistence,
+            persistence,
             feishu_login,
             agent,
             agent_settings,

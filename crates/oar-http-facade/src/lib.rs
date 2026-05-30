@@ -4,6 +4,7 @@ mod agent;
 mod agent_routes;
 mod config;
 mod feishu_auth;
+mod persistence;
 mod response;
 mod review_inbox_routes;
 mod routing;
