@@ -31,8 +31,10 @@ Naming rule: API payload types keep the `DTO` suffix and mirror backend contract
 
 ## Runtime Configuration
 
-The app connects to `http://127.0.0.1:8080` by default. Start the local backend
-facade before launching the client:
+The app backend origin is `AppEnvironment.defaultBackendBaseURL`. The current
+repository value points at `https://seven-eels-do.loca.lt` for tunnel/device
+testing; for local-only development, set it to `http://127.0.0.1:8080` and
+start the local backend facade before launching the client:
 
 ```bash
 # terminal 1
@@ -54,6 +56,10 @@ The frontend calls only OAR backend endpoints:
 - `GET /review-inbox/snapshot`
 - `POST /review-inbox/decisions`
 - `POST /agent/stream`
+- `GET /agent/settings`
+- `PUT /agent/settings`
+- `DELETE /agent/settings`
+- `POST /agent/model-catalog/preview`
 
 Current repository status: `oar-http-facade` can create a real Feishu OAuth
 authorization URL when `OAR_FEISHU_APP_ID`, `OAR_FEISHU_APP_SECRET`, and
@@ -61,8 +67,10 @@ authorization URL when `OAR_FEISHU_APP_ID`, `OAR_FEISHU_APP_SECRET`, and
 authorization code server-side and returns only an OAR session plus safe user
 display fields to the client. When the backend is configured with `DATABASE_URL`
 and a grant encryption key, the callback stores an encrypted per-user
-`TokenGrant`; the default Feishu login scope is `offline_access` so Feishu can
-return a refresh token. Review Inbox live data is still backend follow-up work,
+`TokenGrant`; the default Feishu OAuth grant always includes `offline_access`
+and, unless `OAR_FEISHU_AUTH_SCOPE` overrides it, also requests the
+capability-derived Feishu scopes needed by OAR user-level tools and actions.
+Review Inbox live data is still backend follow-up work,
 so the snapshot endpoint currently returns an empty Review Inbox contract and decision
 write paths remain disabled until the
 `ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent` execution
@@ -70,8 +78,8 @@ chain is connected. `OAR_FEISHU_APP_ID` / `OAR_FEISHU_APP_SECRET` identify the
 OAR Feishu application for this deployment, not a shared user or bot identity;
 each successful scan creates a grant bound to the Feishu tenant and user. For
 Docker, the backend may set
-`OAR_HTTP_BIND_ADDR=0.0.0.0:8080`; the macOS client remains hardwired to the
-local backend origin until in-app server settings are introduced.
+`OAR_HTTP_BIND_ADDR=0.0.0.0:8080`; the macOS client remains tied to
+`AppEnvironment.defaultBackendBaseURL` until in-app server settings are introduced.
 
 The Agent sidecar never calls model APIs directly. It streams through
 `/agent/stream` with the current OAR session. Users can enter `baseURL` and

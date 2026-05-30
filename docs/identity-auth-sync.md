@@ -30,7 +30,7 @@
 - user token 当前状态为 valid。
 - user 身份和 bot 身份均可被服务端验证。
 - `offline_access` 已授权。
-- `authen/v1/user_info` 基础身份读取不需要额外应用权限；当前 OAuth 登录默认只请求 `offline_access`。
+- `authen/v1/user_info` 基础身份读取不需要额外应用权限；本报告记录的首轮 OAuth 登录验证当时只请求 `offline_access`。当前默认 OAuth scope 策略见 `agent-capabilities-feishu-permissions.md`。
 - access token 和 refresh token 均有明确到期时间。
 - CLI 未输出 access token 或 refresh token 明文。
 

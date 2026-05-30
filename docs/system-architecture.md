@@ -327,6 +327,14 @@ OAR 的智能不应该来自一次 LLM 调用，而应该来自：
 
 > 模型编排 + 可追溯证据 + 可学习的团队记忆 + 可版本化策略。
 
+当前模型 API 边界：
+
+- 前端只调用 OAR backend endpoint，不直连 OpenAI-compatible 或 Anthropic 服务。
+- 用户级 BYOK 设置由后端持久化：前端只提交 `baseURL` / `apiKey`，后端检测协议和模型目录，并用 `OAR_GRANT_KEY_*` 加密保存 API key。
+- 推理请求优先使用当前用户 BYOK 设置；没有用户设置时，后端才按 `OAR_AGENT_PROVIDER` 使用环境变量 fallback。
+- 支持的默认协议为 `openai-compatible` 和 `anthropic`。OpenAI-compatible 需要 base URL、API key 和 model；Anthropic base URL/version 有后端默认值，但 API key 和 model 仍必须来自用户设置或环境变量。
+- 后端把不同 provider 的流式响应统一转换为 OAR SSE；前端消费的是 OAR 事件契约，而不是 provider 原始协议。
+
 模型角色：
 
 | 模型角色 | 用途 | 要求 |

@@ -9,7 +9,7 @@ OAR 当前处于 **阶段 0.6：身份与同步验证**。
 已完成：
 
 - 阶段 0.5：`lark-okr` 已通过 OKR 读取和 progress 创建 / 更新的本地验证，可作为 fixture / parser 回归基线。
-- 阶段 0.6 首轮：user / bot 身份、`offline_access` 和 token valid 状态已验证；当前扫码登录默认只请求 `offline_access`。
+- 阶段 0.6 首轮历史快照：user / bot 身份、`offline_access` 和 token valid 状态已验证；当时扫码登录默认只请求 `offline_access`。当前默认 OAuth scope 策略见 `docs/agent-capabilities-feishu-permissions.md`。
 
 生产闭环未完成（前置与部分验证已完成）：
 
