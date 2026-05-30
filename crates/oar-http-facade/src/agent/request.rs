@@ -58,6 +58,7 @@ pub(super) struct AgentConversationContextDTO {
     pub(super) workspace_summary: String,
     pub(super) workspace_signals: Vec<String>,
     pub(super) pending_action_summaries: Vec<String>,
+    pub(super) ledger_event_summaries: Vec<String>,
     #[serde(skip)]
     pub(super) live_feishu_read_summaries: Vec<String>,
     #[serde(skip)]
@@ -94,7 +95,8 @@ mod tests {
                     ],
                     "workspace_summary": "工作区摘要：共 2 个风险。",
                     "workspace_signals": ["严重｜KR 风险"],
-                    "pending_action_summaries": ["KR 风险｜更新进展｜gate：待处理"]
+                    "pending_action_summaries": ["KR 风险｜更新进展｜gate：待处理"],
+                    "ledger_event_summaries": ["review inbox｜ActionID act_123｜dry-run 已生成，等待确认"]
                 }
             }"#;
         let request = decode_agent_stream_request(body.as_bytes()).expect("request");
@@ -107,6 +109,10 @@ mod tests {
         assert_eq!(
             request.context.pending_action_summaries,
             vec!["KR 风险｜更新进展｜gate：待处理"]
+        );
+        assert_eq!(
+            request.context.ledger_event_summaries,
+            vec!["review inbox｜ActionID act_123｜dry-run 已生成，等待确认"]
         );
         assert_eq!(request.context.evidence_refs.len(), 1);
         assert_eq!(request.context.evidence_refs[0].source_type, "okr");
@@ -127,7 +133,48 @@ mod tests {
                     "evidence_summaries": [],
                     "workspace_summary": "摘要",
                     "workspace_signals": [],
+                    "pending_action_summaries": [],
+                    "ledger_event_summaries": []
+                }
+            }"#;
+        let error = decode_agent_stream_request(body.as_bytes()).expect_err("invalid");
+        assert_eq!(error, AgentRequestError::InvalidJson);
+    }
+
+    #[test]
+    fn decode_agent_stream_request_requires_ledger_event_summaries_field() {
+        let body = r#"{
+                "messages": [{"role": "user", "text": "解释风险"}],
+                "context": {
+                    "title": "KR 风险",
+                    "risk_reason": "连续延期",
+                    "action_summary": "更新进展",
+                    "evidence_summaries": [],
+                    "evidence_refs": [],
+                    "workspace_summary": "摘要",
+                    "workspace_signals": [],
                     "pending_action_summaries": []
+                }
+            }"#;
+        let error = decode_agent_stream_request(body.as_bytes()).expect_err("invalid");
+        assert_eq!(error, AgentRequestError::InvalidJson);
+    }
+
+    #[test]
+    fn decode_agent_stream_request_rejects_unknown_context_fields() {
+        let body = r#"{
+                "messages": [{"role": "user", "text": "解释风险"}],
+                "context": {
+                    "title": "KR 风险",
+                    "risk_reason": "连续延期",
+                    "action_summary": "更新进展",
+                    "evidence_summaries": [],
+                    "evidence_refs": [],
+                    "workspace_summary": "摘要",
+                    "workspace_signals": [],
+                    "pending_action_summaries": [],
+                    "ledger_event_summaries": [],
+                    "unknown_context": "nope"
                 }
             }"#;
         let error = decode_agent_stream_request(body.as_bytes()).expect_err("invalid");

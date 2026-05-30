@@ -101,6 +101,7 @@ fn anthropic_messages_drop_leading_assistant_and_merge_adjacent_roles() {
             workspace_summary: "工作区摘要".to_string(),
             workspace_signals: vec![],
             pending_action_summaries: vec![],
+            ledger_event_summaries: vec![],
             live_feishu_read_summaries: vec![],
             activated_skill_summaries: vec![],
         },

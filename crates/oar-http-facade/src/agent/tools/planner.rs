@@ -282,6 +282,7 @@ mod tests {
                 workspace_summary: "暂无工作区摘要。".to_string(),
                 workspace_signals: vec![],
                 pending_action_summaries: vec![],
+                ledger_event_summaries: vec![],
                 live_feishu_read_summaries: vec![],
                 activated_skill_summaries: vec![],
             },

@@ -40,6 +40,7 @@ fn request_messages_filters_unknown_roles_and_keeps_system_prompt_first() {
             workspace_summary: "工作区摘要".to_string(),
             workspace_signals: vec![],
             pending_action_summaries: vec![],
+            ledger_event_summaries: vec![],
             live_feishu_read_summaries: vec![],
             activated_skill_summaries: vec![],
         },

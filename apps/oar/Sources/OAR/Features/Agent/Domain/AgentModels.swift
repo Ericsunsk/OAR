@@ -52,6 +52,7 @@ struct AgentConversationContext: Equatable {
     var workspaceSummary: String
     var workspaceSignals: [String]
     var pendingActionSummaries: [String]
+    var ledgerEventSummaries: [String]
 
     init(
         title: String,
@@ -61,7 +62,8 @@ struct AgentConversationContext: Equatable {
         evidenceRefs: [AgentEvidenceRef],
         workspaceSummary: String,
         workspaceSignals: [String],
-        pendingActionSummaries: [String]
+        pendingActionSummaries: [String],
+        ledgerEventSummaries: [String] = []
     ) {
         self.title = title
         self.riskReason = riskReason
@@ -71,6 +73,7 @@ struct AgentConversationContext: Equatable {
         self.workspaceSummary = workspaceSummary
         self.workspaceSignals = workspaceSignals
         self.pendingActionSummaries = pendingActionSummaries
+        self.ledgerEventSummaries = ledgerEventSummaries
     }
 
     static let empty = AgentConversationContext(
@@ -81,7 +84,8 @@ struct AgentConversationContext: Equatable {
         evidenceRefs: [],
         workspaceSummary: "暂无工作区摘要。",
         workspaceSignals: [],
-        pendingActionSummaries: []
+        pendingActionSummaries: [],
+        ledgerEventSummaries: []
     )
 }
 

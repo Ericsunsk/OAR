@@ -11,7 +11,8 @@ extension ReviewInboxViewModel {
                 evidenceRefs: [],
                 workspaceSummary: agentWorkspaceSummary,
                 workspaceSignals: agentWorkspaceSignals,
-                pendingActionSummaries: agentPendingActionSummaries
+                pendingActionSummaries: agentPendingActionSummaries,
+                ledgerEventSummaries: agentLedgerEventSummaries
             )
         }
 
@@ -31,7 +32,8 @@ extension ReviewInboxViewModel {
             },
             workspaceSummary: agentWorkspaceSummary,
             workspaceSignals: agentWorkspaceSignals,
-            pendingActionSummaries: agentPendingActionSummaries
+            pendingActionSummaries: agentPendingActionSummaries,
+            ledgerEventSummaries: agentLedgerEventSummaries
         )
     }
 
@@ -74,6 +76,35 @@ extension ReviewInboxViewModel {
         }
     }
 
+    private var agentLedgerEventSummaries: [String] {
+        guard selectedItem != nil else { return [] }
+
+        let selectedActionID = selectedAction?.id
+        let selectedItemActionIDs = Set(actionsForSelectedItem.map(\.id))
+
+        let scopedEvents: [ReviewInboxTimelineEvent]
+        if let selectedActionID {
+            let selectedEvents = ledgerEvents.filter { $0.actionId == selectedActionID }
+            let relatedEvents = ledgerEvents.filter {
+                $0.actionId != selectedActionID && selectedItemActionIDs.contains($0.actionId)
+            }
+            scopedEvents = selectedEvents + relatedEvents
+        } else {
+            scopedEvents = ledgerEvents.filter { selectedItemActionIDs.contains($0.actionId) }
+        }
+
+        return scopedEvents.prefix(5).map(agentLedgerEventSummary)
+    }
+
+    private func agentLedgerEventSummary(_ event: ReviewInboxTimelineEvent) -> String {
+        let actionText = actions.first { $0.id == event.actionId }.map { action in
+            "ActionID \(safeAgentSummary(action.id, maxCharacters: 48))｜\(action.actionType.rawValue)｜gate：\(action.gateState.rawValue)"
+        } ?? "ActionID \(safeAgentSummary(event.actionId, maxCharacters: 48))"
+        let message = safeAgentSummary(redactedAgentLedgerText(event.message), maxCharacters: 120)
+        let messageText = message.isEmpty ? "无补充说明。" : message
+        return "\(event.stage.rawValue)｜\(event.stageStatus.rawValue)｜\(safeAgentSummary(event.timestamp, maxCharacters: 48))｜\(messageText)｜\(actionText)"
+    }
+
     private var agentEvidenceGapSummaries: [String] {
         var candidates: [ReviewInboxDisplayItem] = []
         if let selectedItem {
@@ -107,6 +138,31 @@ extension ReviewInboxViewModel {
             .joined(separator: " ")
         guard cleaned.count > maxCharacters else { return cleaned }
         return "\(String(cleaned.prefix(maxCharacters)))..."
+    }
+
+    private func redactedAgentLedgerText(_ text: String) -> String {
+        for marker in sensitiveLedgerMarkers where text.range(of: marker, options: [.caseInsensitive]) != nil {
+            return "已隐藏敏感账本详情。"
+        }
+        return text
+    }
+
+    private var sensitiveLedgerMarkers: [String] {
+        [
+            "access token",
+            "auth code",
+            "authorization",
+            "bearer",
+            "client secret",
+            "credential",
+            "password",
+            "raw payload",
+            "raw_payload",
+            "secret",
+            "sk-",
+            "token",
+            "unredacted"
+        ]
     }
 }
 

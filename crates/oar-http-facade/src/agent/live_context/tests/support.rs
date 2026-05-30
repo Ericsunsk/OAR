@@ -32,6 +32,7 @@ pub(super) fn live_context_request(
             workspace_summary: "摘要".to_string(),
             workspace_signals: vec![],
             pending_action_summaries: vec![],
+            ledger_event_summaries: vec![],
             live_feishu_read_summaries: vec![],
             activated_skill_summaries: vec![],
         },

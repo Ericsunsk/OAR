@@ -105,6 +105,60 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertTrue(context.pendingActionSummaries[2].contains("首轮配置失败率降至 4% 以下｜提醒负责人｜gate：待处理"))
     }
 
+    func testAgentWorkspaceContextIncludesScopedBackendLedgerSummaries() async {
+        let selectedAction = makeSuggestedAction(id: "act-selected", reviewItemId: "review-ledger")
+        let relatedAction = makeSuggestedAction(id: "act-related", reviewItemId: "review-ledger")
+        let unrelatedAction = makeSuggestedAction(id: "act-unrelated", reviewItemId: "review-other")
+        let model = ReviewInboxViewModel(provider: StaticSnapshotProvider(snapshot: ReviewInboxDisplaySnapshot(
+            items: [makeDisplayItem(id: "review-ledger")],
+            evidence: [],
+            actions: [selectedAction, relatedAction, unrelatedAction],
+            ledgerEvents: [
+                makeTimelineEvent(
+                    id: "le-related",
+                    actionId: relatedAction.id,
+                    stage: .operationLedger,
+                    status: .ok,
+                    timestamp: "2026-05-30T10:01:00Z",
+                    message: "raw_payload sk-secret token leaked",
+                    idempotencyKey: "redacted"
+                ),
+                makeTimelineEvent(
+                    id: "le-selected",
+                    actionId: selectedAction.id,
+                    stage: .auditEvent,
+                    status: .ok,
+                    timestamp: "2026-05-30T10:02:00Z",
+                    message: "Audit event recorded.",
+                    idempotencyKey: "redacted"
+                ),
+                makeTimelineEvent(
+                    id: "le-unrelated",
+                    actionId: unrelatedAction.id,
+                    stage: .confirmedAction,
+                    status: .ok,
+                    timestamp: "2026-05-30T10:03:00Z",
+                    message: "Other action confirmed.",
+                    idempotencyKey: "redacted"
+                )
+            ]
+        )))
+
+        await model.load()
+        model.selectAction(selectedAction)
+
+        let summaries = model.agentWorkspaceContext.ledgerEventSummaries
+        XCTAssertEqual(summaries.count, 2)
+        XCTAssertTrue(summaries[0].contains("审计事件｜正常｜2026-05-30T10:02:00Z"))
+        XCTAssertTrue(summaries[0].contains("ActionID act-selected｜更新进展｜gate：待处理"))
+        XCTAssertTrue(summaries[0].contains("Audit event recorded."))
+        XCTAssertTrue(summaries[1].contains("ActionID act-related｜更新进展｜gate：待处理"))
+        XCTAssertTrue(summaries[1].contains("已隐藏敏感账本详情。"))
+        XCTAssertFalse(summaries.joined(separator: "\n").contains("act-unrelated"))
+        XCTAssertFalse(summaries.joined(separator: "\n").contains("raw_payload"))
+        XCTAssertFalse(summaries.joined(separator: "\n").contains("sk-secret"))
+    }
+
     func testApproveNonExecutableActionShowsBoundaryMessage() async {
         let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
         await model.load()

@@ -36,6 +36,10 @@ final class RemoteAgentProviderTests: XCTestCase {
                 context["pending_action_summaries"] as? [String],
                 ["KR 风险｜更新进展｜gate：待处理｜dry-run：将更新 1 条 KR 进展。"]
             )
+            XCTAssertEqual(
+                context["ledger_event_summaries"] as? [String],
+                ["审计事件｜正常｜2026-05-30T10:02:00Z｜ActionID act_1｜AuditEvent 已记录"]
+            )
             XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("sk-") ?? true)
 
             return (
@@ -90,7 +94,8 @@ final class RemoteAgentProviderTests: XCTestCase {
                     ],
                     workspaceSummary: "工作区摘要：共 2 个风险，严重/高 1 个。",
                     workspaceSignals: ["严重｜KR 风险｜owner：陈敏｜置信 91%"],
-                    pendingActionSummaries: ["KR 风险｜更新进展｜gate：待处理｜dry-run：将更新 1 条 KR 进展。"]
+                    pendingActionSummaries: ["KR 风险｜更新进展｜gate：待处理｜dry-run：将更新 1 条 KR 进展。"],
+                    ledgerEventSummaries: ["审计事件｜正常｜2026-05-30T10:02:00Z｜ActionID act_1｜AuditEvent 已记录"]
                 )
             )
         )

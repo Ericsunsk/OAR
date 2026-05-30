@@ -19,6 +19,7 @@ struct RemoteAgentContextDTO: Encodable {
     let workspaceSummary: String
     let workspaceSignals: [String]
     let pendingActionSummaries: [String]
+    let ledgerEventSummaries: [String]
 
     enum CodingKeys: String, CodingKey {
         case title
@@ -29,6 +30,7 @@ struct RemoteAgentContextDTO: Encodable {
         case workspaceSummary = "workspace_summary"
         case workspaceSignals = "workspace_signals"
         case pendingActionSummaries = "pending_action_summaries"
+        case ledgerEventSummaries = "ledger_event_summaries"
     }
 
     init(context: AgentConversationContext) {
@@ -40,6 +42,7 @@ struct RemoteAgentContextDTO: Encodable {
         workspaceSummary = context.workspaceSummary
         workspaceSignals = context.workspaceSignals
         pendingActionSummaries = context.pendingActionSummaries
+        ledgerEventSummaries = context.ledgerEventSummaries
     }
 }
 
