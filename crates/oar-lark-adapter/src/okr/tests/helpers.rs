@@ -1,62 +1,10 @@
-use async_trait::async_trait;
-
-use crate::oauth::{AsyncHttpClient, HttpClient, HttpClientFailure, HttpRequest, HttpResponse};
 use crate::okr::{
     FeishuOkrBatchGetRequest, FeishuOkrCycleListRequest, FeishuOkrCycleObjectivesListRequest,
     FeishuOkrObjectiveKeyResultsListRequest, FeishuOkrProgressListRequest,
     FeishuOkrProgressListTarget, OkrDepartmentIdType, OkrUserIdType,
 };
 use crate::redaction::SecretString;
-
-#[derive(Clone)]
-pub(super) struct FakeHttpClient {
-    pub(super) response: Option<HttpResponse>,
-    pub(super) error: Option<HttpClientFailure>,
-    pub(super) request: Option<HttpRequest>,
-}
-
-impl FakeHttpClient {
-    pub(super) fn from_response(response: HttpResponse) -> Self {
-        Self {
-            response: Some(response),
-            error: None,
-            request: None,
-        }
-    }
-
-    pub(super) fn from_error(error: HttpClientFailure) -> Self {
-        Self {
-            response: None,
-            error: Some(error),
-            request: None,
-        }
-    }
-}
-
-impl HttpClient for FakeHttpClient {
-    fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
-        self.request = Some(request);
-        if let Some(error) = &self.error {
-            return Err(error.clone());
-        }
-        Ok(self.response.clone().expect("response exists"))
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct AsyncFakeHttpClient {
-    pub(super) response: HttpResponse,
-}
-
-#[async_trait]
-impl AsyncHttpClient for AsyncFakeHttpClient {
-    async fn post_json(
-        &mut self,
-        _request: HttpRequest,
-    ) -> Result<HttpResponse, HttpClientFailure> {
-        Ok(self.response.clone())
-    }
-}
+pub(super) use crate::test_support::http::{AsyncFakeHttpClient, FakeHttpClient};
 
 pub(super) fn sample_request() -> FeishuOkrBatchGetRequest {
     FeishuOkrBatchGetRequest {

@@ -16,6 +16,8 @@ pub mod okr;
 pub mod postgres;
 pub mod redaction;
 pub mod task;
+#[cfg(test)]
+mod test_support;
 mod url_encoding;
 
 #[cfg(feature = "postgres")]
