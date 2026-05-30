@@ -204,10 +204,13 @@ fn token_refresh_apply_result_from_record(
     }
 }
 
-pub(super) async fn apply_refresh_command_in_tx(
-    tx: &mut Transaction<'_, Postgres>,
+pub(super) async fn apply_refresh_command_with_executor<'e, E>(
+    executor: E,
     command: TokenRefreshRepositoryCommand,
-) -> PgRepositoryResult<Option<TokenRefreshApplyResult>> {
+) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = match command {
         TokenRefreshRepositoryCommand::RotateGrantCas {
             grant_id,
@@ -228,7 +231,7 @@ pub(super) async fn apply_refresh_command_in_tx(
                 .bind(&encrypted_grant_blob.0)
                 .bind(&grant_key_id)
                 .bind(&new_fingerprint)
-                .fetch_optional(&mut **tx)
+                .fetch_optional(executor)
                 .await?
         }
         TokenRefreshRepositoryCommand::MarkNeedsRefresh {
@@ -245,7 +248,7 @@ pub(super) async fn apply_refresh_command_in_tx(
                 .bind(&expected_fingerprint)
                 .bind(refreshed_at_ms as i64)
                 .bind(&safe_error)
-                .fetch_optional(&mut **tx)
+                .fetch_optional(executor)
                 .await?
         }
         TokenRefreshRepositoryCommand::MarkReauthRequired {
@@ -262,7 +265,7 @@ pub(super) async fn apply_refresh_command_in_tx(
                 .bind(&expected_fingerprint)
                 .bind(reauth_required_at_ms as i64)
                 .bind(&safe_error)
-                .fetch_optional(&mut **tx)
+                .fetch_optional(executor)
                 .await?
         }
         TokenRefreshRepositoryCommand::MarkConfigRequired {
@@ -279,13 +282,19 @@ pub(super) async fn apply_refresh_command_in_tx(
                 .bind(&expected_fingerprint)
                 .bind(refreshed_at_ms as i64)
                 .bind(&safe_error)
-                .fetch_optional(&mut **tx)
+                .fetch_optional(executor)
                 .await?
         }
     };
 
-    row.as_ref()
-        .map(encrypted_token_grant_from_row)
-        .transpose()
+    row.as_ref().map(encrypted_token_grant_from_row).transpose()
+}
+
+pub(super) async fn apply_refresh_command_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    command: TokenRefreshRepositoryCommand,
+) -> PgRepositoryResult<Option<TokenRefreshApplyResult>> {
+    apply_refresh_command_with_executor(&mut **tx, command)
+        .await
         .map(|value| value.map(token_refresh_apply_result_from_record))
 }

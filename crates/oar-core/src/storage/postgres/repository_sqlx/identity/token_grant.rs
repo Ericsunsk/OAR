@@ -53,78 +53,7 @@ impl PostgresTokenGrantRepository {
         &self,
         command: TokenRefreshRepositoryCommand,
     ) -> PgRepositoryResult<Option<EncryptedTokenGrantRecord>> {
-        match command {
-            TokenRefreshRepositoryCommand::RotateGrantCas {
-                grant_id,
-                tenant_id,
-                expected_fingerprint,
-                expires_at_ms,
-                refreshed_at_ms,
-                encrypted_grant_blob,
-                grant_key_id,
-                new_fingerprint,
-            } => {
-                self.rotate_encrypted_grant(RotateEncryptedGrantRequest {
-                    tenant_id: &tenant_id.0,
-                    id: &grant_id.0,
-                    expected_fingerprint: &expected_fingerprint,
-                    expires_at_ms,
-                    refreshed_at_ms,
-                    encrypted_oauth_grant: &encrypted_grant_blob.0,
-                    oauth_grant_key_id: &grant_key_id,
-                    oauth_grant_fingerprint: &new_fingerprint,
-                })
-                .await
-            }
-            TokenRefreshRepositoryCommand::MarkNeedsRefresh {
-                grant_id,
-                tenant_id,
-                expected_fingerprint,
-                refreshed_at_ms,
-                safe_error,
-            } => {
-                self.mark_refresh_failed(
-                    &tenant_id.0,
-                    &grant_id.0,
-                    &expected_fingerprint,
-                    refreshed_at_ms,
-                    &safe_error,
-                )
-                .await
-            }
-            TokenRefreshRepositoryCommand::MarkReauthRequired {
-                grant_id,
-                tenant_id,
-                expected_fingerprint,
-                reauth_required_at_ms,
-                safe_error,
-            } => {
-                self.mark_reauth_required(
-                    &tenant_id.0,
-                    &grant_id.0,
-                    &expected_fingerprint,
-                    reauth_required_at_ms,
-                    &safe_error,
-                )
-                .await
-            }
-            TokenRefreshRepositoryCommand::MarkConfigRequired {
-                grant_id,
-                tenant_id,
-                expected_fingerprint,
-                refreshed_at_ms,
-                safe_error,
-            } => {
-                self.mark_refresh_failed(
-                    &tenant_id.0,
-                    &grant_id.0,
-                    &expected_fingerprint,
-                    refreshed_at_ms,
-                    &safe_error,
-                )
-                .await
-            }
-        }
+        super::super::token_refresh::apply_refresh_command_with_executor(&self.pool, command).await
     }
 
     pub async fn rotate_encrypted_grant(
