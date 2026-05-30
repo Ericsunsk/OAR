@@ -13,6 +13,7 @@ use crate::{authenticate_oar_session, oar_session_auth_error_response, Authentic
 
 mod decision;
 mod dto;
+mod labels;
 mod projection;
 
 use decision::{decode_review_decision_request, record_decision_for_context};

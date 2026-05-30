@@ -24,10 +24,12 @@ use crate::runtime::OarHttpFacadeRuntime;
 use crate::AuthenticatedContext;
 
 use super::dto::{ReviewDecisionKindDto, ReviewDecisionRequestDto};
-use super::projection::action_status;
+use super::labels::{action_status, review_decision_kind};
 use super::snapshot_for_context;
 
 const AUDIT_OUTBOX_STREAM: &str = "audit-events";
+const REVIEW_DECISION_CHANGED_MESSAGE: &str =
+    "The review inbox item changed; refresh before retrying.";
 
 pub(super) async fn record_decision_for_context(
     runtime: &OarHttpFacadeRuntime,
@@ -64,9 +66,7 @@ pub(super) async fn record_decision_for_context(
     {
         Ok(Some(context)) => context,
         Ok(None) => {
-            return review_decision_conflict(
-                "The review inbox item changed; refresh before retrying.",
-            );
+            return review_decision_conflict(REVIEW_DECISION_CHANGED_MESSAGE);
         }
         Err(_) => {
             return service_unavailable(
@@ -105,13 +105,7 @@ pub(super) async fn record_decision_for_context(
         ReviewDecisionKindDto::Confirm | ReviewDecisionKindDto::EditThenConfirm
     ) && !is_confirmable_action_kind(&action.kind)
     {
-        return json_facade_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            json!({
-                "error": "review_decision_action_unsupported",
-                "safe_message": "The requested review action cannot be decided."
-            }),
-        );
+        return review_decision_action_unsupported();
     }
 
     let now = SystemTime::now();
@@ -128,25 +122,13 @@ pub(super) async fn record_decision_for_context(
     let mut proposed_action = match proposed_action_from_stored(action) {
         Ok(action) => action,
         Err(_) => {
-            return json_facade_response(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                json!({
-                    "error": "review_decision_action_unsupported",
-                    "safe_message": "The requested review action cannot be decided."
-                }),
-            );
+            return review_decision_action_unsupported();
         }
     };
     let confirmed_action = match proposed_action.decide(decision.clone(), now) {
         Ok(action) => action,
         Err(_) => {
-            return json_facade_response(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                json!({
-                    "error": "review_decision_action_unsupported",
-                    "safe_message": "The requested review action cannot be decided."
-                }),
-            );
+            return review_decision_action_unsupported();
         }
     };
     let next_cursor = item.sync_cursor_value.saturating_add(1);
@@ -160,7 +142,7 @@ pub(super) async fn record_decision_for_context(
         None => inbox_item.reject(next_cursor, now),
     };
     if transition.is_err() {
-        return review_decision_conflict("The review inbox item changed; refresh before retrying.");
+        return review_decision_conflict(REVIEW_DECISION_CHANGED_MESSAGE);
     }
 
     let decision_id = decision_id(&request.action_id, request.action_version, request.decision);
@@ -206,7 +188,7 @@ pub(super) async fn record_decision_for_context(
         Err(error) => {
             let reason = postgres_repository_safe_error_reason(&error);
             if reason == "review_decision_request_mismatch" {
-                review_decision_conflict("The review inbox item changed; refresh before retrying.")
+                review_decision_conflict(REVIEW_DECISION_CHANGED_MESSAGE)
             } else {
                 service_unavailable(
                     "review_decision_record_failed",
@@ -310,14 +292,14 @@ fn decision_audit_event(
                 target: AuditTarget {
                     resource_type: "proposed_action".to_string(),
                     resource_id: request.action_id.clone(),
-                    action_type: decision_kind(request.decision).to_string(),
+                    action_type: review_decision_kind(request.decision).to_string(),
                 },
             },
         },
         AuditStateSummary {
             summary: format!(
                 "review decision {} recorded",
-                decision_kind(request.decision)
+                review_decision_kind(request.decision)
             ),
             reference_ids: vec![request.action_id.clone(), decision_id.to_string()],
             content_hash: None,
@@ -355,21 +337,23 @@ fn review_decision_conflict(safe_message: &'static str) -> FacadeResponse {
     )
 }
 
+fn review_decision_action_unsupported() -> FacadeResponse {
+    json_facade_response(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        json!({
+            "error": "review_decision_action_unsupported",
+            "safe_message": "The requested review action cannot be decided."
+        }),
+    )
+}
+
 fn decision_id(action_id: &str, version: u64, decision: ReviewDecisionKindDto) -> String {
     format!(
         "decision:{}:v{}:{}",
         action_id,
         version,
-        decision_kind(decision)
+        review_decision_kind(decision)
     )
-}
-
-fn decision_kind(decision: ReviewDecisionKindDto) -> &'static str {
-    match decision {
-        ReviewDecisionKindDto::Confirm => "confirm",
-        ReviewDecisionKindDto::EditThenConfirm => "edit_then_confirm",
-        ReviewDecisionKindDto::Reject => "reject",
-    }
 }
 
 fn operation_id(action: &ConfirmedAction) -> String {
