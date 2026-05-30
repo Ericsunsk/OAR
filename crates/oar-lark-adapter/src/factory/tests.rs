@@ -7,6 +7,7 @@ use oar_core::lark::auth::types::FeishuAuthRefreshRequest;
 use serde_json::json;
 
 use super::*;
+use crate::material::AesGcmKeyResolver;
 #[cfg(feature = "postgres")]
 use crate::oauth::AsyncHttpClient;
 use crate::oauth::{
