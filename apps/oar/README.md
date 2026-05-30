@@ -53,6 +53,7 @@ The frontend calls only OAR backend endpoints:
 - `GET /auth/feishu/callback`
 - `GET /auth/feishu/qr-sessions/{session_id}`
 - `GET /auth/feishu/qr-sessions/{session_id}/events`
+- `POST /auth/logout`
 - `GET /review-inbox/snapshot`
 - `POST /review-inbox/decisions`
 - `POST /agent/stream`
@@ -65,11 +66,13 @@ Current repository status: `oar-http-facade` can create a real Feishu OAuth
 authorization URL when `OAR_FEISHU_APP_ID`, `OAR_FEISHU_APP_SECRET`, and
 `OAR_FEISHU_REDIRECT_URI` are configured. The callback exchanges the Feishu
 authorization code server-side and returns only an OAR session plus safe user
-display fields to the client. When the backend is configured with `DATABASE_URL`
-and a grant encryption key, the callback stores an encrypted per-user
-`TokenGrant`; the default Feishu OAuth grant always includes `offline_access`
-and, unless `OAR_FEISHU_AUTH_SCOPE` overrides it, also requests the
-capability-derived Feishu scopes needed by OAR user-level tools and actions.
+display fields to the client. `POST /auth/logout` signs out the current OAR
+device session only; it does not revoke the user's Feishu OAuth grant. When the
+backend is configured with `DATABASE_URL` and a grant encryption key, the
+callback stores an encrypted per-user `TokenGrant`; the default Feishu OAuth
+grant always includes `offline_access` and, unless `OAR_FEISHU_AUTH_SCOPE`
+overrides it, also requests the capability-derived Feishu scopes needed by OAR
+user-level tools and actions.
 Review Inbox live data is still backend follow-up work,
 so the snapshot endpoint currently returns an empty Review Inbox contract and decision
 write paths remain disabled until the

@@ -64,7 +64,21 @@ private struct AppRootView: View {
                     environment: environment
                 ),
                 onSessionInvalidated: { message in
-                    sessionStore.clear(reason: message)
+                    sessionStore.clearIfCurrent(sessionID: session.sessionID, reason: message)
+                },
+                onSignOut: {
+                    let provider = AuthProviderFactory.makeDefaultProvider(environment: environment)
+                    do {
+                        try await provider.signOut(appSession: session)
+                        sessionStore.clearIfCurrent(sessionID: session.sessionID)
+                    } catch AuthProviderError.invalidSession {
+                        sessionStore.clearIfCurrent(sessionID: session.sessionID)
+                    } catch {
+                        sessionStore.clearIfCurrent(
+                            sessionID: session.sessionID,
+                            reason: "已在本机退出；后端注销暂时不可用。"
+                        )
+                    }
                 }
             )
         } else {

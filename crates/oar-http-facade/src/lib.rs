@@ -17,10 +17,6 @@ pub(crate) use session_auth::{
     authenticate_oar_session, oar_session_auth_error_response,
     protected_route_requires_session_store, AuthenticatedContext,
 };
-#[cfg(test)]
-pub(crate) use session_auth::{
-    authenticated_context_from_session, bearer_session_id, OarSessionAuthError,
-};
 
 pub use config::{OarHttpFacadeConfig, OarHttpFacadeConfigError};
 pub use response::FacadeResponse;

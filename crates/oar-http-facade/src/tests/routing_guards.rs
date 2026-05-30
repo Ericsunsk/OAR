@@ -87,6 +87,37 @@ fn agent_settings_routes_require_verified_oar_session_store() {
 }
 
 #[test]
+fn logout_requires_verified_oar_session_store() {
+    let missing = dispatch_request(&Method::POST, "/auth/logout", None, None);
+    let missing_body: Value = serde_json::from_str(&missing.body).expect("missing json");
+    assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(missing_body["error"], "missing_oar_session");
+
+    let invalid = dispatch_request(
+        &Method::POST,
+        "/auth/logout",
+        Some("Bearer feishu_token"),
+        Some("application/json"),
+    );
+    let invalid_body: Value = serde_json::from_str(&invalid.body).expect("invalid json");
+    assert_eq!(invalid.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(invalid_body["error"], "invalid_oar_session");
+
+    let response = dispatch_request(
+        &Method::POST,
+        "/auth/logout",
+        Some("Bearer oar_session_dev"),
+        Some("application/json"),
+    );
+    let body: Value = serde_json::from_str(&response.body).expect("json");
+
+    assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["error"], "oar_session_verification_unavailable");
+    assert!(!response.body.contains("auth_logout_not_wired"));
+    assert!(!response.body.contains("oar_session_dev"));
+}
+
+#[test]
 fn auth_routes_do_not_fake_real_feishu_login() {
     let create = dispatch_request(&Method::POST, "/auth/feishu/qr-sessions", None, None);
     let poll = dispatch_request(&Method::GET, "/auth/feishu/qr-sessions/qr_dev", None, None);

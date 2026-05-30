@@ -16,6 +16,7 @@ struct ToolbarIconButton: View {
         .buttonStyle(.plain)
         .disabled(isMuted)
         .accessibilityLabel(accessibilityLabel)
+        .help(accessibilityLabel)
     }
 }
 

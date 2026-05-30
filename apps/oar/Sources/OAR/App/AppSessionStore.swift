@@ -21,6 +21,11 @@ final class AppSessionStore {
         sessionTerminationMessage = trimmed?.isEmpty == false ? trimmed : nil
     }
 
+    func clearIfCurrent(sessionID: String, reason: String? = nil) {
+        guard session?.sessionID == sessionID else { return }
+        clear(reason: reason)
+    }
+
     func dismissSessionTerminationMessage() {
         sessionTerminationMessage = nil
     }

@@ -8,14 +8,14 @@ final class AuthViewModel {
     var isWorking = false
     var errorMessage: String?
 
-    private let provider: AuthProviding
+    private let provider: FeishuQRCodeAuthProviding
     private let sessionStore: AppSessionStore
     private let pollingIntervalNanoseconds: UInt64
     private var eventTask: Task<Void, Never>?
     private var pollingTask: Task<Void, Never>?
 
     init(
-        provider: AuthProviding,
+        provider: FeishuQRCodeAuthProviding,
         sessionStore: AppSessionStore,
         pollingIntervalNanoseconds: UInt64 = 1_000_000_000
     ) {

@@ -70,6 +70,12 @@ impl OarHttpFacadeRuntime {
         Self::default()
     }
 
+    pub(crate) fn session_persistence(&self) -> Option<&FeishuGrantPersistenceRuntime> {
+        self.feishu_login
+            .as_ref()
+            .and_then(|login| login.grant_persistence())
+    }
+
     pub fn from_env_map(
         env: &impl Fn(&str) -> Option<String>,
     ) -> Result<Self, OarHttpFacadeRuntimeError> {

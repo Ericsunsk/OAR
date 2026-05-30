@@ -86,16 +86,6 @@ pub(crate) fn callback_html(status: StatusCode, title: &str, message: &str) -> F
     )
 }
 
-pub(crate) fn not_implemented(error: &'static str, safe_message: &'static str) -> FacadeResponse {
-    json_facade_response(
-        StatusCode::NOT_IMPLEMENTED,
-        json!({
-            "error": error,
-            "safe_message": safe_message
-        }),
-    )
-}
-
 pub(crate) fn unauthorized() -> FacadeResponse {
     json_facade_response(
         StatusCode::UNAUTHORIZED,

@@ -1,16 +1,22 @@
 import Foundation
 
-protocol AuthProviding {
+protocol FeishuQRCodeAuthProviding {
     func createFeishuQRCodeSession() async throws -> FeishuQRCodeAuthSession
     func pollFeishuQRCodeSession(_ sessionID: String) async throws -> AuthSessionState
     func subscribeFeishuQRCodeSession(_ sessionID: String) -> AsyncThrowingStream<AuthLoginEvent, Error>
-    func signOut() async throws
 }
+
+protocol SessionSignOutProviding {
+    func signOut(appSession: AppSession) async throws
+}
+
+typealias AuthProviding = FeishuQRCodeAuthProviding & SessionSignOutProviding
 
 enum AuthProviderError: LocalizedError {
     case missingBackendConfiguration
     case sessionNotFound
     case loginDenied
+    case invalidSession
     case invalidResponse
     case remoteUnavailable
 
@@ -22,6 +28,8 @@ enum AuthProviderError: LocalizedError {
             return "登录会话不存在或已过期。"
         case .loginDenied:
             return "飞书扫码授权已取消。"
+        case .invalidSession:
+            return "当前 OAR 会话已失效。"
         case .invalidResponse:
             return "登录服务返回了无法识别的响应。"
         case .remoteUnavailable:
@@ -94,7 +102,7 @@ final class MockAuthProvider: AuthProviding {
         }
     }
 
-    func signOut() async throws {
+    func signOut(appSession: AppSession) async throws {
         pollCountBySessionID.removeAll()
     }
 }
@@ -114,7 +122,8 @@ struct MissingBackendAuthProvider: AuthProviding {
         }
     }
 
-    func signOut() async throws {
+    func signOut(appSession: AppSession) async throws {
+        throw AuthProviderError.missingBackendConfiguration
     }
 }
 
@@ -193,11 +202,12 @@ struct RemoteAuthProvider: AuthProviding {
         }
     }
 
-    func signOut() async throws {
+    func signOut(appSession: AppSession) async throws {
         let endpoint = baseURL.appendingPathComponent("auth/logout")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        _ = try await performRequest(request)
+        request.setValue("Bearer \(appSession.sessionID)", forHTTPHeaderField: "Authorization")
+        try await performSignOutRequest(request)
     }
 
     private func performRequest(_ request: URLRequest) async throws -> Data {
@@ -213,6 +223,22 @@ struct RemoteAuthProvider: AuthProviding {
             throw AuthProviderError.sessionNotFound
         case 401, 403:
             throw AuthProviderError.loginDenied
+        default:
+            throw AuthProviderError.remoteUnavailable
+        }
+    }
+
+    private func performSignOutRequest(_ request: URLRequest) async throws {
+        let (_, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AuthProviderError.remoteUnavailable
+        }
+
+        switch httpResponse.statusCode {
+        case 200..<300:
+            return
+        case 401, 403:
+            throw AuthProviderError.invalidSession
         default:
             throw AuthProviderError.remoteUnavailable
         }

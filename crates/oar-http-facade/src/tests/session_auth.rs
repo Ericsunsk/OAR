@@ -3,7 +3,10 @@ use std::time::UNIX_EPOCH;
 use oar_core::domain::device_sync::SessionState;
 
 use super::support::stored_device_session;
-use crate::{authenticated_context_from_session, bearer_session_id, OarSessionAuthError};
+use crate::session_auth::{
+    authenticated_context_from_session, bearer_session_id, logout_session_state_from_session,
+    LogoutSessionState, OarSessionAuthError,
+};
 
 #[test]
 fn bearer_session_id_requires_oar_session_prefix() {
@@ -39,6 +42,25 @@ fn authenticated_context_requires_active_device_session() {
     let expired = stored_device_session(SessionState::Expired, None, Some(UNIX_EPOCH));
     assert_eq!(
         authenticated_context_from_session(&expired).expect_err("expired"),
+        OarSessionAuthError::InvalidSession
+    );
+}
+
+#[test]
+fn logout_session_state_is_idempotent_for_revoked_device_session() {
+    let active = stored_device_session(SessionState::Active, None, None);
+    let active_state = logout_session_state_from_session(&active).expect("active logout state");
+    assert!(matches!(active_state, LogoutSessionState::Active(_)));
+
+    let revoked = stored_device_session(SessionState::Revoked, Some(UNIX_EPOCH), None);
+    assert_eq!(
+        logout_session_state_from_session(&revoked).expect("revoked logout state"),
+        LogoutSessionState::SignedOut
+    );
+
+    let expired = stored_device_session(SessionState::Expired, None, Some(UNIX_EPOCH));
+    assert_eq!(
+        logout_session_state_from_session(&expired).expect_err("expired"),
         OarSessionAuthError::InvalidSession
     );
 }

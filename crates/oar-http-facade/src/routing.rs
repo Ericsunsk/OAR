@@ -9,11 +9,10 @@ use crate::feishu_auth::{
     create_feishu_login_session, feishu_login_session_event, feishu_login_session_status,
     is_auth_session_events_route, is_auth_session_status_route,
 };
-use crate::response::{
-    json_facade_response, not_found, not_implemented, service_unavailable, FacadeResponse,
-};
+use crate::response::{json_facade_response, not_found, service_unavailable, FacadeResponse};
 use crate::review_inbox_routes;
 use crate::runtime::OarHttpFacadeRuntime;
+use crate::session_auth::logout_oar_session;
 use crate::{
     authenticate_oar_session, oar_session_auth_error_response,
     protected_route_requires_session_store,
@@ -51,6 +50,9 @@ pub async fn dispatch_request_with_runtime(
             };
             return feishu_login_session_event(runtime.feishu_login.as_deref(), session_id);
         }
+        (&Method::POST, "/auth/logout") => {
+            return logout_oar_session(&runtime, authorization).await;
+        }
         (&Method::GET, "/review-inbox/snapshot") => {
             let auth_context = match authenticate_oar_session(&runtime, authorization).await {
                 Ok(context) => context,
@@ -86,9 +88,9 @@ pub fn dispatch_request(
             "feishu_auth_not_configured",
             "Feishu QR login is not configured in this backend facade.",
         ),
-        (&Method::POST, "/auth/logout") => not_implemented(
-            "auth_logout_not_wired",
-            "Logout is not wired until real session storage is connected.",
+        (&Method::POST, "/auth/logout") => protected_route_requires_session_store(
+            authorization,
+            "Logout requires verified OAR session storage.",
         ),
         (&Method::GET, "/review-inbox/snapshot") => protected_route_requires_session_store(
             authorization,

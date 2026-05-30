@@ -5,12 +5,15 @@ struct ReviewInboxRootView: View {
     @State private var agentModel: AgentSidecarViewModel
     @State private var agentSettingsModel: AgentSettingsViewModel
     @State private var showAgent = true
+    @State private var isSigningOut = false
+    private let onSignOut: @MainActor () async -> Void
 
     init(
         provider: ReviewInboxDataProviding,
         agentProvider: AgentProviding,
         agentSettingsProvider: AgentSettingsProviding,
-        onSessionInvalidated: @escaping @MainActor (String) -> Void = { _ in }
+        onSessionInvalidated: @escaping @MainActor (String) -> Void = { _ in },
+        onSignOut: @escaping @MainActor () async -> Void = {}
     ) {
         _model = State(initialValue: ReviewInboxViewModel(
             provider: provider,
@@ -18,6 +21,7 @@ struct ReviewInboxRootView: View {
         ))
         _agentModel = State(initialValue: AgentSidecarViewModel(provider: agentProvider))
         _agentSettingsModel = State(initialValue: AgentSettingsViewModel(provider: agentSettingsProvider))
+        self.onSignOut = onSignOut
     }
 
     var body: some View {
@@ -77,8 +81,24 @@ struct ReviewInboxRootView: View {
                         isMuted: !model.canMoveToNextItem,
                         action: model.selectNextItem
                     )
+                    ToolbarIconButton(
+                        systemName: "rectangle.portrait.and.arrow.right",
+                        accessibilityLabel: "退出登录",
+                        isMuted: isSigningOut
+                    ) {
+                        Task {
+                            await signOut()
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private func signOut() async {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+        await onSignOut()
+        isSigningOut = false
     }
 }

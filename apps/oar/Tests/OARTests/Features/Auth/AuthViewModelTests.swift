@@ -116,7 +116,7 @@ final class AuthViewModelTests: XCTestCase {
     }
 }
 
-private final class SilentPendingAuthProvider: AuthProviding {
+private final class SilentPendingAuthProvider: FeishuQRCodeAuthProviding {
     func createFeishuQRCodeSession() async throws -> FeishuQRCodeAuthSession {
         makeQRCodeSession(id: "silent-session")
     }
@@ -128,12 +128,9 @@ private final class SilentPendingAuthProvider: AuthProviding {
     func subscribeFeishuQRCodeSession(_ sessionID: String) -> AsyncThrowingStream<AuthLoginEvent, Error> {
         AsyncThrowingStream { _ in }
     }
-
-    func signOut() async throws {
-    }
 }
 
-private final class OneShotPendingEventAuthProvider: AuthProviding {
+private final class OneShotPendingEventAuthProvider: FeishuQRCodeAuthProviding {
     private let authorizedAfterPollCount: Int
     private(set) var pollCount = 0
 
@@ -166,12 +163,9 @@ private final class OneShotPendingEventAuthProvider: AuthProviding {
             continuation.finish()
         }
     }
-
-    func signOut() async throws {
-    }
 }
 
-private final class StaleEventAuthProvider: AuthProviding {
+private final class StaleEventAuthProvider: FeishuQRCodeAuthProviding {
     func createFeishuQRCodeSession() async throws -> FeishuQRCodeAuthSession {
         FeishuQRCodeAuthSession(
             id: "current-session",
@@ -207,9 +201,6 @@ private final class StaleEventAuthProvider: AuthProviding {
             )
             continuation.finish()
         }
-    }
-
-    func signOut() async throws {
     }
 }
 
