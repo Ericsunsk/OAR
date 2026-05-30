@@ -32,3 +32,13 @@ pub(super) fn validate_tenant_ids(
 
     Ok(normalized)
 }
+
+pub(super) fn validate_tenant_ids_allow_empty(
+    tenant_ids: Vec<String>,
+) -> Result<Vec<String>, TenantIdValidationError> {
+    if tenant_ids.is_empty() {
+        Ok(Vec::new())
+    } else {
+        validate_tenant_ids(tenant_ids)
+    }
+}
