@@ -217,8 +217,9 @@ swift run
 
 当前 `oar-http-facade` 已能在配置飞书 OAuth 凭证后创建真实授权 URL，并通过
 `GET /auth/feishu/callback` 在服务端用授权码换取用户凭证、读取安全用户信息，再
-返回 OAR 自己的会话字段。配置 `DATABASE_URL` 和 grant key 后，callback 成功会将用户绑定 OAuth grant
-加密落库为 `TokenGrant`，未配置数据库时保留本地内存登录行为；真实 Review Inbox 数据仍是后续工作；
+返回 OAR 自己的会话字段。配置 `DATABASE_URL` 和 `OAR_GRANT_KEY_*` 后，后端会启用 OAR session store、
+受保护路由、Review Inbox 与 Agent settings 持久化；callback 成功也会将用户绑定 OAuth grant
+加密落库为 `TokenGrant`。未配置数据库时保留本地内存登录行为；真实 Review Inbox 数据仍是后续工作；
 `GET /review-inbox/snapshot` 目前返回空快照，decision 写路径明确返回不支持。前端期望的 HTTP endpoint 记录在
 [`apps/oar/README.md`](apps/oar/README.md)。
 
@@ -279,7 +280,7 @@ DATABASE_URL=postgres://... docker compose -f docker/compose.yml up --build
 
 后端 env 模板见 [`.env.example`](.env.example)。本地 `cargo run -p oar-http-facade`
 会自动加载仓库根目录的 `.env`，可以用 `cp .env.example .env` 后填入真实飞书凭证；
-如果暂时只测扫码、不落库，可删除本地 `.env` 里的 `DATABASE_URL`；如果要用本机端口连接 compose Postgres，
+如果暂时只测扫码、不落库，可删除本地 `.env` 里的 `DATABASE_URL`，但 OAR session 校验和受保护路由会不可用；如果要用本机端口连接 compose Postgres，
 则把本地 `.env` 里的 `DATABASE_URL` 改成 `postgres://oar:oar@127.0.0.1:5432/oar`。
 `.env` 已在 `.gitignore` 中排除，不要提交真实 secret。`docker/compose.dev.yml`
 会从 shell 或本地 `.env` 读取可选配置，并在未提供 `DATABASE_URL` 时启动本地 Postgres volume。

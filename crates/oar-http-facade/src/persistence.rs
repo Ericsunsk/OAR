@@ -2,6 +2,10 @@ use std::fmt;
 
 use sqlx::PgPool;
 
+mod config;
+
+pub(crate) use config::FacadePersistenceConfig;
+
 #[derive(Clone)]
 pub(crate) struct FacadePersistenceRuntime {
     pool: PgPool,
@@ -10,7 +14,20 @@ pub(crate) struct FacadePersistenceRuntime {
 }
 
 impl FacadePersistenceRuntime {
-    pub(crate) fn new(pool: PgPool, grant_key_id: String, grant_key_material: [u8; 32]) -> Self {
+    pub(crate) fn new(pool: PgPool, config: FacadePersistenceConfig) -> Self {
+        Self {
+            pool,
+            grant_key_id: config.grant_key_id().to_string(),
+            grant_key_material: config.grant_key_material(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        pool: PgPool,
+        grant_key_id: String,
+        grant_key_material: [u8; 32],
+    ) -> Self {
         Self {
             pool,
             grant_key_id,

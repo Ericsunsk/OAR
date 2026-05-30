@@ -2,12 +2,11 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
-use oar_lark_adapter::PostgresFeishuAuthRefreshEnvConfig;
 use sqlx::postgres::PgPoolOptions;
 
 use crate::agent::{AgentModelSettingsRuntime, AgentRuntime, AgentRuntimeConfigError};
 use crate::feishu_auth::{FeishuLoginRuntime, FeishuLoginRuntimeConfigError};
-use crate::persistence::FacadePersistenceRuntime;
+use crate::persistence::{FacadePersistenceConfig, FacadePersistenceRuntime};
 use crate::util::non_empty_env;
 
 #[derive(Clone, Default)]
@@ -34,7 +33,7 @@ pub enum OarHttpFacadeRuntimeError {
     PartialFeishuAuthConfig,
     InvalidFeishuOpenApiConfig,
     InvalidFeishuLoginConfig,
-    InvalidFeishuGrantConfig,
+    InvalidPersistenceConfig,
     PartialAgentConfig,
     InvalidAgentConfig,
     DatabaseConnectFailed,
@@ -53,8 +52,8 @@ impl fmt::Display for OarHttpFacadeRuntimeError {
             Self::InvalidFeishuLoginConfig => {
                 write!(f, "oar_feishu_login_config_invalid")
             }
-            Self::InvalidFeishuGrantConfig => {
-                write!(f, "oar_feishu_grant_config_invalid")
+            Self::InvalidPersistenceConfig => {
+                write!(f, "oar_persistence_config_invalid")
             }
             Self::PartialAgentConfig => write!(f, "oar_agent_config_partial"),
             Self::InvalidAgentConfig => write!(f, "oar_agent_config_invalid"),
@@ -85,15 +84,12 @@ impl OarHttpFacadeRuntime {
         env: &impl Fn(&str) -> Option<String>,
     ) -> Result<Self, OarHttpFacadeRuntimeError> {
         let runtime = Self::from_env_map(env)?;
-        if runtime.feishu_login.is_none() {
-            return Ok(runtime);
-        }
 
         let Some(database_url) = non_empty_env(env, "DATABASE_URL") else {
             return Ok(runtime);
         };
-        let grant_config = PostgresFeishuAuthRefreshEnvConfig::from_env_map(env)
-            .map_err(|_| OarHttpFacadeRuntimeError::InvalidFeishuGrantConfig)?;
+        let persistence_config = FacadePersistenceConfig::from_env_map(env)
+            .map_err(|_| OarHttpFacadeRuntimeError::InvalidPersistenceConfig)?;
         let pool = PgPoolOptions::new()
             .max_connections(5)
             .connect(&database_url)
@@ -101,11 +97,7 @@ impl OarHttpFacadeRuntime {
             .map_err(|_| OarHttpFacadeRuntimeError::DatabaseConnectFailed)?;
         Self::from_env_map_with_persistence(
             env,
-            Some(FacadePersistenceRuntime::new(
-                pool,
-                grant_config.grant_key_id,
-                grant_config.grant_key_material,
-            )),
+            Some(FacadePersistenceRuntime::new(pool, persistence_config)),
         )
     }
 

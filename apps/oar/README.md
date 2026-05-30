@@ -68,9 +68,11 @@ authorization URL when `OAR_FEISHU_APP_ID`, `OAR_FEISHU_APP_SECRET`, and
 authorization code server-side and returns only an OAR session plus safe user
 display fields to the client. `POST /auth/logout` signs out the current OAR
 device session only; it does not revoke the user's Feishu OAuth grant. When the
-backend is configured with `DATABASE_URL` and a grant encryption key, the
-callback stores an encrypted per-user `TokenGrant`; the default Feishu OAuth
-grant always includes `offline_access` and, unless `OAR_FEISHU_AUTH_SCOPE`
+backend is configured with `DATABASE_URL` and `OAR_GRANT_KEY_*`, persistence is
+available for OAR session verification, protected routes, Agent settings, and
+Review Inbox storage; Feishu callback also stores an encrypted per-user
+`TokenGrant`. The default Feishu OAuth grant always includes `offline_access`
+and, unless `OAR_FEISHU_AUTH_SCOPE`
 overrides it, also requests the capability-derived Feishu scopes needed by OAR
 user-level tools and actions.
 Review Inbox live data is still backend follow-up work,

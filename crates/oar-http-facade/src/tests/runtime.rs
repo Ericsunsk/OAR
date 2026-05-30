@@ -58,3 +58,30 @@ fn runtime_rejects_partial_agent_config_without_leaking_secret() {
     assert_eq!(error.to_string(), "oar_agent_config_partial");
     assert!(!format!("{error:?}").contains("sk-sensitive"));
 }
+
+#[tokio::test]
+async fn async_runtime_requires_persistence_key_config_when_database_is_enabled_without_feishu_login(
+) {
+    let error = OarHttpFacadeRuntime::from_env_map_async(&|key| match key {
+        "DATABASE_URL" => Some("postgres://oar:oar@127.0.0.1:5432/oar".to_string()),
+        _ => None,
+    })
+    .await
+    .expect_err("database-backed persistence requires grant encryption key config");
+
+    assert_eq!(error.to_string(), "oar_persistence_config_invalid");
+}
+
+#[tokio::test]
+async fn async_runtime_initializes_persistence_independently_from_feishu_login() {
+    let error = OarHttpFacadeRuntime::from_env_map_async(&|key| match key {
+        "DATABASE_URL" => Some("not-a-postgres-url".to_string()),
+        "OAR_GRANT_KEY_ID" => Some("key-prod-v1".to_string()),
+        "OAR_GRANT_KEY_HEX" => Some("11".repeat(32)),
+        _ => None,
+    })
+    .await
+    .expect_err("database-backed persistence should attempt connection without feishu login");
+
+    assert_eq!(error.to_string(), "oar_database_connect_failed");
+}

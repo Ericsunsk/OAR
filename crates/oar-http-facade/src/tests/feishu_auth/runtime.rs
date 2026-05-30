@@ -106,6 +106,6 @@ async fn async_runtime_requires_grant_key_config_when_database_is_enabled() {
     .await
     .expect_err("database-backed login requires grant encryption key config");
 
-    assert_eq!(error.to_string(), "oar_feishu_grant_config_invalid");
+    assert_eq!(error.to_string(), "oar_persistence_config_invalid");
     assert!(!format!("{error:?}").contains("super-secret"));
 }
