@@ -1,4 +1,5 @@
 mod adapter;
+pub(crate) mod events;
 mod policy;
 mod result;
 #[cfg(test)]
@@ -7,10 +8,10 @@ mod trace;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::action::audit_event::{AuditEvent, AuditStateSummary};
+use crate::action::audit_event::AuditEvent;
 use crate::action::audit_repository::{AuditEventRepository, InMemoryAuditEventRepository};
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
-use crate::action::execution_policy::{ActionActorBinding, ExecutionDenied, ExecutionPolicy};
+use crate::action::execution_policy::{ActionActorBinding, ExecutionPolicy};
 use crate::action::execution_request::ConfirmedExecutionRequest;
 use crate::action::operation_ledger::{OperationRecord, SubmitResult};
 use crate::action::operation_ledger_repository::{
@@ -20,7 +21,6 @@ use crate::domain::identity::TokenGrant;
 
 pub use adapter::{ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution};
 use policy::is_terminal_status;
-pub(crate) use policy::safe_denial_message;
 pub use result::{ExecutionError, ExecutionReport, PolicyDenialReport};
 pub(crate) use trace::action_audit_trace;
 
@@ -113,7 +113,7 @@ where
             policy.evaluate(action, action_type, required_scope, grant, actor_binding)
         {
             let mut trace = action_audit_trace(action);
-            let event = self.event_denied(&mut trace, &denial);
+            let event = events::execution_denied(self.now_ms(), &mut trace, &denial);
             self.audit.append(event.clone())?;
             return Err(ExecutionError::PolicyDenied(PolicyDenialReport {
                 denial,
@@ -155,7 +155,8 @@ where
         let operation = match execute_result {
             Ok(execution) => {
                 let record = self.ledger.mark_succeeded(&action.idempotency_key)?;
-                let succeeded_event = self.event_succeeded(
+                let succeeded_event = events::execution_succeeded(
+                    self.now_ms(),
                     &mut trace,
                     execution.before,
                     execution.after,
@@ -168,8 +169,12 @@ where
                 let record = self
                     .ledger
                     .mark_failed(&action.idempotency_key, error.safe_message.clone())?;
-                let failed_event =
-                    self.event_failed(&mut trace, error.code.clone(), error.safe_message.clone());
+                let failed_event = events::execution_failed(
+                    self.now_ms(),
+                    &mut trace,
+                    error.code.clone(),
+                    error.safe_message.clone(),
+                );
                 self.record_event(&mut events, failed_event)?;
                 record
             }
@@ -196,7 +201,7 @@ where
         trace: &mut crate::action::audit_trace::AuditTrace,
         events: &mut Vec<AuditEvent>,
     ) -> Result<(), ExecutionError> {
-        let confirmed_event = self.event_confirmed(trace, action);
+        let confirmed_event = events::confirmed_action(self.now_ms(), trace, action);
         self.record_event(events, confirmed_event)
     }
 
@@ -207,7 +212,7 @@ where
         events: &mut Vec<AuditEvent>,
     ) -> Result<(), ExecutionError> {
         let dry_run = self.adapter.dry_run(request)?;
-        let dry_run_event = self.event_dry_run(trace, dry_run.before, dry_run.after);
+        let dry_run_event = events::dry_run(self.now_ms(), trace, dry_run.before, dry_run.after);
         self.record_event(events, dry_run_event)
     }
 
@@ -219,62 +224,6 @@ where
         self.audit.append(event.clone())?;
         events.push(event);
         Ok(())
-    }
-
-    fn event_confirmed(
-        &mut self,
-        trace: &mut crate::action::audit_trace::AuditTrace,
-        action: &ConfirmedAction,
-    ) -> AuditEvent {
-        let occurred_at_ms = self.now_ms();
-        trace.confirmed_action(
-            occurred_at_ms,
-            AuditStateSummary {
-                summary: format!("confirmed action {}", action.action_id),
-                reference_ids: vec![action.idempotency_key.clone()],
-                content_hash: None,
-            },
-        )
-    }
-
-    fn event_dry_run(
-        &mut self,
-        trace: &mut crate::action::audit_trace::AuditTrace,
-        before: Option<AuditStateSummary>,
-        after: Option<AuditStateSummary>,
-    ) -> AuditEvent {
-        let occurred_at_ms = self.now_ms();
-        trace.dry_run(occurred_at_ms, before, after)
-    }
-
-    fn event_succeeded(
-        &mut self,
-        trace: &mut crate::action::audit_trace::AuditTrace,
-        before: Option<AuditStateSummary>,
-        after: Option<AuditStateSummary>,
-        adapter_operation_id: String,
-    ) -> AuditEvent {
-        let occurred_at_ms = self.now_ms();
-        trace.execution_succeeded(occurred_at_ms, before, after, adapter_operation_id)
-    }
-
-    fn event_failed(
-        &mut self,
-        trace: &mut crate::action::audit_trace::AuditTrace,
-        error_code: String,
-        message: String,
-    ) -> AuditEvent {
-        let occurred_at_ms = self.now_ms();
-        trace.execution_failed(occurred_at_ms, None, None, error_code, message)
-    }
-
-    fn event_denied(
-        &mut self,
-        trace: &mut crate::action::audit_trace::AuditTrace,
-        denial: &ExecutionDenied,
-    ) -> AuditEvent {
-        let occurred_at_ms = self.now_ms();
-        trace.execution_denied(occurred_at_ms, "policy_denied", safe_denial_message(denial))
     }
 
     fn now_ms(&mut self) -> u64 {
