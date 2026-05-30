@@ -61,6 +61,36 @@ enum ReviewInboxMockData {
             status: .executed,
             lastUpdatedAt: "5 月 26 日",
             syncCursor: 104
+        ),
+        ReviewInboxDisplayItem(
+            id: "review-005",
+            proposedActionID: "act-006",
+            proposedActionVersion: 1,
+            objectiveTitle: "提升代理执行可靠性",
+            keyResultTitle: "执行队列延迟控制在 2 分钟内",
+            ownerName: "许诺",
+            weekLabel: "2026 第 22 周",
+            riskLevel: .medium,
+            riskReason: "后台已确认动作，执行账本仍在等待适配器回执。",
+            confidenceScore: 0.69,
+            status: .executing,
+            lastUpdatedAt: "5 月 27 日",
+            syncCursor: 105
+        ),
+        ReviewInboxDisplayItem(
+            id: "review-006",
+            proposedActionID: "act-007",
+            proposedActionVersion: 1,
+            objectiveTitle: "保持平台写入健康",
+            keyResultTitle: "飞书写入失败重试不超过 1 次",
+            ownerName: "王启",
+            weekLabel: "2026 第 22 周",
+            riskLevel: .low,
+            riskReason: "上一条已确认动作在适配器阶段失败，需要人工复核后重试。",
+            confidenceScore: 0.62,
+            status: .failed,
+            lastUpdatedAt: "5 月 27 日",
+            syncCursor: 106
         )
     ]
 
@@ -182,6 +212,28 @@ enum ReviewInboxMockData {
             dryRunResultSummary: "模拟已执行：1 条进展记录，无原始会议内容。",
             estimatedWriteTargetsCount: 1,
             gateState: .approved
+        ),
+        ReviewInboxSuggestedAction(
+            id: "act-006",
+            reviewItemId: "review-005",
+            version: 1,
+            actionType: .updateProgress,
+            rationale: "写入执行延迟风险说明，等待适配器完成。",
+            expectedImpact: "把排队中的执行状态暴露给 owner。",
+            dryRunResultSummary: "执行中：账本已进入队列，尚无适配器成功回执。",
+            estimatedWriteTargetsCount: 1,
+            gateState: .approved
+        ),
+        ReviewInboxSuggestedAction(
+            id: "act-007",
+            reviewItemId: "review-006",
+            version: 1,
+            actionType: .updateProgress,
+            rationale: "记录飞书适配器失败并等待人工复核。",
+            expectedImpact: "避免把失败执行误认为已完成。",
+            dryRunResultSummary: "失败：适配器返回可重试错误，未写入平台。",
+            estimatedWriteTargetsCount: 1,
+            gateState: .approved
         )
     ]
 
@@ -221,6 +273,69 @@ enum ReviewInboxMockData {
             timestamp: "5 月 27 日 08:34",
             message: "审计事件已记录。",
             idempotencyKey: "tenant:t_demo:pa:review-004:v1:confirm"
+        ),
+        ReviewInboxTimelineEvent(
+            id: "led-005",
+            actionId: "act-004",
+            stage: .confirmedAction,
+            stageStatus: .ok,
+            timestamp: "5 月 27 日 09:12",
+            message: "赵一已确认，等待后台执行。",
+            idempotencyKey: "tenant:t_demo:pa:review-003:v1:confirm"
+        ),
+        ReviewInboxTimelineEvent(
+            id: "led-006",
+            actionId: "act-006",
+            stage: .confirmedAction,
+            stageStatus: .ok,
+            timestamp: "5 月 27 日 09:20",
+            message: "许诺已确认。",
+            idempotencyKey: "tenant:t_demo:pa:review-005:v1:confirm"
+        ),
+        ReviewInboxTimelineEvent(
+            id: "led-007",
+            actionId: "act-006",
+            stage: .operationLedger,
+            stageStatus: .pending,
+            timestamp: "5 月 27 日 09:20",
+            message: "执行账本已入队，等待适配器回执。",
+            idempotencyKey: "tenant:t_demo:pa:review-005:v1:confirm"
+        ),
+        ReviewInboxTimelineEvent(
+            id: "led-008",
+            actionId: "act-007",
+            stage: .confirmedAction,
+            stageStatus: .ok,
+            timestamp: "5 月 27 日 09:24",
+            message: "王启已确认。",
+            idempotencyKey: "tenant:t_demo:pa:review-006:v1:confirm"
+        ),
+        ReviewInboxTimelineEvent(
+            id: "led-009",
+            actionId: "act-007",
+            stage: .operationLedger,
+            stageStatus: .ok,
+            timestamp: "5 月 27 日 09:24",
+            message: "执行账本开始处理。",
+            idempotencyKey: "tenant:t_demo:pa:review-006:v1:confirm"
+        ),
+        ReviewInboxTimelineEvent(
+            id: "led-010",
+            actionId: "act-007",
+            stage: .larkAdapter,
+            stageStatus: .error,
+            timestamp: "5 月 27 日 09:25",
+            message: "适配器返回可重试错误，平台未写入。",
+            idempotencyKey: "tenant:t_demo:pa:review-006:v1:confirm"
+        ),
+        ReviewInboxTimelineEvent(
+            id: "led-011",
+            actionId: "act-007",
+            stage: .auditEvent,
+            stageStatus: .ok,
+            timestamp: "5 月 27 日 09:25",
+            message: "失败审计事件已记录。",
+            idempotencyKey: "tenant:t_demo:pa:review-006:v1:confirm"
         )
     ]
 }

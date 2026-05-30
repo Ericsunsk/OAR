@@ -49,7 +49,7 @@ extension ReviewInboxViewModel {
             return "工作区摘要：当前没有风险项；筛选“\(filter.rawValue)”显示 0 个，当前焦点 0/0。"
         }
 
-        return "工作区摘要：共 \(items.count) 个风险，严重/高 \(highRiskCount) 个（严重 \(criticalCount) 个），待确认 \(needsConfirmationCount) 个，已执行 \(executedCount) 个；当前筛选“\(filter.rawValue)”显示 \(visibleItemCount) 个，当前焦点 \(selectedItemPositionText)。"
+        return "工作区摘要：共 \(items.count) 个风险，严重/高 \(highRiskCount) 个（严重 \(criticalCount) 个），待确认 \(needsConfirmationCount) 个，已确认 \(confirmedCount) 个，执行中 \(executingCount) 个，失败 \(failedCount) 个，已执行 \(executedCount) 个，已取消 \(cancelledCount) 个，已拒绝 \(rejectedCount) 个；当前筛选“\(filter.rawValue)”显示 \(visibleItemCount) 个，当前焦点 \(selectedItemPositionText)。"
     }
 
     private var agentWorkspaceSignals: [String] {

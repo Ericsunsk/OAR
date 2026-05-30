@@ -171,4 +171,68 @@ final class ReviewInboxAPIContractTests: XCTestCase {
         XCTAssertNotEqual(actions.first { $0.id == "pa_superseded" }?.gateState, .rejected)
         XCTAssertNotEqual(actions.first { $0.id == "pa_withdrawn" }?.gateState, .pending)
     }
+
+    func testItemExecutionStatusPreservesLedgerStateAndOperationID() throws {
+        let snapshot = ReviewInboxAPISnapshot(
+            contractVersion: 1,
+            generatedAt: "2026-05-28T10:00:00Z",
+            items: [
+                Self.item(id: "ri_executing", status: .confirmed, ledgerStatus: "executing", operationID: "op_executing"),
+                Self.item(id: "ri_failed", status: .confirmed, ledgerStatus: "failed", operationID: "op_failed"),
+                Self.item(id: "ri_succeeded", status: .failed, ledgerStatus: "succeeded", operationID: "op_succeeded"),
+                Self.item(id: "ri_cancelled", status: .succeeded, ledgerStatus: "cancelled", operationID: "op_cancelled"),
+                Self.item(id: "ri_unknown", status: .executing, ledgerStatus: "paused", operationID: "op_unknown"),
+                Self.item(id: "ri_withdrawn", status: .withdrawn, ledgerStatus: nil, operationID: nil)
+            ],
+            proposedActions: [],
+            evidence: [],
+            ledgerEvents: []
+        )
+
+        let items = Dictionary(uniqueKeysWithValues: snapshot.toDisplaySnapshot().items.map { ($0.id, $0) })
+
+        XCTAssertEqual(items["ri_executing"]?.status, .executing)
+        XCTAssertEqual(items["ri_executing"]?.ledgerStatus, .executing)
+        XCTAssertEqual(items["ri_executing"]?.operationID, "op_executing")
+        XCTAssertEqual(items["ri_failed"]?.status, .failed)
+        XCTAssertEqual(items["ri_failed"]?.ledgerStatus, .failed)
+        XCTAssertEqual(items["ri_succeeded"]?.status, .executed)
+        XCTAssertEqual(items["ri_succeeded"]?.ledgerStatus, .succeeded)
+        XCTAssertEqual(items["ri_cancelled"]?.status, .cancelled)
+        XCTAssertEqual(items["ri_cancelled"]?.ledgerStatus, .cancelled)
+        XCTAssertEqual(items["ri_unknown"]?.status, .executing)
+        XCTAssertEqual(items["ri_unknown"]?.ledgerStatus, .unknown("paused"))
+        XCTAssertEqual(items["ri_unknown"]?.operationID, "op_unknown")
+        XCTAssertEqual(items["ri_withdrawn"]?.status, .cancelled)
+        XCTAssertNil(items["ri_withdrawn"]?.ledgerStatus)
+        XCTAssertNil(items["ri_withdrawn"]?.operationID)
+    }
+
+    private static func item(
+        id: String,
+        status: ReviewInboxItemStatusDTO,
+        ledgerStatus: String?,
+        operationID: String?
+    ) -> ReviewInboxItemDTO {
+        ReviewInboxItemDTO(
+            id: id,
+            tenantID: "t_1",
+            userID: "u_1",
+            proposedActionID: "pa_\(id)",
+            proposedActionVersion: 1,
+            objectiveTitle: "目标",
+            keyResultTitle: "关键结果",
+            ownerDisplayName: "陈敏",
+            weekLabel: "2026 第 22 周",
+            riskScore: 70,
+            priority: 10,
+            riskReason: "需要复核",
+            confidenceScore: 0.88,
+            status: status,
+            syncCursor: 42,
+            updatedAtDisplay: "5 月 28 日",
+            ledgerStatus: ledgerStatus,
+            operationID: operationID
+        )
+    }
 }

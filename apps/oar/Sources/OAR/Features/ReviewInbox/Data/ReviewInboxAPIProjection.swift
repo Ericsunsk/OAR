@@ -11,7 +11,9 @@ extension ReviewInboxAPISnapshot {
 
 private extension ReviewInboxItemDTO {
     var displayModel: ReviewInboxDisplayItem {
-        ReviewInboxDisplayItem(
+        let operationLedgerStatus = ReviewInboxLedgerStatus(apiValue: ledgerStatus)
+
+        return ReviewInboxDisplayItem(
             id: id,
             proposedActionID: proposedActionID,
             proposedActionVersion: proposedActionVersion,
@@ -22,7 +24,9 @@ private extension ReviewInboxItemDTO {
             riskLevel: riskScore.riskLevel,
             riskReason: riskReason,
             confidenceScore: confidenceScore,
-            status: status.displayStatus,
+            status: operationLedgerStatus?.displayStatus ?? status.displayStatus,
+            ledgerStatus: operationLedgerStatus,
+            operationID: operationID,
             lastUpdatedAt: updatedAtDisplay,
             syncCursor: syncCursor
         )
@@ -94,14 +98,18 @@ private extension ReviewInboxItemStatusDTO {
         switch self {
         case .open:
             return .needsConfirmation
-        case .confirmed, .executing:
+        case .confirmed:
             return .confirmed
+        case .executing:
+            return .executing
         case .succeeded:
             return .executed
         case .failed:
             return .failed
-        case .rejected, .withdrawn:
+        case .rejected:
             return .rejected
+        case .withdrawn:
+            return .cancelled
         }
     }
 }

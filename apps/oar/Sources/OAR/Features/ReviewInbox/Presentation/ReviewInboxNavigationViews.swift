@@ -65,37 +65,15 @@ struct NavigationRail: View {
             .padding(.horizontal, 22)
 
             VStack(spacing: 8) {
-                NavRow(
-                    icon: "tray.full",
-                    title: "全部",
-                    count: model.items.count,
-                    selected: model.filter == .all
-                ) {
-                    model.setFilter(.all)
-                }
-                NavRow(
-                    icon: "exclamationmark.triangle",
-                    title: "高风险",
-                    count: model.highRiskCount,
-                    selected: model.filter == .highRisk
-                ) {
-                    model.setFilter(.highRisk)
-                }
-                NavRow(
-                    icon: "hand.raised",
-                    title: "待确认",
-                    count: model.needsConfirmationCount,
-                    selected: model.filter == .needsConfirmation
-                ) {
-                    model.setFilter(.needsConfirmation)
-                }
-                NavRow(
-                    icon: "checkmark.seal",
-                    title: "已执行",
-                    count: model.executedCount,
-                    selected: model.filter == .executed
-                ) {
-                    model.setFilter(.executed)
+                ForEach(ReviewInboxFilter.allCases) { filter in
+                    NavRow(
+                        icon: filter.navigationIconName,
+                        title: filter.rawValue,
+                        count: model.count(for: filter),
+                        selected: model.filter == filter
+                    ) {
+                        model.setFilter(filter)
+                    }
                 }
             }
             .padding(.top, 26)
@@ -170,6 +148,22 @@ private struct NavRow: View {
                 .stroke(Color.white.opacity(selected ? 0.42 : 0), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+private extension ReviewInboxFilter {
+    var navigationIconName: String {
+        switch self {
+        case .all: "tray.full"
+        case .highRisk: "exclamationmark.triangle"
+        case .needsConfirmation: "hand.raised"
+        case .confirmed: "checkmark.circle"
+        case .executing: "clock.arrow.circlepath"
+        case .failed: "xmark.octagon"
+        case .executed: "checkmark.seal"
+        case .cancelled: "minus.circle"
+        case .rejected: "xmark.seal"
+        }
     }
 }
 

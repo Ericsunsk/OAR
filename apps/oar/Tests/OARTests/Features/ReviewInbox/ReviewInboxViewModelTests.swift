@@ -13,6 +13,12 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertEqual(model.selectedAction?.id, "act-001")
         XCTAssertEqual(model.needsConfirmationCount, 2)
         XCTAssertEqual(model.highRiskCount, 2)
+        XCTAssertEqual(model.confirmedCount, 1)
+        XCTAssertEqual(model.executingCount, 1)
+        XCTAssertEqual(model.failedCount, 1)
+        XCTAssertEqual(model.executedCount, 1)
+        XCTAssertEqual(model.cancelledCount, 0)
+        XCTAssertEqual(model.rejectedCount, 0)
     }
 
     func testApproveProgressActionUpdatesGateAndLedger() async {
@@ -43,6 +49,69 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertEqual(model.filter, .highRisk)
         XCTAssertEqual(model.selectedItem?.id, "review-001")
         XCTAssertEqual(model.selectedItemPositionText, "1/2")
+    }
+
+    func testExecutionStatusFiltersUseSeparateBucketsAndReconcileSelection() async {
+        let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
+        await model.load()
+
+        guard let executedItem = model.items.first(where: { $0.id == "review-004" }) else {
+            XCTFail("Expected mock executed item")
+            return
+        }
+
+        model.select(executedItem)
+        model.setFilter(.confirmed)
+
+        XCTAssertEqual(model.sortedItems.map(\.id), ["review-003"])
+        XCTAssertEqual(model.selectedItem?.id, "review-003")
+        XCTAssertEqual(model.selectedItemPositionText, "1/1")
+
+        model.setFilter(.executing)
+
+        XCTAssertEqual(model.sortedItems.map(\.id), ["review-005"])
+        XCTAssertEqual(model.selectedItem?.id, "review-005")
+        XCTAssertEqual(model.executingCount, 1)
+
+        model.setFilter(.failed)
+
+        XCTAssertEqual(model.sortedItems.map(\.id), ["review-006"])
+        XCTAssertEqual(model.selectedItem?.id, "review-006")
+        XCTAssertEqual(model.failedCount, 1)
+
+        model.setFilter(.executed)
+
+        XCTAssertEqual(model.sortedItems.map(\.id), ["review-004"])
+        XCTAssertEqual(model.selectedItem?.id, "review-004")
+        XCTAssertEqual(model.executedCount, 1)
+    }
+
+    func testTerminalStatusFiltersIncludeCancelledAndRejected() async {
+        let model = ReviewInboxViewModel(provider: StaticSnapshotProvider(snapshot: ReviewInboxDisplaySnapshot(
+            items: [
+                makeDisplayItem(id: "review-cancelled", status: .cancelled),
+                makeDisplayItem(id: "review-rejected", status: .rejected),
+                makeDisplayItem(id: "review-open", status: .needsConfirmation)
+            ],
+            evidence: [],
+            actions: [],
+            ledgerEvents: []
+        )))
+
+        await model.load()
+
+        XCTAssertEqual(model.cancelledCount, 1)
+        XCTAssertEqual(model.rejectedCount, 1)
+
+        model.setFilter(.cancelled)
+
+        XCTAssertEqual(model.sortedItems.map(\.id), ["review-cancelled"])
+        XCTAssertEqual(model.selectedItem?.id, "review-cancelled")
+
+        model.setFilter(.rejected)
+
+        XCTAssertEqual(model.sortedItems.map(\.id), ["review-rejected"])
+        XCTAssertEqual(model.selectedItem?.id, "review-rejected")
     }
 
     func testPreviousAndNextSelectionFollowSortedVisibleItems() async {
@@ -101,12 +170,17 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertEqual(context.evidenceRefs[2].sourceType, "会议")
         XCTAssertEqual(context.evidenceRefs[2].sourceRef, "minutes://enterprise-weekly-sync")
         XCTAssertEqual(context.evidenceRefs[2].summary, "会议纪要显示两个试点需要周五前决策。")
-        XCTAssertTrue(context.workspaceSummary.contains("共 4 个风险"))
+        XCTAssertTrue(context.workspaceSummary.contains("共 6 个风险"))
         XCTAssertTrue(context.workspaceSummary.contains("严重/高 2 个（严重 1 个）"))
         XCTAssertTrue(context.workspaceSummary.contains("待确认 2 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("已确认 1 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("执行中 1 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("失败 1 个"))
         XCTAssertTrue(context.workspaceSummary.contains("已执行 1 个"))
-        XCTAssertTrue(context.workspaceSummary.contains("当前筛选“全部”显示 4 个"))
-        XCTAssertTrue(context.workspaceSummary.contains("当前焦点 1/4"))
+        XCTAssertTrue(context.workspaceSummary.contains("已取消 0 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("已拒绝 0 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("当前筛选“全部”显示 6 个"))
+        XCTAssertTrue(context.workspaceSummary.contains("当前焦点 1/6"))
 
         XCTAssertEqual(context.workspaceSignals.count, 5)
         XCTAssertTrue(context.workspaceSignals[0].contains("严重｜激活 12 个合格试点团队"))
@@ -216,6 +290,7 @@ final class ReviewInboxViewModelTests: XCTestCase {
 
         XCTAssertEqual(model.actions.first { $0.id == "act-003" }?.gateState, .rejected)
         XCTAssertEqual(model.items.first { $0.id == "review-002" }?.status, .rejected)
+        XCTAssertEqual(model.rejectedCount, 1)
     }
 
     func testLedgerForSelectedActionUsesBackendEventsInOrder() async {

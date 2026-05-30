@@ -102,17 +102,28 @@ private struct WorkspaceToolbar: View {
             }
             .frame(minWidth: 150, maxWidth: 210, alignment: .leading)
 
-            Picker("筛选", selection: Binding(
-                get: { model.filter },
-                set: { model.setFilter($0) }
-            )) {
+            Menu {
                 ForEach(ReviewInboxFilter.allCases) { filter in
-                    Text(filter.rawValue).tag(filter)
+                    Button(filter.rawValue) {
+                        model.setFilter(filter)
+                    }
                 }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Text(model.filter.rawValue)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .font(.codexBody(12, weight: .semibold))
+                .foregroundStyle(Color.codexMuted)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(Color.white.opacity(0.42))
+                .clipShape(RoundedRectangle(cornerRadius: 7))
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 224)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
 
             Spacer()
 

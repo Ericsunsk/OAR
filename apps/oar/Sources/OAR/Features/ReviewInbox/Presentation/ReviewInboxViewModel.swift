@@ -41,18 +41,7 @@ final class ReviewInboxViewModel {
 
     var sortedItems: [ReviewInboxDisplayItem] {
         items
-            .filter { item in
-                switch filter {
-                case .all:
-                    return true
-                case .highRisk:
-                    return item.riskLevel == .critical || item.riskLevel == .high
-                case .needsConfirmation:
-                    return item.status == .needsConfirmation || item.status == .new
-                case .executed:
-                    return item.status == .executed
-                }
-            }
+            .filter(filter.includes)
             .sorted {
                 if $0.riskLevel.rank == $1.riskLevel.rank {
                     return $0.confidenceScore > $1.confidenceScore
@@ -96,7 +85,7 @@ final class ReviewInboxViewModel {
     }
 
     var highRiskCount: Int {
-        items.filter { $0.riskLevel == .critical || $0.riskLevel == .high }.count
+        count(for: .highRisk)
     }
 
     var criticalCount: Int {
@@ -104,11 +93,40 @@ final class ReviewInboxViewModel {
     }
 
     var needsConfirmationCount: Int {
-        items.filter { $0.status == .needsConfirmation || $0.status == .new }.count
+        count(for: .needsConfirmation)
+    }
+
+    var confirmedCount: Int {
+        count(for: .confirmed)
+    }
+
+    var executingCount: Int {
+        count(for: .executing)
+    }
+
+    var failedCount: Int {
+        count(for: .failed)
     }
 
     var executedCount: Int {
-        items.filter { $0.status == .executed }.count
+        count(for: .executed)
+    }
+
+    var cancelledCount: Int {
+        count(for: .cancelled)
+    }
+
+    var rejectedCount: Int {
+        count(for: .rejected)
+    }
+
+    func count(for filter: ReviewInboxFilter) -> Int {
+        switch filter {
+        case .all:
+            return items.count
+        default:
+            return items.filter(filter.includes).count
+        }
     }
 
     var currentSnapshot: ReviewInboxDisplaySnapshot {

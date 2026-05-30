@@ -32,11 +32,61 @@ enum ReviewInboxDisplayStatus: String, CaseIterable, Identifiable {
     case new = "新风险"
     case needsConfirmation = "待确认"
     case confirmed = "已确认"
+    case executing = "执行中"
     case executed = "已执行"
     case failed = "失败"
     case rejected = "已拒绝"
+    case cancelled = "已取消"
 
     var id: String { rawValue }
+}
+
+enum ReviewInboxLedgerStatus: Equatable {
+    case confirmed
+    case executing
+    case succeeded
+    case failed
+    case cancelled
+    case unknown(String)
+
+    init?(apiValue: String?) {
+        guard let normalized = apiValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !normalized.isEmpty else {
+            return nil
+        }
+
+        switch normalized {
+        case "confirmed":
+            self = .confirmed
+        case "executing":
+            self = .executing
+        case "succeeded":
+            self = .succeeded
+        case "failed":
+            self = .failed
+        case "cancelled", "canceled":
+            self = .cancelled
+        default:
+            self = .unknown(normalized)
+        }
+    }
+
+    var displayStatus: ReviewInboxDisplayStatus? {
+        switch self {
+        case .confirmed:
+            return .confirmed
+        case .executing:
+            return .executing
+        case .succeeded:
+            return .executed
+        case .failed:
+            return .failed
+        case .cancelled:
+            return .cancelled
+        case .unknown:
+            return nil
+        }
+    }
 }
 
 enum ReviewInboxEvidenceSource: String {
@@ -96,8 +146,44 @@ struct ReviewInboxDisplayItem: Identifiable, Equatable {
     let riskReason: String
     let confidenceScore: Double
     var status: ReviewInboxDisplayStatus
+    let ledgerStatus: ReviewInboxLedgerStatus?
+    let operationID: String?
     let lastUpdatedAt: String
     let syncCursor: UInt64
+
+    init(
+        id: String,
+        proposedActionID: String,
+        proposedActionVersion: UInt64,
+        objectiveTitle: String,
+        keyResultTitle: String,
+        ownerName: String,
+        weekLabel: String,
+        riskLevel: ReviewInboxRiskLevel,
+        riskReason: String,
+        confidenceScore: Double,
+        status: ReviewInboxDisplayStatus,
+        ledgerStatus: ReviewInboxLedgerStatus? = nil,
+        operationID: String? = nil,
+        lastUpdatedAt: String,
+        syncCursor: UInt64
+    ) {
+        self.id = id
+        self.proposedActionID = proposedActionID
+        self.proposedActionVersion = proposedActionVersion
+        self.objectiveTitle = objectiveTitle
+        self.keyResultTitle = keyResultTitle
+        self.ownerName = ownerName
+        self.weekLabel = weekLabel
+        self.riskLevel = riskLevel
+        self.riskReason = riskReason
+        self.confidenceScore = confidenceScore
+        self.status = status
+        self.ledgerStatus = ledgerStatus
+        self.operationID = operationID
+        self.lastUpdatedAt = lastUpdatedAt
+        self.syncCursor = syncCursor
+    }
 }
 
 struct ReviewInboxDisplayEvidence: Identifiable {
@@ -141,7 +227,35 @@ enum ReviewInboxFilter: String, CaseIterable, Identifiable {
     case all = "全部"
     case highRisk = "高风险"
     case needsConfirmation = "待确认"
+    case confirmed = "已确认"
+    case executing = "执行中"
+    case failed = "失败"
     case executed = "已执行"
+    case cancelled = "已取消"
+    case rejected = "已拒绝"
 
     var id: String { rawValue }
+
+    func includes(_ item: ReviewInboxDisplayItem) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .highRisk:
+            return item.riskLevel == .critical || item.riskLevel == .high
+        case .needsConfirmation:
+            return item.status == .needsConfirmation || item.status == .new
+        case .confirmed:
+            return item.status == .confirmed
+        case .executing:
+            return item.status == .executing
+        case .failed:
+            return item.status == .failed
+        case .executed:
+            return item.status == .executed
+        case .cancelled:
+            return item.status == .cancelled
+        case .rejected:
+            return item.status == .rejected
+        }
+    }
 }

@@ -102,9 +102,11 @@ struct StatusBadge: View {
         case .new: "tray"
         case .needsConfirmation: "hand.raised"
         case .confirmed: "checkmark.seal"
+        case .executing: "arrow.triangle.2.circlepath"
         case .executed: "bolt.horizontal"
         case .failed: "exclamationmark.triangle"
         case .rejected: "xmark.seal"
+        case .cancelled: "minus.circle"
         }
     }
 
@@ -113,9 +115,11 @@ struct StatusBadge: View {
         case .new: .oarMuted
         case .needsConfirmation: .oarAmber
         case .confirmed: .oarSteel
+        case .executing: .oarAmber
         case .executed: .oarMoss
         case .failed: .oarSignal
         case .rejected: .oarMuted
+        case .cancelled: .oarMuted
         }
     }
 }
