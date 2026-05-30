@@ -13,6 +13,7 @@ use crate::util::non_empty_env;
 
 #[derive(Clone, Default)]
 pub struct OarHttpFacadeRuntime {
+    pub(crate) persistence: Option<FeishuGrantPersistenceRuntime>,
     pub(crate) feishu_login: Option<Arc<FeishuLoginRuntime>>,
     pub(crate) agent: Option<Arc<AgentRuntime>>,
     pub(crate) agent_settings: Option<Arc<AgentModelSettingsRuntime>>,
@@ -21,6 +22,7 @@ pub struct OarHttpFacadeRuntime {
 impl fmt::Debug for OarHttpFacadeRuntime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OarHttpFacadeRuntime")
+            .field("persistence", &self.persistence.is_some())
             .field("feishu_login", &self.feishu_login.is_some())
             .field("agent", &self.agent.is_some())
             .field("agent_settings", &self.agent_settings.is_some())
@@ -71,9 +73,7 @@ impl OarHttpFacadeRuntime {
     }
 
     pub(crate) fn session_persistence(&self) -> Option<&FeishuGrantPersistenceRuntime> {
-        self.feishu_login
-            .as_ref()
-            .and_then(|login| login.grant_persistence())
+        self.persistence.as_ref()
     }
 
     pub fn from_env_map(
@@ -128,10 +128,11 @@ impl OarHttpFacadeRuntime {
             )),
             None => None,
         };
-        let feishu_login = FeishuLoginRuntime::from_env_map(env, grant_persistence)
+        let feishu_login = FeishuLoginRuntime::from_env_map(env)
             .map_err(feishu_runtime_config_error)?
             .map(Arc::new);
         Ok(Self {
+            persistence: grant_persistence,
             feishu_login,
             agent,
             agent_settings,

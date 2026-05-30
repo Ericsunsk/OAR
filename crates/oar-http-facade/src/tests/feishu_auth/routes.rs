@@ -196,17 +196,12 @@ fn configured_runtime() -> Arc<OarHttpFacadeRuntime> {
 }
 
 fn configured_runtime_with_persistence(pool: sqlx::PgPool) -> Arc<OarHttpFacadeRuntime> {
-    let feishu_login = FeishuLoginRuntime::from_env_map(
-        &configured_env,
-        Some(FeishuGrantPersistenceRuntime::new(
-            pool,
-            "key-test-v1".to_string(),
-            [7; 32],
-        )),
-    )
-    .expect("login runtime")
-    .expect("configured login runtime");
+    let persistence = FeishuGrantPersistenceRuntime::new(pool, "key-test-v1".to_string(), [7; 32]);
+    let feishu_login = FeishuLoginRuntime::from_env_map(&configured_env)
+        .expect("login runtime")
+        .expect("configured login runtime");
     Arc::new(OarHttpFacadeRuntime {
+        persistence: Some(persistence),
         feishu_login: Some(Arc::new(feishu_login)),
         agent: None,
         agent_settings: None,

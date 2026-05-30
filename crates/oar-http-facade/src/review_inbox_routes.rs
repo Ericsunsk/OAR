@@ -77,11 +77,7 @@ pub(crate) async fn snapshot_for_context(
     runtime: &OarHttpFacadeRuntime,
     context: &AuthenticatedContext,
 ) -> FacadeResponse {
-    let Some(persistence) = runtime
-        .feishu_login
-        .as_ref()
-        .and_then(|login| login.grant_persistence())
-    else {
+    let Some(persistence) = runtime.session_persistence() else {
         return service_unavailable(
             "review_inbox_snapshot_store_unavailable",
             "Review inbox snapshot storage is temporarily unavailable.",

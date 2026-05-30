@@ -41,7 +41,6 @@ pub(crate) enum FeishuLoginRuntimeConfigError {
 impl FeishuLoginRuntime {
     pub(crate) fn from_env_map(
         env: &impl Fn(&str) -> Option<String>,
-        grant_persistence: Option<FeishuGrantPersistenceRuntime>,
     ) -> Result<Option<Self>, FeishuLoginRuntimeConfigError> {
         let app_id = non_empty_env(env, "OAR_FEISHU_APP_ID");
         let app_secret = non_empty_env(env, "OAR_FEISHU_APP_SECRET");
@@ -78,13 +77,8 @@ impl FeishuLoginRuntime {
         Ok(Some(Self {
             config,
             http_client,
-            grant_persistence,
             sessions: Mutex::new(HashMap::new()),
         }))
-    }
-
-    pub(crate) fn grant_persistence(&self) -> Option<&FeishuGrantPersistenceRuntime> {
-        self.grant_persistence.as_ref()
     }
 
     pub(crate) fn open_api_config(&self) -> FeishuOpenApiConfig {
@@ -129,7 +123,6 @@ impl FeishuGrantPersistenceRuntime {
 pub(crate) struct FeishuLoginRuntime {
     config: FeishuOAuthLoginConfig,
     http_client: ReqwestAsyncHttpClient,
-    grant_persistence: Option<FeishuGrantPersistenceRuntime>,
     sessions: Mutex<HashMap<String, FeishuLoginSession>>,
 }
 
@@ -138,7 +131,6 @@ impl fmt::Debug for FeishuLoginRuntime {
         f.debug_struct("FeishuLoginRuntime")
             .field("config", &self.config)
             .field("http_client", &"[REDACTED]")
-            .field("grant_persistence", &self.grant_persistence.is_some())
             .field("sessions", &"[REDACTED]")
             .finish()
     }

@@ -32,11 +32,7 @@ impl LiveFeishuReadSession {
     where
         F: FnMut(&[String]) -> bool,
     {
-        let Some(persistence) = runtime
-            .feishu_login
-            .as_ref()
-            .and_then(|login| login.grant_persistence())
-        else {
+        let Some(persistence) = runtime.session_persistence() else {
             return Err(LiveFeishuReadSessionError::evidence_degraded(
                 "后端未配置 Feishu 授权存储",
             ));

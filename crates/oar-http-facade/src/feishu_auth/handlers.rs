@@ -12,7 +12,7 @@ use super::session::{
     session_status_json, FeishuLoginSession, FeishuLoginSessionState,
 };
 use super::util::{parse_query, sanitize_session_suffix, secure_random_hex};
-use super::FeishuLoginRuntime;
+use super::{FeishuGrantPersistenceRuntime, FeishuLoginRuntime};
 use crate::response::{callback_html, json_facade_response, service_unavailable, FacadeResponse};
 
 fn not_configured_response() -> FacadeResponse {
@@ -75,6 +75,7 @@ pub(crate) fn feishu_login_session_status(
 
 pub(crate) async fn complete_feishu_login_callback(
     runtime: Option<&FeishuLoginRuntime>,
+    persistence: Option<&FeishuGrantPersistenceRuntime>,
     query: Option<&str>,
 ) -> FacadeResponse {
     let Some(runtime) = runtime else {
@@ -149,10 +150,7 @@ pub(crate) async fn complete_feishu_login_callback(
         "oar_session_{}",
         secure_random_hex(18).unwrap_or_else(|_| sanitize_session_suffix(state))
     );
-    if let Err(error) =
-        persist_feishu_login_grant(runtime.grant_persistence.as_ref(), &login, &oar_session_id)
-            .await
-    {
+    if let Err(error) = persist_feishu_login_grant(persistence, &login, &oar_session_id).await {
         tracing::warn!(?error, "feishu oauth login grant persistence failed");
         mark_session_denied(runtime, state, "OAR 登录态保存失败，请重新扫码。");
         return callback_html(

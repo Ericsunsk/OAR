@@ -31,7 +31,12 @@ pub async fn dispatch_request_with_runtime(
             return create_feishu_login_session(runtime.feishu_login.as_deref());
         }
         (&Method::GET, "/auth/feishu/callback") => {
-            return complete_feishu_login_callback(runtime.feishu_login.as_deref(), query).await;
+            return complete_feishu_login_callback(
+                runtime.feishu_login.as_deref(),
+                runtime.session_persistence(),
+                query,
+            )
+            .await;
         }
         _ if is_auth_session_status_route(method, path) => {
             let Some(session_id) = auth_session_status_id(path) else {
