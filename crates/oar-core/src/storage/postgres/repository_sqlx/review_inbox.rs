@@ -126,6 +126,7 @@ impl PostgresReviewInboxRepository {
                 items: Vec::new(),
                 actions: Vec::new(),
                 evidence: Vec::new(),
+                ledger_events: Vec::new(),
             });
         }
 
@@ -146,6 +147,7 @@ impl PostgresReviewInboxRepository {
                 items,
                 actions: Vec::new(),
                 evidence: Vec::new(),
+                ledger_events: Vec::new(),
             });
         }
 
@@ -173,10 +175,23 @@ impl PostgresReviewInboxRepository {
             .map(stored_review_inbox_evidence_from_row)
             .collect::<PgRepositoryResult<Vec<_>>>()?;
 
+        let ledger_event_rows = sqlx::query(LIST_REVIEW_INBOX_LEDGER_EVENTS_FOR_SNAPSHOT)
+            .bind(tenant_id)
+            .bind(user_id)
+            .bind(after_cursor as i64)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
+        let ledger_events = ledger_event_rows
+            .iter()
+            .map(stored_review_inbox_ledger_event_from_row)
+            .collect::<PgRepositoryResult<Vec<_>>>()?;
+
         Ok(StoredReviewInboxSnapshot {
             items,
             actions,
             evidence,
+            ledger_events,
         })
     }
 

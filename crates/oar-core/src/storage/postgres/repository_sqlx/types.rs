@@ -188,6 +188,7 @@ pub struct StoredReviewInboxSnapshot {
     pub items: Vec<StoredReviewInboxItem>,
     pub actions: Vec<StoredReviewInboxAction>,
     pub evidence: Vec<StoredReviewInboxEvidence>,
+    pub ledger_events: Vec<StoredReviewInboxLedgerEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,6 +237,32 @@ pub struct StoredReviewInboxActionDecision {
 pub struct StoredReviewInboxEvidence {
     pub review_item_id: String,
     pub item: StoredEvidenceItem,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredReviewInboxLedgerEvent {
+    pub id: String,
+    pub action_id: String,
+    pub stage: StoredReviewInboxLedgerStage,
+    pub stage_status: StoredReviewInboxLedgerStatus,
+    pub timestamp: SystemTime,
+    pub message: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoredReviewInboxLedgerStage {
+    ConfirmedAction,
+    OperationLedger,
+    PlatformAdapter,
+    AuditEvent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoredReviewInboxLedgerStatus {
+    Pending,
+    Ok,
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -3,7 +3,8 @@ use super::codec::{
     device_entry_point_from_db, device_session_state_from_db, evidence_source_kind_from_db,
     evidence_visibility_scope_from_db, identity_actor_kind_from_db,
     proposed_action_decision_kind_from_db, proposed_action_kind_from_db,
-    proposed_action_status_from_db, review_inbox_item_status_from_db, risk_severity_from_db,
+    proposed_action_status_from_db, review_inbox_item_status_from_db,
+    review_inbox_ledger_stage_from_db, review_inbox_ledger_status_from_db, risk_severity_from_db,
     scheduler_job_kind_from_db, scheduler_job_status_from_db, scope_boundary_from_db,
     tenant_status_from_db, token_grant_state_from_db, workspace_user_status_from_db,
 };
@@ -14,8 +15,8 @@ use super::{
     AuditActor, AuditEvent, AuditOutboxMessage, AuditScope, AuditTarget, EncryptedTokenGrantRecord,
     OperationRecord, PgRepositoryResult, StoredDeviceSession, StoredEvidenceItem,
     StoredLarkIdentity, StoredReviewInboxAction, StoredReviewInboxActionDecision,
-    StoredReviewInboxEvidence, StoredReviewInboxItem, StoredSchedulerJob, StoredTenant,
-    StoredWorkspaceUser,
+    StoredReviewInboxEvidence, StoredReviewInboxItem, StoredReviewInboxLedgerEvent,
+    StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
 };
 use crate::domain::identity::{TenantId, TokenGrantId};
 use crate::domain::token_refresh::types::TokenRefreshGrantSnapshot;
@@ -304,6 +305,25 @@ pub(super) fn stored_review_inbox_evidence_from_row(
     Ok(StoredReviewInboxEvidence {
         review_item_id: row.try_get("review_item_id")?,
         item: stored_evidence_item_from_row(row)?,
+    })
+}
+
+pub(super) fn stored_review_inbox_ledger_event_from_row(
+    row: &PgRow,
+) -> PgRepositoryResult<StoredReviewInboxLedgerEvent> {
+    let stage: String = row.try_get("stage")?;
+    let stage_status: String = row.try_get("stage_status")?;
+    Ok(StoredReviewInboxLedgerEvent {
+        id: row.try_get("id")?,
+        action_id: row.try_get("action_id")?,
+        stage: review_inbox_ledger_stage_from_db(&stage)?,
+        stage_status: review_inbox_ledger_status_from_db(&stage_status)?,
+        timestamp: ms_to_system_time(non_negative_i64_to_u64(
+            row.try_get("timestamp_ms")?,
+            "timestamp_ms",
+        )?),
+        message: row.try_get("message")?,
+        idempotency_key: row.try_get("idempotency_key")?,
     })
 }
 

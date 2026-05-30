@@ -41,6 +41,10 @@ pub enum PostgresRepositoryError {
     UnknownRiskSeverity(String),
     #[error("unknown proposed action decision from database: {0}")]
     UnknownProposedActionDecision(String),
+    #[error("unknown review inbox ledger stage from database: {0}")]
+    UnknownReviewInboxLedgerStage(String),
+    #[error("unknown review inbox ledger status from database: {0}")]
+    UnknownReviewInboxLedgerStatus(String),
     #[error("unknown review inbox item status from database: {0}")]
     UnknownReviewInboxItemStatus(String),
     #[error("unknown scheduler job kind from database: {0}")]

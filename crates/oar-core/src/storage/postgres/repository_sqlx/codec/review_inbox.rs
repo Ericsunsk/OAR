@@ -1,4 +1,7 @@
-use super::super::{PgRepositoryResult, PostgresRepositoryError};
+use super::super::{
+    PgRepositoryResult, PostgresRepositoryError, StoredReviewInboxLedgerStage,
+    StoredReviewInboxLedgerStatus,
+};
 use crate::domain::review_inbox::ReviewInboxItemStatus;
 
 pub(in crate::storage::postgres::repository_sqlx) fn review_inbox_item_status_to_db(
@@ -27,6 +30,33 @@ pub(in crate::storage::postgres::repository_sqlx) fn review_inbox_item_status_fr
         "failed" => Ok(ReviewInboxItemStatus::Failed),
         "withdrawn" => Ok(ReviewInboxItemStatus::Withdrawn),
         other => Err(PostgresRepositoryError::UnknownReviewInboxItemStatus(
+            other.to_string(),
+        )),
+    }
+}
+
+pub(in crate::storage::postgres::repository_sqlx) fn review_inbox_ledger_stage_from_db(
+    value: &str,
+) -> PgRepositoryResult<StoredReviewInboxLedgerStage> {
+    match value {
+        "confirmed_action" => Ok(StoredReviewInboxLedgerStage::ConfirmedAction),
+        "operation_ledger" => Ok(StoredReviewInboxLedgerStage::OperationLedger),
+        "platform_adapter" => Ok(StoredReviewInboxLedgerStage::PlatformAdapter),
+        "audit_event" => Ok(StoredReviewInboxLedgerStage::AuditEvent),
+        other => Err(PostgresRepositoryError::UnknownReviewInboxLedgerStage(
+            other.to_string(),
+        )),
+    }
+}
+
+pub(in crate::storage::postgres::repository_sqlx) fn review_inbox_ledger_status_from_db(
+    value: &str,
+) -> PgRepositoryResult<StoredReviewInboxLedgerStatus> {
+    match value {
+        "pending" => Ok(StoredReviewInboxLedgerStatus::Pending),
+        "ok" => Ok(StoredReviewInboxLedgerStatus::Ok),
+        "error" => Ok(StoredReviewInboxLedgerStatus::Error),
+        other => Err(PostgresRepositoryError::UnknownReviewInboxLedgerStatus(
             other.to_string(),
         )),
     }

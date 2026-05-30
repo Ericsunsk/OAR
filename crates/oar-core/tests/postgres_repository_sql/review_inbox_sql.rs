@@ -2,9 +2,10 @@ use oar_core::storage::postgres::review_inbox_sql::{
     INSERT_EVIDENCE_ITEM, INSERT_PROPOSED_ACTION, INSERT_PROPOSED_ACTION_DECISION,
     INSERT_PROPOSED_ACTION_EVIDENCE_REF, LIST_REVIEW_INBOX_ACTIONS_FOR_SNAPSHOT,
     LIST_REVIEW_INBOX_EVIDENCE_FOR_SNAPSHOT, LIST_REVIEW_INBOX_ITEMS,
-    LOAD_PROPOSED_ACTION_DECISION_FOR_RECORDER, LOAD_REVIEW_DECISION_ACTION,
-    LOAD_REVIEW_DECISION_EVIDENCE, LOAD_REVIEW_DECISION_ITEM, UPDATE_REVIEW_INBOX_DECISION_STATE,
-    UPDATE_REVIEW_INBOX_LEDGER_PROJECTION, UPSERT_REVIEW_INBOX_ITEM,
+    LIST_REVIEW_INBOX_LEDGER_EVENTS_FOR_SNAPSHOT, LOAD_PROPOSED_ACTION_DECISION_FOR_RECORDER,
+    LOAD_REVIEW_DECISION_ACTION, LOAD_REVIEW_DECISION_EVIDENCE, LOAD_REVIEW_DECISION_ITEM,
+    UPDATE_REVIEW_INBOX_DECISION_STATE, UPDATE_REVIEW_INBOX_LEDGER_PROJECTION,
+    UPSERT_REVIEW_INBOX_ITEM,
 };
 
 use crate::compact;
@@ -170,6 +171,41 @@ fn review_inbox_snapshot_reads_page_then_related_safe_rows() {
     assert!(evidence_sql.contains("join evidence_items"));
     assert!(evidence_sql.contains("evidence_items.summary"));
     assert!(evidence_sql.contains("evidence_items.content_hash"));
+}
+
+#[test]
+fn review_inbox_snapshot_ledger_events_are_scoped_and_safe() {
+    let sql = compact(LIST_REVIEW_INBOX_LEDGER_EVENTS_FOR_SNAPSHOT);
+
+    assert!(sql.starts_with("with selected_items as"));
+    assert!(sql.contains("from review_inbox_items"));
+    assert!(sql.contains("where tenant_id = $1"));
+    assert!(sql.contains("and user_id = $2"));
+    assert!(sql.contains("and sync_cursor_value > $3"));
+    assert!(sql.contains("limit $4"));
+    assert!(sql.contains("selected_items.proposed_action_id as action_id"));
+    assert!(sql.contains("'confirmed_action' as stage"));
+    assert!(sql.contains("'operation_ledger' as stage"));
+    assert!(sql.contains("'audit_event' as stage"));
+    assert!(sql.contains("'pending'"));
+    assert!(sql.contains("'ok'"));
+    assert!(sql.contains("'error'"));
+    assert!(sql.contains("from unioned_events"));
+    assert!(sql.contains("order by item_order asc, timestamp_ms asc, stage_order asc, id asc"));
+    assert!(sql.contains("join proposed_action_decisions"));
+    assert!(sql.contains("join operation_ledger"));
+    assert!(sql.contains("join audit_events"));
+    assert!(!sql.contains("edited_payload"));
+    assert!(!sql.contains("suggested_payload"));
+    assert!(!sql.contains("raw_payload"));
+    assert!(!sql.contains("raw_content"));
+    assert!(!sql.contains("raw_transcript"));
+    assert!(!sql.contains("access_token"));
+    assert!(!sql.contains("refresh_token"));
+    assert!(!sql.contains("before_summary"));
+    assert!(!sql.contains("after_summary"));
+    assert!(!sql.contains("execution_result"));
+    assert!(!sql.contains("last_error"));
 }
 
 #[test]

@@ -43,7 +43,8 @@ pub use repository_sqlx::{
     StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity, StoredProposedAction,
     StoredProposedActionDecision, StoredProposedActionDecisionKind, StoredReviewDecisionContext,
     StoredReviewInboxAction, StoredReviewInboxActionDecision, StoredReviewInboxEvidence,
-    StoredReviewInboxItem, StoredReviewInboxSnapshot, StoredSchedulerJob, StoredTenant,
+    StoredReviewInboxItem, StoredReviewInboxLedgerEvent, StoredReviewInboxLedgerStage,
+    StoredReviewInboxLedgerStatus, StoredReviewInboxSnapshot, StoredSchedulerJob, StoredTenant,
     StoredWorkspaceUser,
 };
 #[cfg(feature = "postgres")]

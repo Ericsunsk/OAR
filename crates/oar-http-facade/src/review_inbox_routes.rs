@@ -20,7 +20,8 @@ use oar_core::storage::postgres::{
     InsertProposedActionDecisionRequest, PostgresReviewDecisionContextRequest,
     PostgresReviewDecisionRecorder, PostgresReviewInboxRepository,
     StoredProposedActionDecisionKind, StoredReviewInboxAction, StoredReviewInboxEvidence,
-    StoredReviewInboxItem, StoredReviewInboxSnapshot,
+    StoredReviewInboxItem, StoredReviewInboxLedgerEvent, StoredReviewInboxLedgerStage,
+    StoredReviewInboxLedgerStatus, StoredReviewInboxSnapshot,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -623,7 +624,11 @@ fn snapshot_dto(
                 )
             })
             .collect(),
-        ledger_events: Vec::new(),
+        ledger_events: snapshot
+            .ledger_events
+            .iter()
+            .map(ledger_event_dto)
+            .collect(),
     }
 }
 
@@ -740,6 +745,18 @@ fn evidence_dto(
     }
 }
 
+fn ledger_event_dto(event: &StoredReviewInboxLedgerEvent) -> LedgerEventDto {
+    LedgerEventDto {
+        id: event.id.clone(),
+        action_id: event.action_id.clone(),
+        stage: ledger_stage(event.stage),
+        stage_status: ledger_status(event.stage_status),
+        timestamp_display: iso8601_utc(event.timestamp),
+        message: safe_ledger_text(event.message.as_str(), "Ledger event recorded."),
+        idempotency_key: safe_correlation_key(event.idempotency_key.as_str()),
+    }
+}
+
 fn first_evidence_summary(evidence: Option<&[&StoredReviewInboxEvidence]>) -> Option<String> {
     evidence
         .and_then(|items| items.first())
@@ -784,6 +801,29 @@ fn sanitized_text_or(value: Option<&str>, fallback: &str) -> String {
         compact.chars().take(320).collect()
     } else {
         compact
+    }
+}
+
+fn safe_ledger_text(value: &str, fallback: &str) -> String {
+    let sanitized = sanitized_text_or(Some(value), fallback);
+    if oar_core::security::contains_sensitive_marker(&sanitized) {
+        fallback.to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn safe_correlation_key(value: &str) -> String {
+    let sanitized = sanitized_text_or(Some(value), "redacted");
+    let safe_shape = !sanitized.is_empty()
+        && sanitized.chars().count() <= 160
+        && sanitized
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, ':' | '_' | '-' | '.' | '/'));
+    if safe_shape && !oar_core::security::contains_sensitive_marker(&sanitized) {
+        sanitized
+    } else {
+        "redacted".to_string()
     }
 }
 
@@ -853,6 +893,23 @@ fn action_status(status: ActionStatus) -> &'static str {
     }
 }
 
+fn ledger_stage(stage: StoredReviewInboxLedgerStage) -> &'static str {
+    match stage {
+        StoredReviewInboxLedgerStage::ConfirmedAction => "confirmed_action",
+        StoredReviewInboxLedgerStage::OperationLedger => "operation_ledger",
+        StoredReviewInboxLedgerStage::PlatformAdapter => "platform_adapter",
+        StoredReviewInboxLedgerStage::AuditEvent => "audit_event",
+    }
+}
+
+fn ledger_status(status: StoredReviewInboxLedgerStatus) -> &'static str {
+    match status {
+        StoredReviewInboxLedgerStatus::Pending => "pending",
+        StoredReviewInboxLedgerStatus::Ok => "ok",
+        StoredReviewInboxLedgerStatus::Error => "error",
+    }
+}
+
 fn evidence_source_kind(source: EvidenceSourceKind) -> &'static str {
     match source {
         EvidenceSourceKind::OkrProgress => "okr_progress",
@@ -901,6 +958,7 @@ mod tests {
     use oar_core::storage::postgres::{
         StoredEvidenceItem, StoredProposedActionDecisionKind, StoredReviewInboxAction,
         StoredReviewInboxActionDecision, StoredReviewInboxEvidence, StoredReviewInboxItem,
+        StoredReviewInboxLedgerEvent, StoredReviewInboxLedgerStage, StoredReviewInboxLedgerStatus,
         StoredReviewInboxSnapshot,
     };
     use serde_json::{json, Value};
@@ -965,6 +1023,7 @@ mod tests {
             }],
             actions: Vec::new(),
             evidence: Vec::new(),
+            ledger_events: Vec::new(),
         };
 
         let body = snapshot_response_body(&snapshot, UNIX_EPOCH);
@@ -1011,6 +1070,7 @@ mod tests {
                 decision: None,
             }],
             evidence: Vec::new(),
+            ledger_events: Vec::new(),
         };
 
         let body = snapshot_response_body(&snapshot, UNIX_EPOCH);
@@ -1056,6 +1116,7 @@ mod tests {
                 }),
             }],
             evidence: Vec::new(),
+            ledger_events: Vec::new(),
         };
 
         let body = snapshot_response_body(&snapshot, UNIX_EPOCH);
@@ -1118,6 +1179,7 @@ mod tests {
                     recorded_at: observed,
                 },
             }],
+            ledger_events: Vec::new(),
         };
 
         let body = snapshot_response_body(&snapshot, UNIX_EPOCH);
@@ -1140,12 +1202,71 @@ mod tests {
     }
 
     #[test]
+    fn mapper_projects_safe_ledger_events() {
+        let snapshot = StoredReviewInboxSnapshot {
+            items: Vec::new(),
+            actions: Vec::new(),
+            evidence: Vec::new(),
+            ledger_events: vec![
+                StoredReviewInboxLedgerEvent {
+                    id: "ledger_1".to_string(),
+                    action_id: "pa_1".to_string(),
+                    stage: StoredReviewInboxLedgerStage::OperationLedger,
+                    stage_status: StoredReviewInboxLedgerStatus::Ok,
+                    timestamp: UNIX_EPOCH + Duration::from_secs(120),
+                    message: "Operation ledger confirmed.".to_string(),
+                    idempotency_key: "decision:pa_1:v1:confirm".to_string(),
+                },
+                StoredReviewInboxLedgerEvent {
+                    id: "ledger_2".to_string(),
+                    action_id: "pa_1".to_string(),
+                    stage: StoredReviewInboxLedgerStage::PlatformAdapter,
+                    stage_status: StoredReviewInboxLedgerStatus::Error,
+                    timestamp: UNIX_EPOCH + Duration::from_secs(121),
+                    message: "access_token leaked from adapter".to_string(),
+                    idempotency_key: "authorization: bearer abc".to_string(),
+                },
+            ],
+        };
+
+        let body = snapshot_response_body(&snapshot, UNIX_EPOCH);
+        let serialized = serde_json::to_string(&body).expect("json body");
+
+        assert_eq!(body["ledger_events"][0]["id"], "ledger_1");
+        assert_eq!(body["ledger_events"][0]["action_id"], "pa_1");
+        assert_eq!(body["ledger_events"][0]["stage"], "operation_ledger");
+        assert_eq!(body["ledger_events"][0]["stage_status"], "ok");
+        assert_eq!(
+            body["ledger_events"][0]["timestamp_display"],
+            "1970-01-01T00:02:00Z"
+        );
+        assert_eq!(
+            body["ledger_events"][0]["message"],
+            "Operation ledger confirmed."
+        );
+        assert_eq!(
+            body["ledger_events"][0]["idempotency_key"],
+            "decision:pa_1:v1:confirm"
+        );
+        assert_eq!(body["ledger_events"][1]["stage"], "platform_adapter");
+        assert_eq!(body["ledger_events"][1]["stage_status"], "error");
+        assert_eq!(
+            body["ledger_events"][1]["message"],
+            "Ledger event recorded."
+        );
+        assert_eq!(body["ledger_events"][1]["idempotency_key"], "redacted");
+        assert!(!serialized.contains("access_token"));
+        assert!(!serialized.contains("bearer abc"));
+    }
+
+    #[test]
     fn empty_snapshot_matches_swift_contract_keys() {
         let body = snapshot_response_body(
             &StoredReviewInboxSnapshot {
                 items: Vec::new(),
                 actions: Vec::new(),
                 evidence: Vec::new(),
+                ledger_events: Vec::new(),
             },
             UNIX_EPOCH,
         );

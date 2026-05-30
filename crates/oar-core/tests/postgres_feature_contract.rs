@@ -19,7 +19,8 @@ use oar_core::storage::postgres::operation_ledger_sql::{
 use oar_core::storage::postgres::review_inbox_sql::{
     INSERT_EVIDENCE_ITEM, INSERT_PROPOSED_ACTION, INSERT_PROPOSED_ACTION_DECISION,
     INSERT_PROPOSED_ACTION_EVIDENCE_REF, LIST_REVIEW_INBOX_ITEMS,
-    UPDATE_REVIEW_INBOX_LEDGER_PROJECTION, UPSERT_REVIEW_INBOX_ITEM,
+    LIST_REVIEW_INBOX_LEDGER_EVENTS_FOR_SNAPSHOT, UPDATE_REVIEW_INBOX_LEDGER_PROJECTION,
+    UPSERT_REVIEW_INBOX_ITEM,
 };
 use oar_core::storage::postgres::scheduler_sql::{
     CLAIM_SCHEDULER_JOB, COMPLETE_SCHEDULER_JOB_FOR_LEASE, FAIL_SCHEDULER_JOB_FOR_LEASE,
@@ -49,6 +50,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let evidence_sql = compact(INSERT_EVIDENCE_ITEM);
     let review_inbox_sql = compact(UPSERT_REVIEW_INBOX_ITEM);
     let review_inbox_projection_sql = compact(UPDATE_REVIEW_INBOX_LEDGER_PROJECTION);
+    let review_inbox_ledger_sql = compact(LIST_REVIEW_INBOX_LEDGER_EVENTS_FOR_SNAPSHOT);
     let scheduler_claim_sql = compact(CLAIM_SCHEDULER_JOB);
 
     assert!(operation_sql.contains("insert into confirmed_actions"));
@@ -69,6 +71,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     assert!(evidence_sql.contains("insert into evidence_items"));
     assert!(review_inbox_sql.contains("insert into review_inbox_items"));
     assert!(review_inbox_projection_sql.contains("update review_inbox_items"));
+    assert!(review_inbox_ledger_sql.contains("from unioned_events"));
     assert!(scheduler_claim_sql.contains("for update skip locked"));
 
     // Touch all constants to lock import visibility for default builds.
@@ -103,6 +106,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     let _ = INSERT_PROPOSED_ACTION_EVIDENCE_REF;
     let _ = INSERT_PROPOSED_ACTION_DECISION;
     let _ = LIST_REVIEW_INBOX_ITEMS;
+    let _ = LIST_REVIEW_INBOX_LEDGER_EVENTS_FOR_SNAPSHOT;
     let _ = UPDATE_REVIEW_INBOX_LEDGER_PROJECTION;
     let _ = UPSERT_SCHEDULER_JOB;
     let _ = GET_SCHEDULER_JOB;
@@ -147,7 +151,8 @@ mod postgres_feature_api_contract {
         PostgresTokenRefreshSweep, PostgresTokenRefreshSweepReport,
         PostgresTokenRefreshSweepRequest, PostgresWorkspaceUserRepository,
         RotateEncryptedGrantRequest, StoredDeviceSession, StoredLarkIdentity,
-        StoredReviewDecisionContext, StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
+        StoredReviewDecisionContext, StoredReviewInboxLedgerEvent, StoredReviewInboxLedgerStage,
+        StoredReviewInboxLedgerStatus, StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
         TokenRefreshScheduledSweepConfig, TokenRefreshScheduledSweepReport,
     };
     use sqlx::PgPool;
@@ -286,6 +291,9 @@ mod postgres_feature_api_contract {
             PostgresReviewDecisionContextRequest<'static>,
         > = None;
         let _phantom_review_decision_context: Option<StoredReviewDecisionContext> = None;
+        let _phantom_review_inbox_ledger_event: Option<StoredReviewInboxLedgerEvent> = None;
+        let _phantom_review_inbox_ledger_stage: Option<StoredReviewInboxLedgerStage> = None;
+        let _phantom_review_inbox_ledger_status: Option<StoredReviewInboxLedgerStatus> = None;
         let _phantom_delivery: Option<AuditOutboxDelivery> = None;
         let _phantom_drain_report: Option<AuditOutboxDrainReport> = None;
         let _phantom_config: Option<AuditOutboxDrainConfig> = None;

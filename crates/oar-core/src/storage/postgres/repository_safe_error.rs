@@ -35,6 +35,12 @@ pub fn postgres_repository_safe_error_reason(error: &PostgresRepositoryError) ->
         PostgresRepositoryError::UnknownProposedActionDecision(_) => {
             "unknown_proposed_action_decision"
         }
+        PostgresRepositoryError::UnknownReviewInboxLedgerStage(_) => {
+            "unknown_review_inbox_ledger_stage"
+        }
+        PostgresRepositoryError::UnknownReviewInboxLedgerStatus(_) => {
+            "unknown_review_inbox_ledger_status"
+        }
         PostgresRepositoryError::UnknownReviewInboxItemStatus(_) => {
             "unknown_review_inbox_item_status"
         }

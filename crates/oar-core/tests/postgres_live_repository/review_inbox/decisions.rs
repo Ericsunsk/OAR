@@ -1,4 +1,5 @@
 use super::*;
+use oar_core::storage::postgres::{StoredReviewInboxLedgerStage, StoredReviewInboxLedgerStatus};
 
 #[test]
 fn postgres_live_review_decision_recorder_confirm_and_reject() {
@@ -57,15 +58,16 @@ fn postgres_live_review_decision_recorder_confirm_and_reject() {
                         operation_id: None,
                     }),
                     event: &AuditEvent::proposed_action_decision(
-                        audit_context(
-                            "evt_recorder_reject",
-                            "trace_recorder",
-                            1,
-                            1_748_250_021_000,
-                            "user_recorder",
-                            "tenant_recorder",
-                            "action_recorder",
-                        ),
+                        review_decision_audit_context(ReviewDecisionAuditSpec {
+                            event_id: "evt_recorder_reject",
+                            trace_id: "trace_recorder",
+                            sequence: 1,
+                            occurred_at_ms: 1_748_250_021_000,
+                            actor_id: "user_recorder",
+                            tenant_id: "tenant_recorder",
+                            action_id: "action_recorder",
+                            action_type: "reject",
+                        }),
                         summary("reject decision"),
                     ),
                     outbox: &outbox_envelope(
@@ -136,15 +138,16 @@ fn postgres_live_review_decision_recorder_confirm_and_reject() {
                         operation_id: Some(&operation_id),
                     }),
                     event: &AuditEvent::proposed_action_decision(
-                        audit_context(
-                            "evt_recorder_confirm",
-                            "trace_recorder_confirm",
-                            1,
-                            1_748_250_024_000,
-                            "user_recorder",
-                            "tenant_recorder",
-                            "action_recorder_confirm",
-                        ),
+                        review_decision_audit_context(ReviewDecisionAuditSpec {
+                            event_id: "evt_recorder_confirm",
+                            trace_id: "trace_recorder_confirm",
+                            sequence: 1,
+                            occurred_at_ms: 1_748_250_024_000,
+                            actor_id: "user_recorder",
+                            tenant_id: "tenant_recorder",
+                            action_id: "action_recorder_confirm",
+                            action_type: "confirm",
+                        }),
                         summary("confirm decision"),
                     ),
                     outbox: &outbox_envelope(
@@ -183,6 +186,43 @@ fn postgres_live_review_decision_recorder_confirm_and_reject() {
             assert_eq!(
                 projected.try_get::<Option<String>, _>("operation_id")?,
                 Some(operation_id)
+            );
+
+            let snapshot = repository
+                .load_review_inbox_snapshot("tenant_recorder", "user_recorder", 0, 10)
+                .await?;
+            let reject_events = ledger_stages_for(&snapshot, "action_recorder");
+            let confirm_events = ledger_stages_for(&snapshot, "action_recorder_confirm");
+
+            assert_eq!(
+                reject_events,
+                vec![
+                    (
+                        StoredReviewInboxLedgerStage::ConfirmedAction,
+                        StoredReviewInboxLedgerStatus::Error
+                    ),
+                    (
+                        StoredReviewInboxLedgerStage::AuditEvent,
+                        StoredReviewInboxLedgerStatus::Ok
+                    ),
+                ]
+            );
+            assert_eq!(
+                confirm_events,
+                vec![
+                    (
+                        StoredReviewInboxLedgerStage::ConfirmedAction,
+                        StoredReviewInboxLedgerStatus::Ok
+                    ),
+                    (
+                        StoredReviewInboxLedgerStage::OperationLedger,
+                        StoredReviewInboxLedgerStatus::Ok
+                    ),
+                    (
+                        StoredReviewInboxLedgerStage::AuditEvent,
+                        StoredReviewInboxLedgerStatus::Ok
+                    ),
+                ]
             );
 
             Ok(())
@@ -306,6 +346,47 @@ fn postgres_live_review_decision_recorder_rolls_back_on_stale_inbox_projection()
 
         Ok(())
     });
+}
+
+fn ledger_stages_for(
+    snapshot: &oar_core::storage::postgres::StoredReviewInboxSnapshot,
+    action_id: &str,
+) -> Vec<(StoredReviewInboxLedgerStage, StoredReviewInboxLedgerStatus)> {
+    snapshot
+        .ledger_events
+        .iter()
+        .filter(|event| event.action_id == action_id)
+        .map(|event| (event.stage, event.stage_status))
+        .collect()
+}
+
+struct ReviewDecisionAuditSpec<'a> {
+    event_id: &'a str,
+    trace_id: &'a str,
+    sequence: u64,
+    occurred_at_ms: u64,
+    actor_id: &'a str,
+    tenant_id: &'a str,
+    action_id: &'a str,
+    action_type: &'a str,
+}
+
+fn review_decision_audit_context(spec: ReviewDecisionAuditSpec<'_>) -> AuditEventContext {
+    AuditEventContext {
+        event_id: spec.event_id.to_string(),
+        trace_id: spec.trace_id.to_string(),
+        sequence: spec.sequence,
+        occurred_at_ms: spec.occurred_at_ms,
+        subject: AuditSubject {
+            actor: actor(spec.actor_id),
+            scope: scope(spec.tenant_id),
+            target: AuditTarget {
+                resource_type: "proposed_action".to_string(),
+                resource_id: spec.action_id.to_string(),
+                action_type: spec.action_type.to_string(),
+            },
+        },
+    }
 }
 
 #[test]
