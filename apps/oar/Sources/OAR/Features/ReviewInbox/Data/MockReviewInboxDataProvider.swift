@@ -37,7 +37,7 @@ final class MockReviewInboxDataProvider: ReviewInboxDataProviding {
     private func validateDecision(
         actionID: ReviewInboxSuggestedAction.ID,
         version: UInt64,
-        expectedSyncCursor: UInt64?,
+        expectedSyncCursor: UInt64,
         snapshot: ReviewInboxDisplaySnapshot
     ) throws -> ReviewInboxSuggestedAction {
         guard let action = snapshot.actions.first(where: { $0.id == actionID }) else {
@@ -49,8 +49,7 @@ final class MockReviewInboxDataProvider: ReviewInboxDataProviding {
         guard action.gateState == .pending else {
             throw ReviewInboxDataProviderError.unsupportedAction
         }
-        if let expectedSyncCursor,
-           let item = snapshot.items.first(where: { $0.id == action.reviewItemId }),
+        if let item = snapshot.items.first(where: { $0.id == action.reviewItemId }),
            item.syncCursor != expectedSyncCursor {
             throw ReviewInboxDataProviderError.staleSyncCursor
         }

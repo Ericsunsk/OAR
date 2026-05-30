@@ -19,6 +19,7 @@ use crate::feishu_auth::{
     is_auth_session_events_route,
 };
 use crate::response::{not_found, ResponseBody};
+use crate::review_inbox_routes;
 use crate::routing::{accepts_event_stream, dispatch_request_with_runtime, event_stream_required};
 use crate::runtime::OarHttpFacadeRuntime;
 
@@ -115,6 +116,17 @@ pub async fn handle_hyper_request_with_runtime(
             request.into_body(),
         )
         .await);
+    }
+    if review_inbox_routes::is_body_route(&method, &path) {
+        return Ok(review_inbox_routes::body_route_response(
+            runtime,
+            &method,
+            &path,
+            authorization.as_deref(),
+            request.into_body(),
+        )
+        .await
+        .into_hyper_response());
     }
 
     if is_auth_session_events_route(&method, &path) {

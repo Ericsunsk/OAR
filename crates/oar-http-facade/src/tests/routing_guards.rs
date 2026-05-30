@@ -22,6 +22,17 @@ fn snapshot_requires_verified_oar_session_store() {
 
 #[test]
 fn decisions_require_verified_oar_session_store() {
+    let missing = dispatch_request(&Method::POST, "/review-inbox/decisions", None, None);
+    assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
+
+    let invalid = dispatch_request(
+        &Method::POST,
+        "/review-inbox/decisions",
+        Some("Bearer feishu_token"),
+        Some("application/json"),
+    );
+    assert_eq!(invalid.status, StatusCode::UNAUTHORIZED);
+
     let response = dispatch_request(
         &Method::POST,
         "/review-inbox/decisions",

@@ -139,15 +139,16 @@ mod postgres_feature_api_contract {
         PostgresDeviceSessionRepository, PostgresExecutionRecorder,
         PostgresExecutionRecorderReport, PostgresIdentityRepository,
         PostgresLarkIdentityRepository, PostgresOperationLedgerRepository,
-        PostgresReviewDecisionRecorder, PostgresReviewDecisionRecorderReport,
-        PostgresReviewDecisionRecorderRequest, PostgresSchedulerJobRepository,
-        PostgresTenantRepository, PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
+        PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorder,
+        PostgresReviewDecisionRecorderReport, PostgresReviewDecisionRecorderRequest,
+        PostgresReviewInboxRepository, PostgresSchedulerJobRepository, PostgresTenantRepository,
+        PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
         PostgresTokenRefreshRecorder, PostgresTokenRefreshScheduledSweep,
         PostgresTokenRefreshSweep, PostgresTokenRefreshSweepReport,
         PostgresTokenRefreshSweepRequest, PostgresWorkspaceUserRepository,
-        RotateEncryptedGrantRequest, StoredDeviceSession, StoredLarkIdentity, StoredSchedulerJob,
-        StoredTenant, StoredWorkspaceUser, TokenRefreshScheduledSweepConfig,
-        TokenRefreshScheduledSweepReport,
+        RotateEncryptedGrantRequest, StoredDeviceSession, StoredLarkIdentity,
+        StoredReviewDecisionContext, StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
+        TokenRefreshScheduledSweepConfig, TokenRefreshScheduledSweepReport,
     };
     use sqlx::PgPool;
 
@@ -210,6 +211,10 @@ mod postgres_feature_api_contract {
         let _record_dry_run = PostgresExecutionRecorder::record_dry_run;
         let _record_success = PostgresExecutionRecorder::record_success;
         let _record_failure = PostgresExecutionRecorder::record_failure;
+        let _load_review_decision_context =
+            PostgresReviewDecisionRecorder::load_review_decision_context;
+        let _load_review_decision_context_from_inbox =
+            PostgresReviewInboxRepository::load_review_decision_context;
         let _record_review_decision = PostgresReviewDecisionRecorder::record_decision;
         let _execute =
             PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action;
@@ -277,6 +282,10 @@ mod postgres_feature_api_contract {
         let _phantom_review_decision_request: Option<
             PostgresReviewDecisionRecorderRequest<'static>,
         > = None;
+        let _phantom_review_decision_context_request: Option<
+            PostgresReviewDecisionContextRequest<'static>,
+        > = None;
+        let _phantom_review_decision_context: Option<StoredReviewDecisionContext> = None;
         let _phantom_delivery: Option<AuditOutboxDelivery> = None;
         let _phantom_drain_report: Option<AuditOutboxDrainReport> = None;
         let _phantom_config: Option<AuditOutboxDrainConfig> = None;

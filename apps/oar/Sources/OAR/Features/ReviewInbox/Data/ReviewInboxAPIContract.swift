@@ -233,7 +233,7 @@ struct ReviewDecisionDTO: Codable, Equatable {
     let actionVersion: UInt64
     let decision: ProposedActionDecisionDTO
     let note: String
-    let expectedSyncCursor: UInt64?
+    let expectedSyncCursor: UInt64
 
     enum CodingKeys: String, CodingKey {
         case actionID = "action_id"

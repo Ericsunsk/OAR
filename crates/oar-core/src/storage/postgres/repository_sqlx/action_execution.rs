@@ -108,12 +108,26 @@ fn validate_review_decision_request(
             actual: request.inbox_item.proposed_action_version.to_string(),
         });
     }
+    if request.inbox_item.sync_cursor <= request.expected_sync_cursor_value {
+        return Err(PostgresRepositoryError::ReviewDecisionRequestMismatch {
+            field: "inbox_item.sync_cursor",
+            expected: format!(">{}", request.expected_sync_cursor_value),
+            actual: request.inbox_item.sync_cursor.to_string(),
+        });
+    }
 
     let decision_requires_action = matches!(
         request.decision.decision,
         ProposedActionDecision::Confirm | ProposedActionDecision::EditThenConfirm { .. }
     );
     if decision_requires_action {
+        if request.inbox_item.status != ReviewInboxItemStatus::Confirmed {
+            return Err(PostgresRepositoryError::ReviewDecisionRequestMismatch {
+                field: "inbox_item.status",
+                expected: "confirmed".to_string(),
+                actual: format!("{:?}", request.inbox_item.status),
+            });
+        }
         let Some(action) = request.confirmed_action else {
             return Err(PostgresRepositoryError::MissingConfirmedActionForDecision);
         };
@@ -160,6 +174,13 @@ fn validate_review_decision_request(
             });
         }
     } else {
+        if request.inbox_item.status != ReviewInboxItemStatus::Rejected {
+            return Err(PostgresRepositoryError::ReviewDecisionRequestMismatch {
+                field: "inbox_item.status",
+                expected: "rejected".to_string(),
+                actual: format!("{:?}", request.inbox_item.status),
+            });
+        }
         if request.confirmed_action.is_some() {
             return Err(PostgresRepositoryError::UnexpectedConfirmedActionForDecision);
         }

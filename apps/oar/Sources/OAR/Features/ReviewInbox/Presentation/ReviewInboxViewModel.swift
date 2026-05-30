@@ -198,6 +198,7 @@ final class ReviewInboxViewModel {
 
     func approveSelectedAction() async {
         guard let action = selectedAction else { return }
+        guard let item = selectedItem else { return }
         guard action.canEnterProductionExecution else {
             lastErrorMessage = "当前生产入口只开放进展创建 / 更新，其它动作先保留为草稿。"
             return
@@ -206,7 +207,7 @@ final class ReviewInboxViewModel {
             .approve(
                 actionID: action.id,
                 version: action.version,
-                expectedSyncCursor: selectedItem?.syncCursor,
+                expectedSyncCursor: item.syncCursor,
                 note: confirmationNote
             )
         )
@@ -214,11 +215,12 @@ final class ReviewInboxViewModel {
 
     func rejectSelectedAction() async {
         guard let action = selectedAction else { return }
+        guard let item = selectedItem else { return }
         await submit(
             .reject(
                 actionID: action.id,
                 version: action.version,
-                expectedSyncCursor: selectedItem?.syncCursor,
+                expectedSyncCursor: item.syncCursor,
                 note: confirmationNote
             )
         )

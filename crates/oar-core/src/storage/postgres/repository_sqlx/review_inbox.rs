@@ -179,6 +179,63 @@ impl PostgresReviewInboxRepository {
             evidence,
         })
     }
+
+    pub async fn load_review_decision_context(
+        &self,
+        request: PostgresReviewDecisionContextRequest<'_>,
+    ) -> PgRepositoryResult<Option<StoredReviewDecisionContext>> {
+        load_review_decision_context_from_pool(&self.pool, request).await
+    }
+}
+
+pub(super) async fn load_review_decision_context_from_pool(
+    pool: &PgPool,
+    request: PostgresReviewDecisionContextRequest<'_>,
+) -> PgRepositoryResult<Option<StoredReviewDecisionContext>> {
+    let item_row = sqlx::query(LOAD_REVIEW_DECISION_ITEM)
+        .bind(request.tenant_id)
+        .bind(request.user_id)
+        .bind(request.proposed_action_id)
+        .bind(request.proposed_action_version as i64)
+        .bind(request.expected_sync_cursor_value as i64)
+        .fetch_optional(pool)
+        .await?;
+    let Some(item_row) = item_row else {
+        return Ok(None);
+    };
+    let item = stored_review_inbox_item_from_row(&item_row)?;
+
+    let action_row = sqlx::query(LOAD_REVIEW_DECISION_ACTION)
+        .bind(request.tenant_id)
+        .bind(request.user_id)
+        .bind(request.proposed_action_id)
+        .bind(request.proposed_action_version as i64)
+        .bind(request.expected_sync_cursor_value as i64)
+        .fetch_optional(pool)
+        .await?;
+    let Some(action_row) = action_row else {
+        return Ok(None);
+    };
+    let action = stored_review_inbox_action_from_row(&action_row)?;
+
+    let evidence_rows = sqlx::query(LOAD_REVIEW_DECISION_EVIDENCE)
+        .bind(request.tenant_id)
+        .bind(request.user_id)
+        .bind(request.proposed_action_id)
+        .bind(request.proposed_action_version as i64)
+        .bind(request.expected_sync_cursor_value as i64)
+        .fetch_all(pool)
+        .await?;
+    let evidence = evidence_rows
+        .iter()
+        .map(stored_review_inbox_evidence_from_row)
+        .collect::<PgRepositoryResult<Vec<_>>>()?;
+
+    Ok(Some(StoredReviewDecisionContext {
+        item,
+        action,
+        evidence,
+    }))
 }
 
 pub(super) async fn insert_proposed_action_decision_in_tx(
@@ -191,11 +248,22 @@ pub(super) async fn insert_proposed_action_decision_in_tx(
     Ok(row.is_some())
 }
 
-pub(super) async fn upsert_review_inbox_item_in_tx(
+pub(super) async fn update_review_inbox_decision_state_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     item: &ReviewInboxItem,
+    expected_sync_cursor_value: u64,
 ) -> PgRepositoryResult<Option<String>> {
-    let row = upsert_review_inbox_item_query(item)?
+    let updated_at_ms = system_time_to_ms(item.updated_at)? as i64;
+    let row = sqlx::query(UPDATE_REVIEW_INBOX_DECISION_STATE)
+        .bind(&item.tenant_id.0)
+        .bind(&item.user_id.0)
+        .bind(&item.proposed_action_id)
+        .bind(item.proposed_action_version as i64)
+        .bind(expected_sync_cursor_value as i64)
+        .bind(review_inbox_item_status_to_db(&item.status))
+        .bind(updated_at_ms)
+        .bind(item.ledger_status.as_deref())
+        .bind(item.operation_id.as_deref())
         .fetch_optional(&mut **tx)
         .await?;
 

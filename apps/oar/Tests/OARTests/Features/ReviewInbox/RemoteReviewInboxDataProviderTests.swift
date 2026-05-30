@@ -82,18 +82,6 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
         await assertLoadSnapshot(statusCode: 422, mapsTo: .unsupportedAction)
     }
 
-    func testValidationErrorReasonReviewDecisionNotWiredMapsToDecisionPathNotWired() async {
-        let payload = Data(
-            """
-            {
-              "error": "review_decision_not_wired",
-              "safe_message": "decision path not wired"
-            }
-            """.utf8
-        )
-        await assertLoadSnapshot(statusCode: 422, responseData: payload, mapsTo: .decisionPathNotWired)
-    }
-
     func testValidationErrorSafeMessageMapsToRemoteRejected() async {
         let payload = Data(
             """

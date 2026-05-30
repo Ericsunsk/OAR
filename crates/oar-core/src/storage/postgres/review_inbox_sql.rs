@@ -108,6 +108,19 @@ ON CONFLICT (tenant_id, proposed_action_id, proposed_action_version) DO NOTHING
 RETURNING id
 "#;
 
+pub const LOAD_PROPOSED_ACTION_DECISION_FOR_RECORDER: &str = r#"
+SELECT
+actor_user_id,
+decision,
+edited_payload,
+confirmed_action_id
+FROM proposed_action_decisions
+WHERE tenant_id = $1
+  AND proposed_action_id = $2
+  AND proposed_action_version = $3
+LIMIT 1
+"#;
+
 pub const UPSERT_REVIEW_INBOX_ITEM: &str = r#"
 INSERT INTO review_inbox_items (
     id,
@@ -176,6 +189,25 @@ WHERE tenant_id = $1
 RETURNING id
 "#;
 
+pub const UPDATE_REVIEW_INBOX_DECISION_STATE: &str = r#"
+UPDATE review_inbox_items
+SET status = $6,
+    sync_cursor_value = GREATEST(
+        nextval('review_inbox_sync_cursor_seq'),
+        sync_cursor_value + 1
+    ),
+    updated_at = to_timestamp($7::double precision / 1000.0),
+    ledger_status = $8,
+    operation_id = $9
+WHERE tenant_id = $1
+  AND user_id = $2
+  AND proposed_action_id = $3
+  AND proposed_action_version = $4
+  AND sync_cursor_value = $5
+  AND status = 'open'
+RETURNING id
+"#;
+
 pub const LIST_REVIEW_INBOX_ITEMS: &str = r#"
 SELECT
 id,
@@ -197,6 +229,122 @@ WHERE tenant_id = $1
   AND sync_cursor_value > $3
 ORDER BY sort_key DESC, updated_at DESC, id ASC
 LIMIT $4
+"#;
+
+pub const LOAD_REVIEW_DECISION_ITEM: &str = r#"
+SELECT
+id,
+tenant_id,
+user_id,
+proposed_action_id,
+proposed_action_version,
+risk_score,
+priority,
+status,
+sort_key,
+sync_cursor_value,
+floor(extract(epoch from updated_at) * 1000)::bigint AS updated_at_ms,
+ledger_status,
+operation_id
+FROM review_inbox_items
+WHERE tenant_id = $1
+  AND user_id = $2
+  AND proposed_action_id = $3
+  AND proposed_action_version = $4
+  AND sync_cursor_value = $5
+LIMIT 1
+"#;
+
+pub const LOAD_REVIEW_DECISION_ACTION: &str = r#"
+SELECT
+review_inbox_items.id AS review_item_id,
+proposed_actions.id,
+proposed_actions.tenant_id,
+proposed_actions.actor_user_id,
+proposed_actions.target_user_id,
+proposed_actions.owner_user_id,
+proposed_actions.version,
+proposed_actions.status,
+proposed_actions.kind,
+proposed_actions.custom_kind,
+proposed_actions.risk_severity,
+proposed_actions.suggested_payload,
+COALESCE(
+    array_agg(proposed_action_evidence_refs.evidence_id ORDER BY proposed_action_evidence_refs.evidence_id)
+        FILTER (WHERE proposed_action_evidence_refs.evidence_id IS NOT NULL),
+    ARRAY[]::text[]
+) AS evidence_ids,
+proposed_action_decisions.id AS decision_id,
+proposed_action_decisions.actor_user_id AS decision_actor_user_id,
+proposed_action_decisions.decision,
+proposed_action_decisions.confirmed_action_id,
+floor(extract(epoch from proposed_action_decisions.decided_at) * 1000)::bigint AS decided_at_ms
+FROM review_inbox_items
+JOIN proposed_actions
+  ON proposed_actions.tenant_id = review_inbox_items.tenant_id
+ AND proposed_actions.id = review_inbox_items.proposed_action_id
+ AND proposed_actions.version = review_inbox_items.proposed_action_version
+LEFT JOIN proposed_action_evidence_refs
+  ON proposed_action_evidence_refs.tenant_id = proposed_actions.tenant_id
+ AND proposed_action_evidence_refs.proposed_action_id = proposed_actions.id
+ AND proposed_action_evidence_refs.proposed_action_version = proposed_actions.version
+LEFT JOIN proposed_action_decisions
+  ON proposed_action_decisions.tenant_id = proposed_actions.tenant_id
+ AND proposed_action_decisions.proposed_action_id = proposed_actions.id
+ AND proposed_action_decisions.proposed_action_version = proposed_actions.version
+WHERE review_inbox_items.tenant_id = $1
+  AND review_inbox_items.user_id = $2
+  AND review_inbox_items.proposed_action_id = $3
+  AND review_inbox_items.proposed_action_version = $4
+  AND review_inbox_items.sync_cursor_value = $5
+GROUP BY
+review_inbox_items.id,
+proposed_actions.id,
+proposed_actions.tenant_id,
+proposed_actions.actor_user_id,
+proposed_actions.target_user_id,
+proposed_actions.owner_user_id,
+proposed_actions.version,
+proposed_actions.status,
+proposed_actions.kind,
+proposed_actions.custom_kind,
+proposed_actions.risk_severity,
+proposed_actions.suggested_payload,
+proposed_action_decisions.id,
+proposed_action_decisions.actor_user_id,
+proposed_action_decisions.decision,
+proposed_action_decisions.confirmed_action_id,
+proposed_action_decisions.decided_at
+LIMIT 1
+"#;
+
+pub const LOAD_REVIEW_DECISION_EVIDENCE: &str = r#"
+SELECT
+review_inbox_items.id AS review_item_id,
+evidence_items.id,
+evidence_items.tenant_id,
+evidence_items.summary,
+evidence_items.source_kind,
+evidence_items.source_id,
+evidence_items.locator,
+evidence_items.content_hash,
+evidence_items.visibility_scope,
+floor(extract(epoch from evidence_items.observed_at) * 1000)::bigint AS observed_at_ms,
+floor(extract(epoch from evidence_items.recorded_at) * 1000)::bigint AS recorded_at_ms
+FROM review_inbox_items
+JOIN proposed_action_evidence_refs
+  ON proposed_action_evidence_refs.tenant_id = review_inbox_items.tenant_id
+ AND proposed_action_evidence_refs.proposed_action_id = review_inbox_items.proposed_action_id
+ AND proposed_action_evidence_refs.proposed_action_version = review_inbox_items.proposed_action_version
+JOIN evidence_items
+  ON evidence_items.tenant_id = proposed_action_evidence_refs.tenant_id
+ AND evidence_items.id = proposed_action_evidence_refs.evidence_id
+WHERE review_inbox_items.tenant_id = $1
+  AND review_inbox_items.user_id = $2
+  AND review_inbox_items.proposed_action_id = $3
+  AND review_inbox_items.proposed_action_version = $4
+  AND review_inbox_items.sync_cursor_value = $5
+ORDER BY evidence_items.observed_at DESC, evidence_items.id ASC
 "#;
 
 pub const LIST_REVIEW_INBOX_ACTIONS_FOR_SNAPSHOT: &str = r#"

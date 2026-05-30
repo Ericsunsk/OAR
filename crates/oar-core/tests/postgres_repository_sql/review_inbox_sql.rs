@@ -2,6 +2,8 @@ use oar_core::storage::postgres::review_inbox_sql::{
     INSERT_EVIDENCE_ITEM, INSERT_PROPOSED_ACTION, INSERT_PROPOSED_ACTION_DECISION,
     INSERT_PROPOSED_ACTION_EVIDENCE_REF, LIST_REVIEW_INBOX_ACTIONS_FOR_SNAPSHOT,
     LIST_REVIEW_INBOX_EVIDENCE_FOR_SNAPSHOT, LIST_REVIEW_INBOX_ITEMS,
+    LOAD_PROPOSED_ACTION_DECISION_FOR_RECORDER, LOAD_REVIEW_DECISION_ACTION,
+    LOAD_REVIEW_DECISION_EVIDENCE, LOAD_REVIEW_DECISION_ITEM, UPDATE_REVIEW_INBOX_DECISION_STATE,
     UPDATE_REVIEW_INBOX_LEDGER_PROJECTION, UPSERT_REVIEW_INBOX_ITEM,
 };
 
@@ -59,6 +61,18 @@ fn proposed_action_decision_is_tenant_scoped_and_single_terminal() {
 }
 
 #[test]
+fn proposed_action_decision_duplicate_check_is_action_version_scoped() {
+    let sql = compact(LOAD_PROPOSED_ACTION_DECISION_FOR_RECORDER);
+
+    assert!(sql.starts_with("select actor_user_id, decision, edited_payload, confirmed_action_id"));
+    assert!(sql.contains("from proposed_action_decisions"));
+    assert!(sql.contains("where tenant_id = $1"));
+    assert!(sql.contains("and proposed_action_id = $2"));
+    assert!(sql.contains("and proposed_action_version = $3"));
+    assert!(sql.contains("limit 1"));
+}
+
+#[test]
 fn review_inbox_upsert_is_cursor_guarded_and_terminal_guarded() {
     let sql = compact(UPSERT_REVIEW_INBOX_ITEM);
 
@@ -93,6 +107,24 @@ fn review_inbox_ledger_projection_is_operation_scoped_and_guarded() {
     assert!(sql.contains(
         "coalesce(ledger_status, 'confirmed') not in ('succeeded', 'failed', 'cancelled')"
     ));
+    assert!(sql.contains("returning id"));
+}
+
+#[test]
+fn review_inbox_decision_state_update_is_expected_cursor_and_open_status_guarded() {
+    let sql = compact(UPDATE_REVIEW_INBOX_DECISION_STATE);
+
+    assert!(sql.starts_with("update review_inbox_items"));
+    assert!(sql.contains("set status = $6"));
+    assert!(!sql.contains("source_cursor_value ="));
+    assert!(sql.contains("nextval('review_inbox_sync_cursor_seq')"));
+    assert!(sql.contains("sync_cursor_value + 1"));
+    assert!(sql.contains("where tenant_id = $1"));
+    assert!(sql.contains("and user_id = $2"));
+    assert!(sql.contains("and proposed_action_id = $3"));
+    assert!(sql.contains("and proposed_action_version = $4"));
+    assert!(sql.contains("and sync_cursor_value = $5"));
+    assert!(sql.contains("and status = 'open'"));
     assert!(sql.contains("returning id"));
 }
 
@@ -133,6 +165,40 @@ fn review_inbox_snapshot_reads_page_then_related_safe_rows() {
     assert!(actions_sql.contains("left join proposed_action_decisions"));
     assert!(actions_sql.contains("array_agg(proposed_action_evidence_refs.evidence_id"));
     assert!(actions_sql.contains("suggested_payload"));
+
+    assert!(evidence_sql.contains("join proposed_action_evidence_refs"));
+    assert!(evidence_sql.contains("join evidence_items"));
+    assert!(evidence_sql.contains("evidence_items.summary"));
+    assert!(evidence_sql.contains("evidence_items.content_hash"));
+}
+
+#[test]
+fn review_decision_context_read_is_exact_user_action_version_and_cursor_scoped() {
+    let item_sql = compact(LOAD_REVIEW_DECISION_ITEM);
+    let action_sql = compact(LOAD_REVIEW_DECISION_ACTION);
+    let evidence_sql = compact(LOAD_REVIEW_DECISION_EVIDENCE);
+
+    for sql in [&item_sql, &action_sql, &evidence_sql] {
+        assert!(sql.contains("review_inbox_items"));
+        assert!(sql.contains("tenant_id = $1"));
+        assert!(sql.contains("user_id = $2"));
+        assert!(sql.contains("proposed_action_id = $3"));
+        assert!(sql.contains("proposed_action_version = $4"));
+        assert!(sql.contains("sync_cursor_value = $5"));
+        assert!(!sql.contains("raw_payload"));
+        assert!(!sql.contains("raw_content"));
+        assert!(!sql.contains("raw_transcript"));
+        assert!(!sql.contains("access_token"));
+        assert!(!sql.contains("refresh_token"));
+    }
+
+    assert!(item_sql.starts_with("select id, tenant_id, user_id"));
+    assert!(item_sql.contains("limit 1"));
+
+    assert!(action_sql.contains("join proposed_actions"));
+    assert!(action_sql.contains("left join proposed_action_decisions"));
+    assert!(action_sql.contains("array_agg(proposed_action_evidence_refs.evidence_id"));
+    assert!(action_sql.contains("suggested_payload"));
 
     assert!(evidence_sql.contains("join proposed_action_evidence_refs"));
     assert!(evidence_sql.contains("join evidence_items"));

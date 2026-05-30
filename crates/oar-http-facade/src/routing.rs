@@ -16,7 +16,7 @@ use crate::review_inbox_routes;
 use crate::runtime::OarHttpFacadeRuntime;
 use crate::{
     authenticate_oar_session, oar_session_auth_error_response,
-    protected_route_requires_session_store, AuthenticatedContext,
+    protected_route_requires_session_store,
 };
 
 pub async fn dispatch_request_with_runtime(
@@ -57,13 +57,6 @@ pub async fn dispatch_request_with_runtime(
                 Err(error) => return oar_session_auth_error_response(error),
             };
             return review_inbox_routes::snapshot_for_context(&runtime, &auth_context).await;
-        }
-        (&Method::POST, "/review-inbox/decisions") => {
-            let auth_context = match authenticate_oar_session(&runtime, authorization).await {
-                Ok(context) => context,
-                Err(error) => return oar_session_auth_error_response(error),
-            };
-            return review_decision_not_wired_for_context(&auth_context);
         }
         _ if agent_routes::is_facade_route(method, path) => {
             return agent_routes::facade_route_response(&runtime, method, path, authorization)
@@ -132,17 +125,6 @@ pub fn dispatch_request(
             }),
         ),
     }
-}
-
-fn review_decision_not_wired_for_context(context: &AuthenticatedContext) -> FacadeResponse {
-    let _ = (&context.session_id, &context.tenant_id, &context.user_id);
-    json_facade_response(
-        StatusCode::UNPROCESSABLE_ENTITY,
-        json!({
-            "error": "review_decision_not_wired",
-            "safe_message": "Review decisions are disabled until the ConfirmedAction ledger path is connected."
-        }),
-    )
 }
 
 pub(crate) fn accepts_event_stream(accept: Option<&str>) -> bool {

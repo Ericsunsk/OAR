@@ -191,6 +191,22 @@ pub struct StoredReviewInboxSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct StoredReviewDecisionContext {
+    pub item: StoredReviewInboxItem,
+    pub action: StoredReviewInboxAction,
+    pub evidence: Vec<StoredReviewInboxEvidence>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PostgresReviewDecisionContextRequest<'a> {
+    pub tenant_id: &'a str,
+    pub user_id: &'a str,
+    pub proposed_action_id: &'a str,
+    pub proposed_action_version: u64,
+    pub expected_sync_cursor_value: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StoredReviewInboxAction {
     pub review_item_id: String,
     pub id: String,
@@ -275,6 +291,7 @@ pub struct PostgresReviewDecisionRecorderReport {
 
 #[derive(Debug, Clone)]
 pub struct PostgresReviewDecisionRecorderRequest<'a> {
+    pub expected_sync_cursor_value: u64,
     pub decision: InsertProposedActionDecisionRequest<'a>,
     pub confirmed_action: Option<&'a ConfirmedAction>,
     pub confirmed_at_ms: Option<u64>,

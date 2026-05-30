@@ -15,8 +15,8 @@ enum ReviewInboxLoadState: Equatable {
 }
 
 enum ReviewInboxDecisionCommand {
-    case approve(actionID: ReviewInboxSuggestedAction.ID, version: UInt64, expectedSyncCursor: UInt64?, note: String)
-    case reject(actionID: ReviewInboxSuggestedAction.ID, version: UInt64, expectedSyncCursor: UInt64?, note: String)
+    case approve(actionID: ReviewInboxSuggestedAction.ID, version: UInt64, expectedSyncCursor: UInt64, note: String)
+    case reject(actionID: ReviewInboxSuggestedAction.ID, version: UInt64, expectedSyncCursor: UInt64, note: String)
 }
 
 protocol ReviewInboxDataProviding {
@@ -29,7 +29,6 @@ enum ReviewInboxDataProviderError: Error {
     case actionVersionMismatch
     case staleSyncCursor
     case unsupportedAction
-    case decisionPathNotWired
     case remoteRejected(String)
     case missingBackendConfiguration
     case unauthorized
@@ -81,7 +80,7 @@ struct RemoteReviewInboxDataProvider: ReviewInboxDataProviding {
         let actionVersion: UInt64
         let decisionKind: ProposedActionDecisionDTO
         let note: String
-        let expectedSyncCursor: UInt64?
+        let expectedSyncCursor: UInt64
 
         switch decision {
         case let .approve(id, version, syncCursor, submittedNote):
@@ -134,10 +133,6 @@ struct RemoteReviewInboxDataProvider: ReviewInboxDataProviding {
             throw ReviewInboxDataProviderError.staleSyncCursor
         case 422:
             if let response = try? decoder.decode(ReviewInboxErrorResponseDTO.self, from: data) {
-                let code = response.error ?? response.reason
-                if code == "review_decision_not_wired" {
-                    throw ReviewInboxDataProviderError.decisionPathNotWired
-                }
                 if let safeMessage = response.safeMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !safeMessage.isEmpty {
                     throw ReviewInboxDataProviderError.remoteRejected(safeMessage)
@@ -163,8 +158,6 @@ extension ReviewInboxDataProviderError: LocalizedError {
             return "复盘项已被其他端更新，请重新同步。"
         case .unsupportedAction:
             return "当前动作不在生产执行白名单内。"
-        case .decisionPathNotWired:
-            return "当前后端尚未接通复盘决策写入链路。"
         case let .remoteRejected(message):
             return message
         case .missingBackendConfiguration:
