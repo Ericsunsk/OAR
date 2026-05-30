@@ -1,15 +1,16 @@
 mod client;
 mod error;
+mod source_ref;
 mod types;
 
 pub use client::{
-    build_get_task_request, build_list_tasks_request, parse_task_source_ref, AsyncFeishuTaskRead,
-    FeishuTaskReadClient,
+    build_get_task_request, build_list_tasks_request, AsyncFeishuTaskRead, FeishuTaskReadClient,
 };
 pub use error::FeishuTaskReadError;
+pub use source_ref::{parse_task_source_ref, TaskSourceRef};
 pub use types::{
     FeishuTaskGetRequest, FeishuTaskListRequest, TaskListType, TaskReadDue, TaskReadOwner,
-    TaskReadPage, TaskReadSummary, TaskSourceRef, TaskUserIdType,
+    TaskReadPage, TaskReadSummary, TaskUserIdType,
 };
 
 #[cfg(test)]

@@ -5,8 +5,8 @@ use crate::config::FeishuOpenApiConfig;
 use crate::oauth::{AsyncHttpClient, HttpClient, HttpClientFailure, HttpRequest, HttpResponse};
 use crate::redaction::SecretString;
 use crate::task::{
-    parse_task_source_ref, AsyncFeishuTaskRead, FeishuTaskGetRequest, FeishuTaskListRequest,
-    FeishuTaskReadClient, FeishuTaskReadError, TaskListType, TaskUserIdType,
+    AsyncFeishuTaskRead, FeishuTaskGetRequest, FeishuTaskListRequest, FeishuTaskReadClient,
+    FeishuTaskReadError, TaskListType, TaskUserIdType,
 };
 
 #[derive(Clone)]
@@ -76,28 +76,6 @@ fn sample_list_request() -> FeishuTaskListRequest {
         task_type: TaskListType::MyTasks,
         user_id_type: TaskUserIdType::OpenId,
     }
-}
-
-#[test]
-fn source_ref_parser_accepts_task_and_feishu_task_schemes() {
-    let parsed = parse_task_source_ref(" task://task_123 ").expect("source ref");
-    assert_eq!(parsed.task_id, "task_123");
-
-    let feishu = parse_task_source_ref("feishu://task/task_456").expect("source ref");
-    assert_eq!(feishu.task_id, "task_456");
-
-    assert_eq!(
-        parse_task_source_ref("okr://okr_1"),
-        Err(FeishuTaskReadError::InvalidSourceRef)
-    );
-    assert_eq!(
-        parse_task_source_ref("task://"),
-        Err(FeishuTaskReadError::InvalidSourceRef)
-    );
-    assert_eq!(
-        parse_task_source_ref("task://task_123/subtask"),
-        Err(FeishuTaskReadError::InvalidSourceRef)
-    );
 }
 
 #[test]

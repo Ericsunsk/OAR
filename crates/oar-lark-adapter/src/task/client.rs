@@ -7,9 +7,10 @@ use crate::oauth::{AsyncHttpClient, HttpClient, HttpRequest};
 use crate::url_encoding::{encode_query, percent_encode};
 
 use super::error::FeishuTaskReadError;
+use super::source_ref::{parse_task_source_ref, TaskSourceRef};
 use super::types::{
-    valid_task_id, FeishuTaskGetRequest, FeishuTaskGetResponse, FeishuTaskListRequest,
-    FeishuTaskListResponse, TaskReadPage, TaskReadSummary, TaskSourceRef,
+    FeishuTaskGetRequest, FeishuTaskGetResponse, FeishuTaskListRequest, FeishuTaskListResponse,
+    TaskReadPage, TaskReadSummary,
 };
 
 const TASK_GET_PATH_PREFIX: &str = "/open-apis/task/v2/tasks";
@@ -103,23 +104,6 @@ where
             .map_err(FeishuTaskReadError::from)?;
         map_status_or_parse_task_list(raw.status, &raw.body)
     }
-}
-
-pub fn parse_task_source_ref(source_ref: &str) -> Result<TaskSourceRef, FeishuTaskReadError> {
-    let trimmed = source_ref.trim();
-    let task_id = if let Some(task_id) = trimmed.strip_prefix("task://") {
-        task_id
-    } else if let Some(task_id) = trimmed.strip_prefix("feishu://task/") {
-        task_id
-    } else {
-        return Err(FeishuTaskReadError::InvalidSourceRef);
-    };
-    if !valid_task_id(task_id) {
-        return Err(FeishuTaskReadError::InvalidSourceRef);
-    }
-    Ok(TaskSourceRef {
-        task_id: task_id.to_string(),
-    })
 }
 
 pub fn build_get_task_request(

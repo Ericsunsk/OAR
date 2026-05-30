@@ -3,6 +3,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::source_ref::{valid_task_id, TaskSourceRef};
 use crate::redaction::SecretString;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -73,11 +74,6 @@ impl TaskListType {
             TaskListType::MyTasks => "my_tasks",
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskSourceRef {
-    pub task_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -183,7 +179,7 @@ impl TaskReadSummary {
         let owners = task_owners(&task);
         let update_time = task.update_time.as_ref().and_then(stringify_json_scalar);
         Self {
-            source_ref: format!("task://{}", source_ref.task_id),
+            source_ref: source_ref.source_ref(),
             task_id: task.id.unwrap_or_else(|| source_ref.task_id.clone()),
             title: non_empty(task.title),
             status,
@@ -216,17 +212,6 @@ impl TaskReadPage {
             page_token: non_empty(data.page_token),
         }
     }
-}
-
-pub(super) fn valid_task_id(task_id: &str) -> bool {
-    !task_id.is_empty()
-        && task_id.len() <= 100
-        && !task_id.contains('/')
-        && !task_id.contains('?')
-        && !task_id.contains('#')
-        && task_id
-            .chars()
-            .all(|character| !character.is_whitespace() && !character.is_control())
 }
 
 fn task_status(task: &FeishuTask) -> Option<String> {
