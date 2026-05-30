@@ -1,21 +1,11 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hyper::http::StatusCode;
-use oar_core::action::audit_event::{
-    AuditActor, AuditActorKind, AuditEvent, AuditEventContext, AuditScope, AuditStateSummary,
-    AuditSubject, AuditTarget,
-};
-use oar_core::action::confirmed_action::ConfirmedAction;
-use oar_core::domain::identity::{TenantId, WorkspaceUserId};
-use oar_core::domain::proposed_action::{
-    ProposedAction, ProposedActionDecision, ProposedActionId, ProposedActionKind,
-    ProposedActionStatus,
-};
-use oar_core::domain::review_inbox::{ReviewInboxItem, ReviewInboxItemId, ReviewInboxItemStatus};
+use oar_core::domain::proposed_action::{ProposedActionDecision, ProposedActionStatus};
+use oar_core::domain::review_inbox::ReviewInboxItemStatus;
 use oar_core::storage::postgres::{
-    postgres_repository_safe_error_reason, AuditOutboxEnvelope,
-    InsertProposedActionDecisionRequest, PostgresReviewDecisionContextRequest,
-    PostgresReviewDecisionRecorder, StoredReviewInboxAction, StoredReviewInboxItem,
+    postgres_repository_safe_error_reason, InsertProposedActionDecisionRequest,
+    PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorder,
 };
 use serde_json::json;
 
@@ -24,10 +14,21 @@ use crate::runtime::OarHttpFacadeRuntime;
 use crate::AuthenticatedContext;
 
 use super::dto::{ReviewDecisionKindDto, ReviewDecisionRequestDto};
-use super::labels::{action_status, review_decision_kind};
+use super::labels::review_decision_kind;
 use super::snapshot_for_context;
 
-const AUDIT_OUTBOX_STREAM: &str = "audit-events";
+mod audit;
+mod domain;
+mod request;
+
+use audit::{decision_audit_event, decision_audit_outbox};
+use domain::{
+    is_confirmable_action_kind, operation_id, proposed_action_from_stored,
+    review_inbox_item_from_stored,
+};
+
+pub(super) use request::decode_review_decision_request;
+
 const REVIEW_DECISION_CHANGED_MESSAGE: &str =
     "The review inbox item changed; refresh before retrying.";
 
@@ -199,134 +200,6 @@ pub(super) async fn record_decision_for_context(
     }
 }
 
-pub(super) fn decode_review_decision_request(
-    body: &[u8],
-) -> Result<ReviewDecisionRequestDto, FacadeResponse> {
-    let request: ReviewDecisionRequestDto = serde_json::from_slice(body).map_err(|_| {
-        json_facade_response(
-            StatusCode::BAD_REQUEST,
-            json!({
-                "error": "review_decision_invalid_json",
-                "safe_message": "Review decision request body must be valid JSON."
-            }),
-        )
-    })?;
-    if request.action_id.trim().is_empty()
-        || request.action_version == 0
-        || request.note.chars().count() > 320
-    {
-        return Err(json_facade_response(
-            StatusCode::BAD_REQUEST,
-            json!({
-                "error": "review_decision_invalid_request",
-                "safe_message": "Review decision request is invalid."
-            }),
-        ));
-    }
-    Ok(request)
-}
-
-fn proposed_action_from_stored(
-    action: &StoredReviewInboxAction,
-) -> Result<ProposedAction, oar_core::domain::proposed_action::ProposedActionError> {
-    let mut proposed = ProposedAction::draft(
-        ProposedActionId(action.id.clone()),
-        TenantId(action.tenant_id.clone()),
-        WorkspaceUserId(action.actor_user_id.clone()),
-        action.target_user_id.clone().map(WorkspaceUserId),
-        action.owner_user_id.clone().map(WorkspaceUserId),
-        action.version,
-        action.kind.clone(),
-        action.risk_severity,
-        action.evidence_ids.clone(),
-        action.suggested_payload.clone(),
-    )?;
-    proposed.publish()?;
-    Ok(proposed)
-}
-
-fn review_inbox_item_from_stored(
-    item: &StoredReviewInboxItem,
-    updated_at: SystemTime,
-) -> ReviewInboxItem {
-    ReviewInboxItem {
-        id: ReviewInboxItemId(item.id.clone()),
-        tenant_id: TenantId(item.tenant_id.clone()),
-        user_id: WorkspaceUserId(item.user_id.clone()),
-        proposed_action_id: item.proposed_action_id.clone(),
-        proposed_action_version: item.proposed_action_version,
-        risk_score: item.risk_score,
-        priority: item.priority,
-        status: item.status,
-        sort_key: item.sort_key,
-        sync_cursor: item.sync_cursor_value,
-        updated_at,
-        ledger_status: item.ledger_status.map(action_status).map(str::to_string),
-        operation_id: item.operation_id.clone(),
-    }
-}
-
-fn decision_audit_event(
-    context: &AuthenticatedContext,
-    request: &ReviewDecisionRequestDto,
-    decision_id: &str,
-    occurred_at_ms: u64,
-) -> AuditEvent {
-    let trace_id = format!("review-decision:{decision_id}");
-    AuditEvent::proposed_action_decision(
-        AuditEventContext {
-            event_id: format!("audit:{decision_id}"),
-            trace_id,
-            sequence: 1,
-            occurred_at_ms,
-            subject: AuditSubject {
-                actor: AuditActor {
-                    kind: AuditActorKind::User,
-                    actor_id: context.user_id.clone(),
-                    display_name: None,
-                },
-                scope: AuditScope {
-                    tenant_id: context.tenant_id.clone(),
-                    workspace_id: None,
-                },
-                target: AuditTarget {
-                    resource_type: "proposed_action".to_string(),
-                    resource_id: request.action_id.clone(),
-                    action_type: review_decision_kind(request.decision).to_string(),
-                },
-            },
-        },
-        AuditStateSummary {
-            summary: format!(
-                "review decision {} recorded",
-                review_decision_kind(request.decision)
-            ),
-            reference_ids: vec![request.action_id.clone(), decision_id.to_string()],
-            content_hash: None,
-        },
-    )
-}
-
-fn decision_audit_outbox(
-    context: &AuthenticatedContext,
-    event: &AuditEvent,
-    next_attempt_at_ms: u64,
-) -> AuditOutboxEnvelope {
-    AuditOutboxEnvelope {
-        tenant_id: context.tenant_id.clone(),
-        stream: AUDIT_OUTBOX_STREAM.to_string(),
-        aggregate_id: event.trace_id.clone(),
-        payload: json!({
-            "event_id": event.event_id,
-            "trace_id": event.trace_id,
-            "event_type": "ProposedActionDecisionRecorded",
-            "tenant_id": context.tenant_id,
-            "sequence": event.sequence
-        }),
-        next_attempt_at_ms,
-    }
-}
-
 fn review_decision_conflict(safe_message: &'static str) -> FacadeResponse {
     json_facade_response(
         StatusCode::CONFLICT,
@@ -354,14 +227,6 @@ fn decision_id(action_id: &str, version: u64, decision: ReviewDecisionKindDto) -
         version,
         review_decision_kind(decision)
     )
-}
-
-fn operation_id(action: &ConfirmedAction) -> String {
-    format!("op-{}", action.idempotency_key)
-}
-
-fn is_confirmable_action_kind(kind: &ProposedActionKind) -> bool {
-    matches!(kind, ProposedActionKind::UpdateKrProgress)
 }
 
 fn system_time_to_ms(value: SystemTime) -> Option<u64> {
