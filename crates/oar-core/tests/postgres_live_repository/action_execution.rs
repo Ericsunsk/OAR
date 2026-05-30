@@ -13,6 +13,9 @@ mod queue;
 #[path = "action_execution/resume.rs"]
 mod resume;
 
+#[path = "action_execution/resume_support.rs"]
+mod resume_support;
+
 const EXECUTION_QUEUE_HASH: &str =
     "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
