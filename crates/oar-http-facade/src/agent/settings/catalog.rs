@@ -1,9 +1,9 @@
 use reqwest::Url;
 use serde::Deserialize;
 
-use super::base_url::{agent_base_url_candidates, agent_endpoint_url};
+use super::base_url::agent_base_url_candidates;
 use super::{AgentModelCandidate, AgentModelCatalog, AgentModelSettingsError};
-use crate::agent::{AgentProtocol, DEFAULT_ANTHROPIC_VERSION};
+use crate::agent::{agent_endpoint_url, AgentProtocol, DEFAULT_ANTHROPIC_VERSION};
 
 #[derive(Debug, Clone)]
 struct ProtocolProbe {

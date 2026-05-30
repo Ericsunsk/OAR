@@ -127,15 +127,6 @@ fn push_unique_url(urls: &mut Vec<Url>, url: Url) {
     }
 }
 
-pub(super) fn agent_endpoint_url(base_url: &Url, suffix: &str) -> Url {
-    let mut endpoint = base_url.clone();
-    let path = format!("{}/{}", endpoint.path().trim_end_matches('/'), suffix);
-    endpoint.set_path(&path);
-    endpoint.set_query(None);
-    endpoint.set_fragment(None);
-    endpoint
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

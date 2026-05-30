@@ -11,9 +11,9 @@ use super::stream::{
     spawn_upstream_sse_response, sse_data_payload, AgentFrameStream, AgentStreamFrame,
 };
 use super::{
-    agent_http_client, ensure_successful_upstream_response, is_allowed_agent_base_url,
-    AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError, AgentStreamError,
-    DEFAULT_ANTHROPIC_VERSION,
+    agent_endpoint_url, agent_http_client, ensure_successful_upstream_response,
+    is_allowed_agent_base_url, AgentProviderConfig, AgentProviderConfigSummary,
+    AgentRuntimeConfigError, AgentStreamError, DEFAULT_ANTHROPIC_VERSION,
 };
 use crate::util::non_empty_env;
 
@@ -123,7 +123,7 @@ impl AnthropicAgentProvider {
         };
         let response = self
             .client
-            .post(anthropic_messages_url(&self.base_url))
+            .post(agent_endpoint_url(&self.base_url, "messages"))
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", &self.version)
             .header("Accept", "text/event-stream")
@@ -199,13 +199,6 @@ fn anthropic_messages(request: &AgentStreamRequest) -> Vec<AnthropicMessageDTO> 
         });
     }
     messages
-}
-
-fn anthropic_messages_url(base_url: &Url) -> Url {
-    let mut endpoint = base_url.clone();
-    let path = format!("{}/messages", endpoint.path().trim_end_matches('/'));
-    endpoint.set_path(&path);
-    endpoint
 }
 
 #[cfg(test)]

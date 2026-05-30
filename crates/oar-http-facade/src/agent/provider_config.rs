@@ -93,6 +93,16 @@ pub(in crate::agent) fn agent_http_client() -> Result<reqwest::Client, AgentRunt
         .map_err(|_| AgentRuntimeConfigError::HttpClientBuildFailed)
 }
 
+pub(in crate::agent) fn agent_endpoint_url(base_url: &Url, suffix: &str) -> Url {
+    let mut endpoint = base_url.clone();
+    let suffix = suffix.trim_start_matches('/');
+    let path = format!("{}/{}", endpoint.path().trim_end_matches('/'), suffix);
+    endpoint.set_path(&path);
+    endpoint.set_query(None);
+    endpoint.set_fragment(None);
+    endpoint
+}
+
 pub(in crate::agent) fn ensure_successful_upstream_response(
     response: &reqwest::Response,
 ) -> Result<(), AgentStreamError> {
@@ -100,5 +110,31 @@ pub(in crate::agent) fn ensure_successful_upstream_response(
         200..=299 => Ok(()),
         401 | 403 => Err(AgentStreamError::UpstreamUnauthorized),
         _ => Err(AgentStreamError::UpstreamUnavailable),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn endpoint_url_appends_suffix_and_drops_query_and_fragment() {
+        let base_url = Url::parse("https://llm.example.test/v1?foo=bar#frag").expect("url");
+
+        let endpoint = agent_endpoint_url(&base_url, "chat/completions");
+
+        assert_eq!(
+            endpoint.as_str(),
+            "https://llm.example.test/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn endpoint_url_accepts_root_base_and_leading_slash_suffix() {
+        let base_url = Url::parse("https://llm.example.test").expect("url");
+
+        let endpoint = agent_endpoint_url(&base_url, "/models");
+
+        assert_eq!(endpoint.as_str(), "https://llm.example.test/models");
     }
 }

@@ -9,8 +9,9 @@ use super::stream::{
     spawn_upstream_sse_response, sse_data_payload, AgentFrameStream, AgentStreamFrame,
 };
 use super::{
-    agent_http_client, ensure_successful_upstream_response, is_allowed_agent_base_url,
-    AgentProviderConfig, AgentProviderConfigSummary, AgentRuntimeConfigError, AgentStreamError,
+    agent_endpoint_url, agent_http_client, ensure_successful_upstream_response,
+    is_allowed_agent_base_url, AgentProviderConfig, AgentProviderConfigSummary,
+    AgentRuntimeConfigError, AgentStreamError,
 };
 use crate::util::non_empty_env;
 
@@ -103,7 +104,7 @@ impl OpenAICompatibleAgentProvider {
         };
         let response = self
             .client
-            .post(chat_completions_url(&self.base_url))
+            .post(agent_endpoint_url(&self.base_url, "chat/completions"))
             .bearer_auth(&self.api_key)
             .header("Accept", "text/event-stream")
             .json(&upstream_request)
@@ -167,13 +168,6 @@ fn request_messages(request: &AgentStreamRequest) -> Vec<OpenAIChatMessageDTO> {
         })
     }));
     messages
-}
-
-fn chat_completions_url(base_url: &Url) -> Url {
-    let mut endpoint = base_url.clone();
-    let path = format!("{}/chat/completions", endpoint.path().trim_end_matches('/'));
-    endpoint.set_path(&path);
-    endpoint
 }
 
 fn openai_frame_events(frame: &str) -> Vec<AgentStreamFrame> {
