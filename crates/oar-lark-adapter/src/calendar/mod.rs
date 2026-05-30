@@ -1,5 +1,6 @@
 mod client;
 mod error;
+mod feishu_types;
 mod response_parser;
 #[cfg(test)]
 mod tests;

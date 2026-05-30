@@ -1,8 +1,8 @@
 use super::error::FeishuCalendarReadError;
-use super::types::{
-    CalendarEventInstancePage, CalendarFreeBusyPage, CalendarPrimaryPage,
+use super::feishu_types::{
     FeishuEventInstanceViewResponse, FeishuFreeBusyBatchResponse, FeishuPrimaryCalendarResponse,
 };
+use super::types::{CalendarEventInstancePage, CalendarFreeBusyPage, CalendarPrimaryPage};
 
 pub(super) fn map_status_or_parse_free_busy(
     status: u16,
