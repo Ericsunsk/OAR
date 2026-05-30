@@ -120,3 +120,7 @@ fn default_build_exposes_postgres_sql_contract_constants() {
 #[cfg(feature = "postgres")]
 #[path = "postgres_feature_contract/postgres_feature_api_contract.rs"]
 mod postgres_feature_api_contract;
+
+#[cfg(feature = "postgres")]
+#[path = "postgres_feature_contract/tenant_maintenance_config.rs"]
+mod tenant_maintenance_config;
