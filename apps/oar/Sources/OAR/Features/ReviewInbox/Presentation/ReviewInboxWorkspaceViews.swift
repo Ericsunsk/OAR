@@ -161,47 +161,6 @@ private struct WorkspaceToolbar: View {
     }
 }
 
-private struct ActionChooser: View {
-    @Bindable var model: ReviewInboxViewModel
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(model.actionsForSelectedItem) { action in
-                Button {
-                    model.selectAction(action)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: icon(for: action.actionType))
-                        Text(action.actionType.rawValue)
-                        Text(action.gateState.rawValue)
-                            .foregroundStyle(isSelected(action) ? Color.white.opacity(0.64) : Color.codexMuted)
-                    }
-                    .font(.codexBody(11, weight: .semibold))
-                    .padding(.horizontal, 10)
-                    .frame(height: 30)
-                    .background(isSelected(action) ? Color.codexInk.opacity(0.88) : Color.white.opacity(0.36))
-                    .foregroundStyle(isSelected(action) ? Color.white : Color.codexInk)
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func isSelected(_ action: ReviewInboxSuggestedAction) -> Bool {
-        model.selectedAction?.id == action.id
-    }
-
-    private func icon(for actionType: ReviewInboxActionType) -> String {
-        switch actionType {
-        case .updateProgress: "pencil.line"
-        case .pingOwner: "bell"
-        case .createTask: "checkmark.square"
-        case .scheduleReview: "calendar.badge.clock"
-        }
-    }
-}
-
 private struct RiskStrip: View {
     @Bindable var model: ReviewInboxViewModel
 
