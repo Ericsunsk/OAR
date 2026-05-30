@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use http_body_util::{BodyExt, LengthLimitError, Limited};
-use hyper::body::Incoming;
+use hyper::body::{Body, Bytes};
 use hyper::http::{Method, StatusCode};
 use oar_core::storage::postgres::PostgresReviewInboxRepository;
 use serde_json::json;
@@ -26,13 +26,17 @@ pub(crate) fn is_body_route(method: &Method, path: &str) -> bool {
     *method == Method::POST && path == REVIEW_DECISIONS_PATH
 }
 
-pub(crate) async fn body_route_response(
+pub(crate) async fn body_route_response<B>(
     runtime: Arc<OarHttpFacadeRuntime>,
     method: &Method,
     path: &str,
     authorization: Option<&str>,
-    body: Incoming,
-) -> FacadeResponse {
+    body: B,
+) -> FacadeResponse
+where
+    B: Body<Data = Bytes>,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
     if !is_body_route(method, path) {
         return not_found();
     }

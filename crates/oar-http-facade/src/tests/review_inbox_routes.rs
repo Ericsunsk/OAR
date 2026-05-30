@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use http_body_util::Full;
+use hyper::body::Bytes;
 use hyper::http::{Method, StatusCode};
 use oar_core::domain::device_sync::SessionState;
 use oar_core::domain::evidence::{
@@ -16,6 +18,7 @@ use serde_json::{json, Value};
 
 use super::postgres_support::{device_session, run_live_postgres_test, seed_user, TestResult};
 use crate::persistence::FacadePersistenceRuntime;
+use crate::review_inbox_routes as review_inbox_route_handlers;
 use crate::{dispatch_request_with_runtime, OarHttpFacadeRuntime};
 
 const VALID_HASH: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -27,12 +30,7 @@ async fn snapshot_route_loads_live_postgres_review_inbox_data() {
         let user_id = "user_facade_review";
         let session_id = "oar_session_facade_review";
         seed_user(&pool, tenant_id, user_id).await?;
-
-        let now = UNIX_EPOCH + Duration::from_millis(1_748_310_100_000);
-        let session = device_session(tenant_id, user_id, session_id, "review_inbox", 0, now);
-        PostgresDeviceSessionRepository::new(pool.clone())
-            .upsert_with_identity_hash(&session, "sha256:facade-review-session")
-            .await?;
+        seed_active_session(&pool, tenant_id, user_id, session_id).await?;
 
         seed_review_inbox_snapshot(&pool, tenant_id, user_id).await?;
         let response = dispatch_request_with_runtime(
@@ -81,6 +79,81 @@ async fn snapshot_route_loads_live_postgres_review_inbox_data() {
     .await;
 }
 
+#[tokio::test]
+async fn decision_body_route_records_confirm_and_rejects_stale_replay() {
+    run_live_postgres_test("facade_review_decision_confirm_live", |pool| async move {
+        let tenant_id = "tenant_facade_decision";
+        let user_id = "user_facade_decision";
+        let session_id = "oar_session_facade_decision";
+        seed_user(&pool, tenant_id, user_id).await?;
+        seed_active_session(&pool, tenant_id, user_id, session_id).await?;
+        seed_review_inbox_snapshot(&pool, tenant_id, user_id).await?;
+
+        let body = json!({
+            "action_id": "action_facade_1",
+            "action_version": 1,
+            "decision": "confirm",
+            "note": "ok to proceed",
+            "expected_sync_cursor": 77
+        });
+        let first = review_inbox_route_handlers::body_route_response(
+            runtime_with_persistence(pool.clone()),
+            &Method::POST,
+            "/review-inbox/decisions",
+            Some("Bearer oar_session_facade_decision"),
+            json_body(&body),
+        )
+        .await;
+        let first_body: Value = serde_json::from_str(&first.body).expect("first decision json");
+
+        assert_eq!(first.status, StatusCode::OK);
+        assert_eq!(first_body["items"][0]["status"], "confirmed");
+        assert_eq!(first_body["items"][0]["sync_cursor"], 78);
+        assert_eq!(first_body["items"][0]["ledger_status"], "confirmed");
+        assert!(first_body["items"][0]["operation_id"]
+            .as_str()
+            .expect("operation id")
+            .starts_with("op-"));
+        assert_eq!(first_body["proposed_actions"][0]["decision"], "confirm");
+        assert!(!first.body.contains("raw_sensitive_payload"));
+
+        let replay = review_inbox_route_handlers::body_route_response(
+            runtime_with_persistence(pool.clone()),
+            &Method::POST,
+            "/review-inbox/decisions",
+            Some("Bearer oar_session_facade_decision"),
+            json_body(&body),
+        )
+        .await;
+        let replay_body: Value = serde_json::from_str(&replay.body).expect("replay json");
+
+        assert_eq!(replay.status, StatusCode::CONFLICT);
+        assert_eq!(replay_body["error"], "review_decision_conflict");
+
+        let missing_cursor = review_inbox_route_handlers::body_route_response(
+            runtime_with_persistence(pool),
+            &Method::POST,
+            "/review-inbox/decisions",
+            Some("Bearer oar_session_facade_decision"),
+            json_body(&json!({
+                "action_id": "action_facade_1",
+                "action_version": 1,
+                "decision": "confirm",
+                "note": "missing cursor"
+            })),
+        )
+        .await;
+        let missing_body: Value =
+            serde_json::from_str(&missing_cursor.body).expect("missing cursor json");
+
+        assert_eq!(missing_cursor.status, StatusCode::BAD_REQUEST);
+        assert_eq!(missing_body["error"], "review_decision_missing_sync_cursor");
+
+        Ok(())
+    })
+    .await;
+}
+
 fn runtime_with_persistence(pool: sqlx::PgPool) -> Arc<OarHttpFacadeRuntime> {
     Arc::new(OarHttpFacadeRuntime {
         persistence: Some(FacadePersistenceRuntime::new_for_test(
@@ -92,6 +165,20 @@ fn runtime_with_persistence(pool: sqlx::PgPool) -> Arc<OarHttpFacadeRuntime> {
         agent: None,
         agent_settings: None,
     })
+}
+
+async fn seed_active_session(
+    pool: &sqlx::PgPool,
+    tenant_id: &str,
+    user_id: &str,
+    session_id: &str,
+) -> TestResult {
+    let now = UNIX_EPOCH + Duration::from_millis(1_748_310_100_000);
+    let session = device_session(tenant_id, user_id, session_id, "review_inbox", 0, now);
+    PostgresDeviceSessionRepository::new(pool.clone())
+        .upsert_with_identity_hash(&session, "sha256:facade-review-session")
+        .await?;
+    Ok(())
 }
 
 async fn seed_review_inbox_snapshot(
@@ -193,4 +280,8 @@ fn review_inbox_item(
 
 fn ms(value: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_millis(value)
+}
+
+fn json_body(value: &Value) -> Full<Bytes> {
+    Full::new(Bytes::from(value.to_string()))
 }
