@@ -1,4 +1,3 @@
-use super::super::{PgRepositoryResult, PostgresRepositoryError};
 use crate::domain::proposed_action::{
     ProposedActionDecision, ProposedActionKind, ProposedActionStatus, RiskSeverity,
 };
@@ -15,21 +14,6 @@ pub(in crate::storage::postgres::repository_sqlx) fn proposed_action_status_to_d
     }
 }
 
-#[allow(dead_code)]
-pub(in crate::storage::postgres::repository_sqlx) fn proposed_action_status_from_db(
-    value: &str,
-) -> PgRepositoryResult<ProposedActionStatus> {
-    match value {
-        "draft" => Ok(ProposedActionStatus::Draft),
-        "published" => Ok(ProposedActionStatus::Published),
-        "superseded" => Ok(ProposedActionStatus::Superseded),
-        "withdrawn" => Ok(ProposedActionStatus::Withdrawn),
-        other => Err(PostgresRepositoryError::UnknownProposedActionStatus(
-            other.to_string(),
-        )),
-    }
-}
-
 pub(in crate::storage::postgres::repository_sqlx) fn proposed_action_kind_to_db(
     value: &ProposedActionKind,
 ) -> (&'static str, Option<&str>) {
@@ -38,24 +22,6 @@ pub(in crate::storage::postgres::repository_sqlx) fn proposed_action_kind_to_db(
         ProposedActionKind::UpdateKrProgress => ("update_kr_progress", None),
         ProposedActionKind::DeleteKrProgressDryRun => ("delete_kr_progress_dry_run", None),
         ProposedActionKind::Custom(custom) => ("custom", Some(custom.as_str())),
-    }
-}
-
-#[allow(dead_code)]
-pub(in crate::storage::postgres::repository_sqlx) fn proposed_action_kind_from_db(
-    kind: &str,
-    custom_kind: Option<&str>,
-) -> PgRepositoryResult<ProposedActionKind> {
-    match kind {
-        "create_kr_progress" => Ok(ProposedActionKind::CreateKrProgress),
-        "update_kr_progress" => Ok(ProposedActionKind::UpdateKrProgress),
-        "delete_kr_progress_dry_run" => Ok(ProposedActionKind::DeleteKrProgressDryRun),
-        "custom" => Ok(ProposedActionKind::Custom(
-            custom_kind.unwrap_or_default().to_string(),
-        )),
-        other => Err(PostgresRepositoryError::UnknownProposedActionKind(
-            other.to_string(),
-        )),
     }
 }
 
@@ -70,21 +36,6 @@ pub(in crate::storage::postgres::repository_sqlx) fn risk_severity_to_db(
     }
 }
 
-#[allow(dead_code)]
-pub(in crate::storage::postgres::repository_sqlx) fn risk_severity_from_db(
-    value: &str,
-) -> PgRepositoryResult<RiskSeverity> {
-    match value {
-        "low" => Ok(RiskSeverity::Low),
-        "medium" => Ok(RiskSeverity::Medium),
-        "high" => Ok(RiskSeverity::High),
-        "critical" => Ok(RiskSeverity::Critical),
-        other => Err(PostgresRepositoryError::UnknownRiskSeverity(
-            other.to_string(),
-        )),
-    }
-}
-
 pub(in crate::storage::postgres::repository_sqlx) fn proposed_action_decision_to_db(
     value: &ProposedActionDecision,
 ) -> (&'static str, Option<&Value>) {
@@ -94,22 +45,5 @@ pub(in crate::storage::postgres::repository_sqlx) fn proposed_action_decision_to
             ("edit_then_confirm", Some(edited_payload))
         }
         ProposedActionDecision::Reject => ("reject", None),
-    }
-}
-
-#[allow(dead_code)]
-pub(in crate::storage::postgres::repository_sqlx) fn proposed_action_decision_from_db(
-    value: &str,
-    edited_payload: Option<Value>,
-) -> PgRepositoryResult<ProposedActionDecision> {
-    match value {
-        "confirm" => Ok(ProposedActionDecision::Confirm),
-        "edit_then_confirm" => Ok(ProposedActionDecision::EditThenConfirm {
-            edited_payload: edited_payload.unwrap_or(Value::Null),
-        }),
-        "reject" => Ok(ProposedActionDecision::Reject),
-        other => Err(PostgresRepositoryError::UnknownProposedActionDecision(
-            other.to_string(),
-        )),
     }
 }
