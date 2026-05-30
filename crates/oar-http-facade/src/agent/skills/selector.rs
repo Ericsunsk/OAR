@@ -6,11 +6,12 @@ mod task;
 use super::catalog::AgentSkill;
 use crate::agent::request::AgentStreamRequest;
 
+pub(in crate::agent) use calendar::FeishuCalendarReadIntent;
 pub(in crate::agent) use okr::FeishuOkrReadIntent;
 
 pub(in crate::agent) fn select_skills(request: &AgentStreamRequest) -> Vec<AgentSkill> {
     let mut skills = Vec::new();
-    if calendar::latest_user_requests_feishu_calendar_free_busy(request) {
+    if !select_feishu_calendar_read_intents(request).is_empty() {
         skills.push(AgentSkill::Calendar);
     }
     let okr_intents = select_feishu_okr_read_intents(request);
@@ -22,6 +23,12 @@ pub(in crate::agent) fn select_skills(request: &AgentStreamRequest) -> Vec<Agent
     }
 
     skills
+}
+
+pub(in crate::agent) fn select_feishu_calendar_read_intents(
+    request: &AgentStreamRequest,
+) -> Vec<FeishuCalendarReadIntent> {
+    calendar::latest_user_feishu_calendar_read_intents(request)
 }
 
 pub(in crate::agent) fn select_feishu_okr_read_intents(

@@ -16,6 +16,8 @@ fn default_feishu_oauth_bundle_contains_expected_user_authorization_scopes() {
             FeishuScope::OkrProgressWrite.as_str(),
             FeishuScope::OkrReviewRead.as_str(),
             FeishuScope::OkrSettingRead.as_str(),
+            FeishuScope::CalendarRead.as_str(),
+            FeishuScope::CalendarEventRead.as_str(),
             FeishuScope::CalendarFreeBusyRead.as_str(),
             FeishuScope::TaskRead.as_str(),
             FeishuScope::TaskWrite.as_str(),

@@ -26,9 +26,13 @@ pub use audit_outbox::{
     AuditOutboxSinkDelivery, AuditOutboxSinkDispatcher, AuditOutboxSinkError, NoopAuditOutboxSink,
 };
 pub use calendar::{
-    build_free_busy_batch_request, AsyncFeishuCalendarRead, CalendarFreeBusyBatchRequest,
-    CalendarFreeBusyItem, CalendarFreeBusyList, CalendarFreeBusyPage, CalendarUserIdType,
-    FeishuCalendarReadClient, FeishuCalendarReadError,
+    build_event_instance_view_request, build_free_busy_batch_request,
+    build_primary_calendar_request, AsyncFeishuCalendarRead, CalendarEventInstance,
+    CalendarEventInstancePage, CalendarEventInstanceViewRequest, CalendarEventLocation,
+    CalendarEventOrganizer, CalendarEventTimeInfo, CalendarFreeBusyBatchRequest,
+    CalendarFreeBusyItem, CalendarFreeBusyList, CalendarFreeBusyPage, CalendarPrimaryCalendar,
+    CalendarPrimaryPage, CalendarPrimaryRequest, CalendarUserIdType, FeishuCalendarReadClient,
+    FeishuCalendarReadError,
 };
 pub use config::FeishuOpenApiConfig;
 pub use credentials::{

@@ -1,6 +1,7 @@
 use super::{
-    calendar, select_feishu_okr_read_intents, select_skills,
-    support::request_with_latest_user_text, task, AgentSkill, FeishuOkrReadIntent,
+    calendar, select_feishu_calendar_read_intents, select_feishu_okr_read_intents, select_skills,
+    support::request_with_latest_user_text, task, AgentSkill, FeishuCalendarReadIntent,
+    FeishuOkrReadIntent,
 };
 
 #[test]
@@ -29,7 +30,38 @@ fn selects_feishu_calendar_for_explicit_user_free_busy_read() {
     assert!(calendar::latest_user_requests_feishu_calendar_free_busy(
         &request
     ));
+    assert_eq!(
+        select_feishu_calendar_read_intents(&request),
+        vec![FeishuCalendarReadIntent::FreeBusy]
+    );
     assert_eq!(select_skills(&request), vec![AgentSkill::Calendar]);
+}
+
+#[test]
+fn selects_feishu_calendar_events_for_agenda_variants() {
+    for text in [
+        "查下我的飞书日历今天有什么会",
+        "我的日程列表",
+        "show my Feishu agenda",
+        "show my calendar events",
+        "my schedule",
+    ] {
+        let request = request_with_latest_user_text(text);
+
+        assert!(calendar::latest_user_requests_feishu_calendar_events(
+            &request
+        ));
+        assert_eq!(
+            select_feishu_calendar_read_intents(&request),
+            vec![FeishuCalendarReadIntent::Events],
+            "{text}"
+        );
+        assert_eq!(
+            select_skills(&request),
+            vec![AgentSkill::Calendar],
+            "{text}"
+        );
+    }
 }
 
 #[test]
@@ -138,6 +170,14 @@ fn selects_feishu_read_tools_when_user_explicitly_retries_tool_ids() {
     let calendar = request_with_latest_user_text("run feishu.calendar.summarize_my_free_busy");
     assert!(super::calendar::latest_user_requests_feishu_calendar_free_busy(&calendar));
     assert_eq!(select_skills(&calendar), vec![AgentSkill::Calendar]);
+
+    let calendar_events = request_with_latest_user_text("run feishu.calendar.summarize_my_events");
+    assert!(super::calendar::latest_user_requests_feishu_calendar_events(&calendar_events));
+    assert_eq!(
+        select_feishu_calendar_read_intents(&calendar_events),
+        vec![FeishuCalendarReadIntent::Events]
+    );
+    assert_eq!(select_skills(&calendar_events), vec![AgentSkill::Calendar]);
 }
 
 #[test]

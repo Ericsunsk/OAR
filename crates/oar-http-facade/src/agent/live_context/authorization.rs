@@ -22,7 +22,7 @@ pub(super) fn gate_read_tools_by_scope(
 ) {
     read_tools.retain(|tool| {
         let spec = tool.spec();
-        let required_scopes = match spec.required_feishu_scopes() {
+        let required_scopes = match spec.required_feishu_scope_names() {
             Ok(scopes) => scopes,
             Err(error) => {
                 degraded.push(format!(
@@ -33,7 +33,7 @@ pub(super) fn gate_read_tools_by_scope(
                 return false;
             }
         };
-        let missing = missing_feishu_scopes(scopes, &required_scopes);
+        let missing = missing_feishu_scope_names(scopes, &required_scopes);
         if missing.is_empty() {
             return true;
         }
@@ -70,17 +70,17 @@ fn has_task_read_scope(scopes: &[String]) -> bool {
     has_feishu_scope(scopes, FeishuScope::TaskRead)
 }
 
-fn missing_feishu_scopes<'a>(
+fn missing_feishu_scope_names<'a>(
     scopes: &[String],
-    required_scopes: &'a [FeishuScope],
+    required_scopes: &'a [&'static str],
 ) -> Vec<&'a str> {
     required_scopes
         .iter()
         .filter_map(|required| {
-            if has_feishu_scope(scopes, *required) {
+            if scopes.iter().any(|scope| scope.trim() == *required) {
                 None
             } else {
-                Some(required.as_str())
+                Some(*required)
             }
         })
         .collect()

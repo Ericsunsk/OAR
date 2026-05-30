@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::support::sample_request;
+use super::support::{sample_instance_view_request, sample_primary_request, sample_request};
 use crate::calendar::{FeishuCalendarReadClient, FeishuCalendarReadError};
 use crate::config::FeishuOpenApiConfig;
 use crate::oauth::HttpResponse;
@@ -45,6 +45,73 @@ fn batch_free_busy_request_contains_user_token_but_debug_redacts_it() {
 }
 
 #[test]
+fn primary_calendar_request_uses_current_user_token_and_redacts_debug() {
+    let mut client = FeishuCalendarReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(
+            200,
+            json!({"code":0,"data":{"calendars":[{"calendar":{"calendar_id":"cal_primary","summary":"Primary"}}]}})
+                .to_string(),
+        )),
+    );
+
+    let request = sample_primary_request();
+    let request_debug = format!("{request:?}");
+    assert!(!request_debug.contains("u-very-secret-calendar-token"));
+    assert!(request_debug.contains("[REDACTED]"));
+
+    client.primary_calendar(request).expect("success");
+    let sent = client
+        .http_client()
+        .request
+        .as_ref()
+        .expect("captured request");
+
+    assert_eq!(sent.method, "POST");
+    assert!(sent
+        .url
+        .ends_with("/open-apis/calendar/v4/calendars/primary"));
+    assert_eq!(sent.body, json!({}));
+    assert!(sent.headers.iter().any(|(name, value)| {
+        name == "Authorization" && value == "Bearer u-very-secret-calendar-token"
+    }));
+    assert!(!format!("{sent:?}").contains("u-very-secret-calendar-token"));
+}
+
+#[test]
+fn instance_view_request_percent_encodes_path_and_query() {
+    let mut client = FeishuCalendarReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(
+            200,
+            json!({"code":0,"data":{"instances":[]}}).to_string(),
+        )),
+    );
+
+    let request = sample_instance_view_request();
+    let request_debug = format!("{request:?}");
+    assert!(!request_debug.contains("u-very-secret-calendar-token"));
+    assert!(request_debug.contains("[REDACTED]"));
+
+    client.event_instance_view(request).expect("success");
+    let sent = client
+        .http_client()
+        .request
+        .as_ref()
+        .expect("captured request");
+
+    assert_eq!(sent.method, "GET");
+    assert!(sent.url.ends_with(
+        "/open-apis/calendar/v4/calendars/primary%20calendar%2F%E9%A3%9E/events/instance_view?start_time=1779984000&end_time=1780070400"
+    ));
+    assert_eq!(sent.body, json!({}));
+    assert!(sent.headers.iter().any(|(name, value)| {
+        name == "Authorization" && value == "Bearer u-very-secret-calendar-token"
+    }));
+    assert!(!format!("{sent:?}").contains("u-very-secret-calendar-token"));
+}
+
+#[test]
 fn batch_free_busy_rejects_unsafe_request_shapes_before_http() {
     let response = HttpResponse::new(
         200,
@@ -73,6 +140,36 @@ fn batch_free_busy_rejects_unsafe_request_shapes_before_http() {
     request.time_min = "not a time".to_string();
     assert_eq!(
         client.batch_free_busy(request),
+        Err(FeishuCalendarReadError::InvalidRequest)
+    );
+}
+
+#[test]
+fn instance_view_rejects_invalid_request_shapes_before_http() {
+    let response = HttpResponse::new(200, json!({"code":0,"data":{"instances":[]}}).to_string());
+    let mut client = FeishuCalendarReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(response),
+    );
+
+    let mut request = sample_instance_view_request();
+    request.calendar_id = " \t".to_string();
+    assert_eq!(
+        client.event_instance_view(request),
+        Err(FeishuCalendarReadError::InvalidRequest)
+    );
+
+    let mut request = sample_instance_view_request();
+    request.end_time = request.start_time;
+    assert_eq!(
+        client.event_instance_view(request),
+        Err(FeishuCalendarReadError::InvalidRequest)
+    );
+
+    let mut request = sample_instance_view_request();
+    request.end_time = request.start_time + 40 * 24 * 60 * 60;
+    assert_eq!(
+        client.event_instance_view(request),
         Err(FeishuCalendarReadError::InvalidRequest)
     );
 }

@@ -60,13 +60,13 @@ fn does_not_select_feishu_task_for_writes_or_non_self_requests() {
 }
 
 #[test]
-fn does_not_select_feishu_calendar_for_writes_event_lists_or_non_self_requests() {
+fn does_not_select_feishu_calendar_for_writes_or_non_self_requests() {
     assert!(select_skills(&request_with_latest_user_text("创建一个日程")).is_empty());
     assert!(select_skills(&request_with_latest_user_text("帮我预约会议")).is_empty());
     assert!(select_skills(&request_with_latest_user_text("查团队忙闲")).is_empty());
     assert!(select_skills(&request_with_latest_user_text("张三今天有空吗")).is_empty());
-    assert!(select_skills(&request_with_latest_user_text("看我的日程列表")).is_empty());
-    assert!(select_skills(&request_with_latest_user_text("show my schedule")).is_empty());
+    assert!(select_skills(&request_with_latest_user_text("查团队日程列表")).is_empty());
+    assert!(select_skills(&request_with_latest_user_text("show my team schedule")).is_empty());
 }
 
 #[test]

@@ -109,11 +109,16 @@ mod tests {
         assert_eq!(spec.id, "feishu.calendar");
         assert_eq!(spec.display_name, "Feishu Calendar");
         assert!(spec.purpose.contains("忙闲"));
-        assert_eq!(spec.tools.len(), 1);
+        assert_eq!(spec.tools.len(), 2);
         assert_skill_tools_registered(spec);
         assert_eq!(spec.tools[0], AgentReadTool::CalendarFreeBusy);
+        assert_eq!(spec.tools[1], AgentReadTool::CalendarEvents);
         assert!(spec.tools[0].spec().description.contains("未来 7 天"));
+        assert!(spec.tools[1].spec().description.contains("受限摘要"));
         assert!(spec.manifest_markdown.contains("# Feishu Calendar"));
+        assert!(spec
+            .manifest_markdown
+            .contains("feishu.calendar.summarize_my_events"));
     }
 
     fn assert_skill_tools_registered(spec: AgentSkillSpec) {

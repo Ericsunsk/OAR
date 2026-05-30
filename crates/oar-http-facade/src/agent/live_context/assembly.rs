@@ -86,6 +86,7 @@ pub(super) struct PlannedLiveReads {
     pub(super) okr_summary: bool,
     pub(super) okr_progress: bool,
     pub(super) task_summary: bool,
+    pub(super) calendar_events: bool,
     pub(super) calendar_free_busy: bool,
 }
 
@@ -95,6 +96,7 @@ impl PlannedLiveReads {
             okr_summary: read_tools.contains(&AgentReadTool::OkrSummary),
             okr_progress: read_tools.contains(&AgentReadTool::OkrProgress),
             task_summary: read_tools.contains(&AgentReadTool::TaskSummary),
+            calendar_events: read_tools.contains(&AgentReadTool::CalendarEvents),
             calendar_free_busy: read_tools.contains(&AgentReadTool::CalendarFreeBusy),
         }
     }

@@ -7,6 +7,7 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
     let mut tools = vec![
         AgentReadTool::OkrSummary,
         AgentReadTool::OkrProgress,
+        AgentReadTool::CalendarEvents,
         AgentReadTool::CalendarFreeBusy,
     ];
     let mut degraded = Vec::new();
@@ -14,12 +15,14 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
     gate_read_tools_by_scope(&["okr.content.read".to_string()], &mut tools, &mut degraded);
 
     assert!(tools.is_empty());
-    assert_eq!(degraded.len(), 3);
+    assert_eq!(degraded.len(), 4);
     assert!(degraded[0].contains("okr:okr.period:readonly"));
     assert!(degraded[0].contains("okr:okr.content:readonly"));
     assert!(degraded[1].contains("okr:okr.period:readonly"));
     assert!(degraded[1].contains("okr:okr.progress:readonly"));
-    assert!(degraded[2].contains("calendar:calendar.free_busy:read"));
+    assert!(degraded[2].contains("calendar:calendar:read"));
+    assert!(degraded[2].contains("calendar:calendar.event:read"));
+    assert!(degraded[3].contains("calendar:calendar.free_busy:read"));
 
     let mut tools = vec![AgentReadTool::OkrSummary, AgentReadTool::OkrProgress];
     let mut degraded = Vec::new();
@@ -41,6 +44,7 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
     let mut tools = vec![
         AgentReadTool::OkrSummary,
         AgentReadTool::OkrProgress,
+        AgentReadTool::CalendarEvents,
         AgentReadTool::CalendarFreeBusy,
     ];
     let mut degraded = Vec::new();
@@ -50,6 +54,8 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
             FeishuScope::OkrPeriodRead.as_str().to_string(),
             FeishuScope::OkrContentRead.as_str().to_string(),
             FeishuScope::OkrProgressRead.as_str().to_string(),
+            FeishuScope::CalendarRead.as_str().to_string(),
+            FeishuScope::CalendarEventRead.as_str().to_string(),
             FeishuScope::CalendarFreeBusyRead.as_str().to_string(),
         ],
         &mut tools,
@@ -61,6 +67,7 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
         vec![
             AgentReadTool::OkrSummary,
             AgentReadTool::OkrProgress,
+            AgentReadTool::CalendarEvents,
             AgentReadTool::CalendarFreeBusy
         ]
     );

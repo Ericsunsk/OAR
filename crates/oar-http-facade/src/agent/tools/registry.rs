@@ -5,6 +5,7 @@ use oar_core::action::capability::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentReadTool {
+    CalendarEvents,
     CalendarFreeBusy,
     OkrSummary,
     OkrProgress,
@@ -35,6 +36,10 @@ const FEISHU_OKR_SUMMARIZE_MY_PROGRESS_ACTION_TYPES: &[CapabilityActionType] = &
 ];
 const FEISHU_TASK_SUMMARIZE_MY_TASKS_ACTION_TYPES: &[CapabilityActionType] =
     &[CapabilityActionType::TaskRead];
+const FEISHU_CALENDAR_SUMMARIZE_MY_EVENTS_ACTION_TYPES: &[CapabilityActionType] = &[
+    CapabilityActionType::CalendarRead,
+    CapabilityActionType::CalendarEventRead,
+];
 const FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES: &[CapabilityActionType] =
     &[CapabilityActionType::CalendarFreeBusyRead];
 
@@ -42,6 +47,7 @@ impl AgentReadTool {
     #[cfg(test)]
     pub(in crate::agent) fn from_name(name: &str) -> Option<Self> {
         match name {
+            "feishu.calendar.summarize_my_events" => Some(Self::CalendarEvents),
             "feishu.calendar.summarize_my_free_busy" => Some(Self::CalendarFreeBusy),
             "feishu.okr.summarize_my_okr" => Some(Self::OkrSummary),
             "feishu.okr.summarize_my_progress" => Some(Self::OkrProgress),
@@ -52,6 +58,12 @@ impl AgentReadTool {
 
     pub(in crate::agent) const fn spec(self) -> AgentToolSpec {
         match self {
+            Self::CalendarEvents => AgentToolSpec {
+                name: "feishu.calendar.summarize_my_events",
+                description: "只读汇总当前用户未来 7 天 Feishu 主日历日程实例的受限摘要。",
+                required_action_types: FEISHU_CALENDAR_SUMMARIZE_MY_EVENTS_ACTION_TYPES,
+                effect: AgentToolEffect::Read,
+            },
             Self::CalendarFreeBusy => AgentToolSpec {
                 name: "feishu.calendar.summarize_my_free_busy",
                 description: "只读汇总当前用户未来 7 天的 Feishu 主日历忙闲时段。",
@@ -107,6 +119,13 @@ impl AgentToolSpec {
             },
         )
     }
+
+    pub(in crate::agent) fn required_feishu_scope_names(
+        self,
+    ) -> Result<Vec<&'static str>, AgentToolSpecError> {
+        self.required_feishu_scopes()
+            .map(|scopes| scopes.into_iter().map(FeishuScope::as_str).collect())
+    }
 }
 
 #[cfg(test)]
@@ -160,6 +179,19 @@ mod tests {
             vec![FeishuScope::TaskRead]
         );
 
+        let spec = AgentReadTool::CalendarEvents.spec();
+        assert_eq!(
+            spec.required_action_types,
+            &[
+                CapabilityActionType::CalendarRead,
+                CapabilityActionType::CalendarEventRead
+            ]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![FeishuScope::CalendarRead, FeishuScope::CalendarEventRead]
+        );
+
         let spec = AgentReadTool::CalendarFreeBusy.spec();
         assert_eq!(
             spec.required_action_types,
@@ -174,6 +206,7 @@ mod tests {
     #[test]
     fn read_tool_manifest_only_uses_auto_read_capabilities() {
         for tool in [
+            AgentReadTool::CalendarEvents,
             AgentReadTool::CalendarFreeBusy,
             AgentReadTool::OkrSummary,
             AgentReadTool::OkrProgress,

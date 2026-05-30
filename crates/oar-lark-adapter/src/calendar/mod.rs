@@ -5,10 +5,13 @@ mod tests;
 mod types;
 
 pub use client::{
-    build_free_busy_batch_request, AsyncFeishuCalendarRead, FeishuCalendarReadClient,
+    build_event_instance_view_request, build_free_busy_batch_request,
+    build_primary_calendar_request, AsyncFeishuCalendarRead, FeishuCalendarReadClient,
 };
 pub use error::FeishuCalendarReadError;
 pub use types::{
+    CalendarEventInstance, CalendarEventInstancePage, CalendarEventInstanceViewRequest,
+    CalendarEventLocation, CalendarEventOrganizer, CalendarEventTimeInfo,
     CalendarFreeBusyBatchRequest, CalendarFreeBusyItem, CalendarFreeBusyList, CalendarFreeBusyPage,
-    CalendarUserIdType,
+    CalendarPrimaryCalendar, CalendarPrimaryPage, CalendarPrimaryRequest, CalendarUserIdType,
 };

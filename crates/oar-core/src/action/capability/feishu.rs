@@ -8,6 +8,8 @@ pub enum FeishuScope {
     OkrProgressWrite,
     OkrReviewRead,
     OkrSettingRead,
+    CalendarRead,
+    CalendarEventRead,
     CalendarFreeBusyRead,
     TaskRead,
     TaskWrite,
@@ -23,6 +25,8 @@ impl FeishuScope {
             Self::OkrProgressWrite => "okr:okr.progress:writeonly",
             Self::OkrReviewRead => "okr:okr.review:readonly",
             Self::OkrSettingRead => "okr:okr.setting:read",
+            Self::CalendarRead => "calendar:calendar:read",
+            Self::CalendarEventRead => "calendar:calendar.event:read",
             Self::CalendarFreeBusyRead => "calendar:calendar.free_busy:read",
             Self::TaskRead => "task:task:read",
             Self::TaskWrite => "task:task:writeonly",
@@ -39,6 +43,8 @@ pub const OKR_PROGRESS_READ_SCOPES: &[FeishuScope] = &[FeishuScope::OkrProgressR
 pub const OKR_PROGRESS_WRITE_SCOPES: &[FeishuScope] = &[FeishuScope::OkrProgressWrite];
 pub const OKR_REVIEW_READ_SCOPES: &[FeishuScope] = &[FeishuScope::OkrReviewRead];
 pub const OKR_SETTING_READ_SCOPES: &[FeishuScope] = &[FeishuScope::OkrSettingRead];
+pub const CALENDAR_READ_SCOPES: &[FeishuScope] = &[FeishuScope::CalendarRead];
+pub const CALENDAR_EVENT_READ_SCOPES: &[FeishuScope] = &[FeishuScope::CalendarEventRead];
 pub const CALENDAR_FREE_BUSY_READ_SCOPES: &[FeishuScope] = &[FeishuScope::CalendarFreeBusyRead];
 pub const TASK_READ_SCOPES: &[FeishuScope] = &[FeishuScope::TaskRead];
 pub const TASK_WRITE_SCOPES: &[FeishuScope] = &[FeishuScope::TaskWrite];
@@ -52,6 +58,8 @@ pub const DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES: &[CapabilityActionType] = &[
     CapabilityActionType::OkrProgressUpdate,
     CapabilityActionType::OkrReviewRead,
     CapabilityActionType::OkrSettingRead,
+    CapabilityActionType::CalendarRead,
+    CapabilityActionType::CalendarEventRead,
     CapabilityActionType::CalendarFreeBusyRead,
     CapabilityActionType::TaskRead,
     CapabilityActionType::TaskCreate,

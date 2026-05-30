@@ -96,6 +96,33 @@ fn next_batch_capabilities_are_lookupable_with_non_executing_posture() {
     );
     assert_eq!(free_busy.execution_mode, CapabilityExecutionMode::AutoRead);
 
+    let calendar =
+        find_by_action_type(CapabilityActionType::CalendarRead).expect("calendar read lookup");
+    assert_eq!(calendar.capability, AgentCapability::CalendarRead);
+    assert_eq!(calendar.required_scope.as_str(), "calendar.read");
+    assert_eq!(calendar.feishu_scopes[0].as_str(), "calendar:calendar:read");
+    assert_eq!(calendar.execution_mode, CapabilityExecutionMode::AutoRead);
+    assert_eq!(find_by_action_type_str("calendar.read"), Some(calendar));
+    assert!(
+        !calendar.enters_execution_allowlist(),
+        "calendar read must stay outside write execution allowlist"
+    );
+
+    let event = find_by_action_type(CapabilityActionType::CalendarEventRead)
+        .expect("calendar event read lookup");
+    assert_eq!(event.capability, AgentCapability::CalendarEventRead);
+    assert_eq!(event.required_scope.as_str(), "calendar.event.read");
+    assert_eq!(
+        event.feishu_scopes[0].as_str(),
+        "calendar:calendar.event:read"
+    );
+    assert_eq!(event.execution_mode, CapabilityExecutionMode::AutoRead);
+    assert_eq!(find_by_action_type_str("calendar.event.read"), Some(event));
+    assert!(
+        !event.enters_execution_allowlist(),
+        "calendar event read must stay outside write execution allowlist"
+    );
+
     let task_read = find_by_action_type(CapabilityActionType::TaskRead).expect("task read lookup");
     assert_eq!(task_read.capability, AgentCapability::TaskRead);
     assert_eq!(task_read.required_scope.as_str(), "task.read");

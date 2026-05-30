@@ -52,7 +52,7 @@ impl AgentSystemPromptBuilder {
 - 后端 tool result 提供的只读实时 Feishu 读取结果。
 - 用户在对话中补充的信息。
 
-来规划下一步、分析风险、起草动作或检查证据缺口。内置 skill 只是领域和工具说明，不代表你能直接调用飞书；真实平台读取只能来自后端 tool runtime/live context。实时 Feishu 读取结果只能来自后端 tool result 或后端 live context，不要把自己的推断当成实时读取。日历忙闲摘要只代表忙碌窗口，不代表完整日程详情、标题、参会人或会议内容。如果需要更多平台事实，要求用户补充或让 OAR 后端重新读取 live platform state，不要编造。
+来规划下一步、分析风险、起草动作或检查证据缺口。内置 skill 只是领域和工具说明，不代表你能直接调用飞书；真实平台读取只能来自后端 tool runtime/live context。实时 Feishu 读取结果只能来自后端 tool result 或后端 live context，不要把自己的推断当成实时读取。日历忙闲摘要只代表忙碌窗口，不代表完整日程详情、标题、参会人或会议内容；日程摘要只代表后端返回的受限 agenda 摘要，不代表完整日历记录、描述、会议链接、附件或完整参会人清单。如果需要更多平台事实，要求用户补充或让 OAR 后端重新读取 live platform state，不要编造。
 
 安全边界：
 - 你可以规划、分析和起草，但不能代表用户确认、拒绝或执行动作。
@@ -185,6 +185,7 @@ mod tests {
         assert!(prompt.contains("后端 tool result 提供的只读实时 Feishu 读取结果"));
         assert!(prompt.contains("实时 Feishu 读取结果只能来自后端 tool result"));
         assert!(prompt.contains("日历忙闲摘要只代表忙碌窗口"));
+        assert!(prompt.contains("日程摘要只代表后端返回的受限 agenda 摘要"));
         assert!(prompt.contains("1. 实时 1"));
         assert!(prompt.contains("4. 实时 4"));
         assert!(!prompt.contains("实时 5"));
@@ -215,5 +216,35 @@ mod tests {
         assert!(prompt.contains("feishu.okr.summarize_my_okr"));
         assert!(prompt.contains("我的 OKR 当前有 2 条目标"));
         assert!(!prompt.contains("raw_payload"));
+    }
+
+    #[test]
+    fn prompt_builder_distinguishes_calendar_free_busy_and_events_summary_boundaries() {
+        let prompt = AgentSystemPromptBuilder::make_prompt(&AgentConversationContextDTO {
+            title: "日历查询".to_string(),
+            risk_reason: "无".to_string(),
+            action_summary: "无".to_string(),
+            evidence_summaries: vec![],
+            evidence_refs: vec![],
+            workspace_summary: "摘要".to_string(),
+            workspace_signals: vec![],
+            pending_action_summaries: vec![],
+            live_feishu_read_summaries: vec![
+                "工具 feishu.calendar.summarize_my_free_busy｜实时：未来 7 天读取到 1 个忙碌时段。"
+                    .to_string(),
+                "工具 feishu.calendar.summarize_my_events｜实时：未来 7 天读取到 1 条日程实例；示例：今天 10:00-11:00，「例会」。"
+                    .to_string(),
+            ],
+            activated_skill_summaries: vec![
+                "feishu.calendar｜Feishu Calendar｜可用后端工具：feishu.calendar.summarize_my_free_busy；feishu.calendar.summarize_my_events"
+                    .to_string(),
+            ],
+        });
+
+        assert!(prompt.contains("日历忙闲摘要只代表忙碌窗口"));
+        assert!(prompt.contains("日程摘要只代表后端返回的受限 agenda 摘要"));
+        assert!(prompt.contains("不代表完整日历记录、描述、会议链接、附件或完整参会人清单"));
+        assert!(prompt.contains("feishu.calendar.summarize_my_free_busy"));
+        assert!(prompt.contains("feishu.calendar.summarize_my_events"));
     }
 }

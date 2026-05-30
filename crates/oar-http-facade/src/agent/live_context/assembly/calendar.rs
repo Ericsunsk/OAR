@@ -1,4 +1,6 @@
-use super::super::calendar_summary::read_my_calendar_free_busy_summary;
+use super::super::calendar_summary::{
+    read_my_calendar_events_summary, read_my_calendar_free_busy_summary,
+};
 use super::super::session::LiveFeishuReadSession;
 use super::super::summary::calendar_read_error_reason;
 use super::PlannedLiveReads;
@@ -10,6 +12,9 @@ pub(super) async fn append_calendar_summary(
     lark_open_id_for_tool_reads: &Option<Result<String, &'static str>>,
 ) {
     if !planned_reads.calendar_free_busy {
+        if planned_reads.calendar_events {
+            append_calendar_events_summary(live_summaries, session).await;
+        }
         return;
     }
 
@@ -39,5 +44,29 @@ pub(super) async fn append_calendar_summary(
             "工具 feishu.calendar.summarize_my_free_busy｜实时读取降级：用户身份未解析。"
                 .to_string(),
         ),
+    }
+
+    if planned_reads.calendar_events {
+        append_calendar_events_summary(live_summaries, session).await;
+    }
+}
+
+async fn append_calendar_events_summary(
+    live_summaries: &mut Vec<String>,
+    session: &LiveFeishuReadSession,
+) {
+    let mut calendar_client = session.calendar_client();
+    match read_my_calendar_events_summary(
+        &mut calendar_client,
+        session.access_token(),
+        session.now(),
+    )
+    .await
+    {
+        Ok(summary) => live_summaries.push(summary),
+        Err(error) => live_summaries.push(format!(
+            "工具 feishu.calendar.summarize_my_events｜实时读取降级：{}。",
+            calendar_read_error_reason(error)
+        )),
     }
 }

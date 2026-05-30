@@ -1,21 +1,28 @@
 use crate::agent::request::AgentStreamRequest;
-use crate::agent::skills::{AgentSkill, FeishuOkrReadIntent};
+use crate::agent::skills::{AgentSkill, FeishuCalendarReadIntent, FeishuOkrReadIntent};
 
 use super::registry::AgentReadTool;
 
 pub(in crate::agent) fn plan_read_tools(request: &AgentStreamRequest) -> Vec<AgentReadTool> {
     let active_skills = crate::agent::skills::select_skills(request);
+    let calendar_intents = crate::agent::skills::select_feishu_calendar_read_intents(request);
     let okr_intents = crate::agent::skills::select_feishu_okr_read_intents(request);
-    plan_read_tools_for_selected_intents(&active_skills, &okr_intents)
+    plan_read_tools_for_selected_intents(&active_skills, &calendar_intents, &okr_intents)
 }
 
 fn plan_read_tools_for_selected_intents(
     active_skills: &[AgentSkill],
+    calendar_intents: &[FeishuCalendarReadIntent],
     okr_intents: &[FeishuOkrReadIntent],
 ) -> Vec<AgentReadTool> {
     let mut tools = Vec::new();
     if active_skills.contains(&AgentSkill::Calendar) {
-        tools.push(AgentReadTool::CalendarFreeBusy);
+        if calendar_intents.contains(&FeishuCalendarReadIntent::FreeBusy) {
+            tools.push(AgentReadTool::CalendarFreeBusy);
+        }
+        if calendar_intents.contains(&FeishuCalendarReadIntent::Events) {
+            tools.push(AgentReadTool::CalendarEvents);
+        }
     }
     if active_skills.contains(&AgentSkill::Okr) {
         if okr_intents.contains(&FeishuOkrReadIntent::Summary) {
@@ -150,6 +157,12 @@ mod tests {
             )),
             vec![AgentReadTool::CalendarFreeBusy]
         );
+        assert_eq!(
+            plan_read_tools(&request_with_latest_user_text(
+                "run feishu.calendar.summarize_my_events"
+            )),
+            vec![AgentReadTool::CalendarEvents]
+        );
     }
 
     #[test]
@@ -191,6 +204,32 @@ mod tests {
         assert_eq!(
             spec.required_feishu_scopes().expect("scopes"),
             vec![FeishuScope::CalendarFreeBusyRead]
+        );
+        assert_eq!(spec.effect, AgentToolEffect::Read);
+    }
+
+    #[test]
+    fn planner_requests_my_calendar_events_for_agenda_read() {
+        let request = request_with_latest_user_text("查下我的飞书日历今天有什么会");
+
+        assert_eq!(select_skills(&request), vec![AgentSkill::Calendar]);
+        assert_eq!(
+            plan_read_tools(&request),
+            vec![AgentReadTool::CalendarEvents]
+        );
+        let spec = AgentReadTool::CalendarEvents.spec();
+        assert_eq!(spec.name, "feishu.calendar.summarize_my_events");
+        assert!(spec.description.contains("受限摘要"));
+        assert_eq!(
+            spec.required_action_types,
+            &[
+                CapabilityActionType::CalendarRead,
+                CapabilityActionType::CalendarEventRead
+            ]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![FeishuScope::CalendarRead, FeishuScope::CalendarEventRead]
         );
         assert_eq!(spec.effect, AgentToolEffect::Read);
     }
