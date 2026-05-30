@@ -9,6 +9,7 @@ use super::audit_outbox_worker::{
     AuditOutboxDispatcher, AuditOutboxDrainConfig, AuditOutboxDrainReport,
     PostgresAuditOutboxWorker,
 };
+use super::repository_safe_error::postgres_repository_safe_error;
 use super::token_refresh_scheduler::{
     PostgresTokenRefreshScheduledSweep, TokenRefreshScheduledSweepConfig,
     TokenRefreshScheduledSweepReport,
@@ -265,127 +266,7 @@ fn validate_positive_i64(
 
 fn stage_failure(error: &PostgresRepositoryError) -> PostgresTenantMaintenanceStageFailure {
     PostgresTenantMaintenanceStageFailure {
-        safe_error: safe_stage_error_message(error),
-    }
-}
-
-fn safe_stage_error_message(error: &PostgresRepositoryError) -> String {
-    match error {
-        PostgresRepositoryError::Sqlx(_) => {
-            "tenant_maintenance_stage_failed: postgres_query_failed".to_string()
-        }
-        PostgresRepositoryError::UnknownActionStatus(_) => {
-            "tenant_maintenance_stage_failed: unknown_action_status".to_string()
-        }
-        PostgresRepositoryError::UnknownAuditActorKind(_) => {
-            "tenant_maintenance_stage_failed: unknown_audit_actor_kind".to_string()
-        }
-        PostgresRepositoryError::UnknownAuditEventType(_) => {
-            "tenant_maintenance_stage_failed: unknown_audit_event_type".to_string()
-        }
-        PostgresRepositoryError::UnknownExecutionStatus(_) => {
-            "tenant_maintenance_stage_failed: unknown_execution_status".to_string()
-        }
-        PostgresRepositoryError::UnknownDeviceEntryPoint(_) => {
-            "tenant_maintenance_stage_failed: unknown_device_entry_point".to_string()
-        }
-        PostgresRepositoryError::UnknownDeviceSessionState(_) => {
-            "tenant_maintenance_stage_failed: unknown_device_session_state".to_string()
-        }
-        PostgresRepositoryError::UnknownTokenGrantState(_) => {
-            "tenant_maintenance_stage_failed: unknown_token_grant_state".to_string()
-        }
-        PostgresRepositoryError::UnknownTenantStatus(_) => {
-            "tenant_maintenance_stage_failed: unknown_tenant_status".to_string()
-        }
-        PostgresRepositoryError::UnknownWorkspaceUserStatus(_) => {
-            "tenant_maintenance_stage_failed: unknown_workspace_user_status".to_string()
-        }
-        PostgresRepositoryError::UnknownIdentityActorKind(_) => {
-            "tenant_maintenance_stage_failed: unknown_identity_actor_kind".to_string()
-        }
-        PostgresRepositoryError::UnknownScopeBoundary(_) => {
-            "tenant_maintenance_stage_failed: unknown_scope_boundary".to_string()
-        }
-        PostgresRepositoryError::UnknownEvidenceSourceKind(_) => {
-            "tenant_maintenance_stage_failed: unknown_evidence_source_kind".to_string()
-        }
-        PostgresRepositoryError::UnknownEvidenceVisibilityScope(_) => {
-            "tenant_maintenance_stage_failed: unknown_evidence_visibility_scope".to_string()
-        }
-        PostgresRepositoryError::UnknownProposedActionStatus(_) => {
-            "tenant_maintenance_stage_failed: unknown_proposed_action_status".to_string()
-        }
-        PostgresRepositoryError::UnknownProposedActionKind(_) => {
-            "tenant_maintenance_stage_failed: unknown_proposed_action_kind".to_string()
-        }
-        PostgresRepositoryError::UnknownRiskSeverity(_) => {
-            "tenant_maintenance_stage_failed: unknown_risk_severity".to_string()
-        }
-        PostgresRepositoryError::UnknownProposedActionDecision(_) => {
-            "tenant_maintenance_stage_failed: unknown_proposed_action_decision".to_string()
-        }
-        PostgresRepositoryError::UnknownReviewInboxItemStatus(_) => {
-            "tenant_maintenance_stage_failed: unknown_review_inbox_item_status".to_string()
-        }
-        PostgresRepositoryError::UnknownSchedulerJobKind(_) => {
-            "tenant_maintenance_stage_failed: unknown_scheduler_job_kind".to_string()
-        }
-        PostgresRepositoryError::UnknownSchedulerJobStatus(_) => {
-            "tenant_maintenance_stage_failed: unknown_scheduler_job_status".to_string()
-        }
-        PostgresRepositoryError::UnsafeSchedulerJobErrorCode => {
-            "tenant_maintenance_stage_failed: unsafe_scheduler_job_error_code".to_string()
-        }
-        PostgresRepositoryError::UnsafeAuditOutboxPayload => {
-            "tenant_maintenance_stage_failed: unsafe_audit_outbox_payload".to_string()
-        }
-        PostgresRepositoryError::ActionNotConfirmed(_) => {
-            "tenant_maintenance_stage_failed: action_not_confirmed".to_string()
-        }
-        PostgresRepositoryError::TenantMismatch { .. } => {
-            "tenant_maintenance_stage_failed: tenant_mismatch".to_string()
-        }
-        PostgresRepositoryError::LarkIdentityActorExternalBindingConflict { .. } => {
-            "tenant_maintenance_stage_failed: lark_identity_actor_external_binding_conflict"
-                .to_string()
-        }
-        PostgresRepositoryError::NegativeInteger { .. } => {
-            "tenant_maintenance_stage_failed: negative_integer".to_string()
-        }
-        PostgresRepositoryError::Json(_) => {
-            "tenant_maintenance_stage_failed: invalid_json_payload".to_string()
-        }
-        PostgresRepositoryError::TokenRefreshDecisionBridge(_) => {
-            "tenant_maintenance_stage_failed: token_refresh_decision_bridge_failed".to_string()
-        }
-        PostgresRepositoryError::InvalidOperationStatusTransition { .. } => {
-            "tenant_maintenance_stage_failed: invalid_operation_status_transition".to_string()
-        }
-        PostgresRepositoryError::UnknownOperationIdempotencyKey(_) => {
-            "tenant_maintenance_stage_failed: unknown_operation_idempotency_key".to_string()
-        }
-        PostgresRepositoryError::TokenRefreshPlanMismatch { .. } => {
-            "tenant_maintenance_stage_failed: token_refresh_plan_mismatch".to_string()
-        }
-        PostgresRepositoryError::ReviewDecisionRequestMismatch { .. } => {
-            "tenant_maintenance_stage_failed: review_decision_request_mismatch".to_string()
-        }
-        PostgresRepositoryError::MissingConfirmedActionForDecision => {
-            "tenant_maintenance_stage_failed: missing_confirmed_action_for_decision".to_string()
-        }
-        PostgresRepositoryError::MissingConfirmedAtForDecision => {
-            "tenant_maintenance_stage_failed: missing_confirmed_at_for_decision".to_string()
-        }
-        PostgresRepositoryError::MissingOperationIdForDecision => {
-            "tenant_maintenance_stage_failed: missing_operation_id_for_decision".to_string()
-        }
-        PostgresRepositoryError::UnexpectedConfirmedActionForDecision => {
-            "tenant_maintenance_stage_failed: unexpected_confirmed_action_for_decision".to_string()
-        }
-        PostgresRepositoryError::UnexpectedOperationIdForDecision => {
-            "tenant_maintenance_stage_failed: unexpected_operation_id_for_decision".to_string()
-        }
+        safe_error: postgres_repository_safe_error("tenant_maintenance_stage_failed", error),
     }
 }
 

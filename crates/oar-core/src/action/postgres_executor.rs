@@ -8,7 +8,8 @@ use super::executor::{
 };
 use crate::domain::identity::TokenGrant;
 use crate::storage::postgres::{
-    AuditOutboxEnvelope, PostgresAuditEventRepository, PostgresExecutionRecorder,
+    postgres_repository_safe_error_reason, AuditOutboxEnvelope, PostgresAuditEventRepository,
+    PostgresExecutionRecorder, PostgresRepositoryError,
 };
 use serde_json::json;
 
@@ -297,11 +298,31 @@ fn is_terminal_status(status: ActionStatus) -> bool {
     )
 }
 
-fn postgres_error_to_execution_error(
-    error: crate::storage::postgres::PostgresRepositoryError,
-) -> ExecutionError {
+fn postgres_error_to_execution_error(error: PostgresRepositoryError) -> ExecutionError {
     ExecutionError::Adapter(AdapterError::from_safe_message(
         "postgres_repository_error",
-        error.to_string(),
+        postgres_repository_safe_error_reason(&error),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn postgres_error_to_execution_error_redacts_raw_repository_text() {
+        let error = PostgresRepositoryError::UnknownTenantStatus(
+            "raw tenant status with password".to_string(),
+        );
+
+        let mapped = postgres_error_to_execution_error(error);
+
+        let ExecutionError::Adapter(error) = mapped else {
+            panic!("postgres repository failures should map to adapter errors");
+        };
+        assert_eq!(error.code, "postgres_repository_error");
+        assert_eq!(error.safe_message, "unknown_tenant_status");
+        assert!(!error.safe_message.contains("password"));
+        assert!(!error.safe_message.contains("raw tenant status"));
+    }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::postgres::postgres_repository_safe_error_reason;
 
 impl PostgresOperationLedgerRepository {
     pub fn new(pool: PgPool) -> Self {
@@ -106,11 +107,11 @@ impl PostgresOperationLedgerRepository {
                     .await
             }
         }
-        .map_err(|error| LedgerError::RepositoryFailure(error.to_string()))?;
+        .map_err(sqlx_ledger_repository_failure)?;
 
         if let Some(row) = row {
             return operation_record_from_row(&row)
-                .map_err(|error| LedgerError::RepositoryFailure(error.to_string()));
+                .map_err(|error| ledger_repository_failure(&error));
         }
 
         match self
@@ -125,7 +126,47 @@ impl PostgresOperationLedgerRepository {
             Ok(None) => Err(LedgerError::UnknownIdempotencyKey(
                 idempotency_key.to_string(),
             )),
-            Err(error) => Err(LedgerError::RepositoryFailure(error.to_string())),
+            Err(error) => Err(ledger_repository_failure(&error)),
         }
+    }
+}
+
+fn sqlx_ledger_repository_failure(error: sqlx::Error) -> LedgerError {
+    let error = PostgresRepositoryError::Sqlx(error);
+    ledger_repository_failure(&error)
+}
+
+fn ledger_repository_failure(error: &PostgresRepositoryError) -> LedgerError {
+    LedgerError::RepositoryFailure(postgres_repository_safe_error_reason(error).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ledger_repository_failure_redacts_raw_repository_text() {
+        let error = PostgresRepositoryError::UnknownTenantStatus(
+            "raw tenant status with password".to_string(),
+        );
+
+        let mapped = ledger_repository_failure(&error);
+
+        assert_eq!(
+            mapped,
+            LedgerError::RepositoryFailure("unknown_tenant_status".to_string())
+        );
+    }
+
+    #[test]
+    fn sqlx_ledger_repository_failure_redacts_raw_sqlx_text() {
+        let mapped = sqlx_ledger_repository_failure(sqlx::Error::Protocol(
+            "database detail with password".to_string(),
+        ));
+
+        assert_eq!(
+            mapped,
+            LedgerError::RepositoryFailure("postgres_query_failed".to_string())
+        );
     }
 }

@@ -14,6 +14,8 @@ pub mod audit_outbox_worker;
 pub mod tenant_maintenance;
 
 #[cfg(feature = "postgres")]
+mod repository_safe_error;
+#[cfg(feature = "postgres")]
 mod repository_sqlx;
 #[cfg(feature = "postgres")]
 mod token_refresh_scheduler;
@@ -23,6 +25,8 @@ pub use audit_outbox_payload::{
     validate_audit_outbox_payload, validate_audit_outbox_text, AuditOutboxPayloadSafetyError,
     SafeAuditOutboxPayload,
 };
+#[cfg(feature = "postgres")]
+pub use repository_safe_error::postgres_repository_safe_error_reason;
 #[cfg(feature = "postgres")]
 pub use repository_sqlx::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
