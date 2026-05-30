@@ -88,6 +88,10 @@ final class ReviewInboxAPIContractTests: XCTestCase {
         XCTAssertTrue(display.actions.first?.canEnterProductionExecution == true)
         XCTAssertEqual(display.evidence.first?.sourceType, .okr)
         XCTAssertEqual(display.ledgerEvents.first?.stage, .confirmedAction)
+        XCTAssertEqual(display.ledgerEvents.first?.stageStatus, .pending)
+        XCTAssertEqual(display.ledgerEvents.first?.timestamp, "未执行")
+        XCTAssertEqual(display.ledgerEvents.first?.message, "等待人工确认。")
+        XCTAssertEqual(display.ledgerEvents.first?.idempotencyKey, "tenant:t_1:pa:pa_1:v2:confirm")
     }
 
     func testDecisionlessDraftSupersededAndWithdrawnActionsDoNotMapToRejectedOrPending() throws {

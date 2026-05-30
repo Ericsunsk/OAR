@@ -90,18 +90,23 @@ struct AuditRail: View {
     let events: [ReviewInboxTimelineEvent]
 
     var body: some View {
-        HStack(spacing: 9) {
-            ForEach(Array(events.enumerated()), id: \.offset) { index, event in
-                HStack(spacing: 7) {
-                    OARSymbolDot(color: color(for: event.stageStatus), size: 8)
-                    Text(event.stage.rawValue)
-                        .font(.codexBody(11, weight: .semibold))
-                        .foregroundStyle(event.stageStatus == .pending ? Color.codexMuted : Color.codexInk)
-                    if index < events.count - 1 {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(Color.codexMuted.opacity(0.48))
-                    }
+        if events.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "clock.badge.questionmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.codexMuted)
+                Text("暂无审计链路")
+                    .font(.codexBody(12, weight: .semibold))
+                    .foregroundStyle(Color.codexMuted)
+            }
+            .padding(.vertical, 2)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(events.enumerated()), id: \.offset) { _, event in
+                    AuditRailRow(
+                        event: event,
+                        color: color(for: event.stageStatus)
+                    )
                 }
             }
         }
@@ -112,6 +117,63 @@ struct AuditRail: View {
         case .pending: .codexMuted.opacity(0.35)
         case .ok: .oarMoss
         case .error: .oarSignal
+        }
+    }
+}
+
+private struct AuditRailRow: View {
+    let event: ReviewInboxTimelineEvent
+    let color: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            OARSymbolDot(color: color, size: 9)
+                .padding(.top, 13)
+                .frame(width: 12)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.codexMuted)
+                        .frame(width: 15)
+                    Text(event.stage.rawValue)
+                        .font(.codexBody(12, weight: .semibold))
+                        .foregroundStyle(Color.codexInk)
+                    Text(event.stageStatus.rawValue)
+                        .font(.codexBody(10, weight: .semibold))
+                        .foregroundStyle(color)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(color.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Spacer(minLength: 8)
+                    Text(event.timestamp)
+                        .font(.codexBody(11, weight: .medium))
+                        .foregroundStyle(Color.codexMuted)
+                        .lineLimit(1)
+                }
+
+                Text(event.message)
+                    .font(.codexBody(12))
+                    .foregroundStyle(Color.codexInk.opacity(0.82))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .background(Color.white.opacity(0.34))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .help("关联键 \(event.idempotencyKey)")
+        }
+    }
+
+    private var icon: String {
+        switch event.stage {
+        case .confirmedAction: "person.crop.circle.badge.checkmark"
+        case .operationLedger: "list.bullet.clipboard"
+        case .larkAdapter: "arrow.triangle.2.circlepath"
+        case .auditEvent: "checkmark.seal"
         }
     }
 }

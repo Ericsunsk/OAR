@@ -91,19 +91,7 @@ final class ReviewInboxViewModel {
 
     var ledgerForSelectedAction: [ReviewInboxTimelineEvent] {
         guard let selectedAction else { return [] }
-        let events = ledgerEvents.filter { $0.actionId == selectedAction.id }
-        if !events.isEmpty { return events }
-        return ReviewInboxTimelineStage.allCases.enumerated().map { index, stage in
-            ReviewInboxTimelineEvent(
-                id: "pending-\(selectedAction.id)-\(index)",
-                actionId: selectedAction.id,
-                stage: stage,
-                stageStatus: index == 0 && selectedAction.gateState == .approved ? .ok : .pending,
-                timestamp: "未执行",
-                message: stage == .confirmedAction ? "等待人工确认。" : "等待上一阶段完成。",
-                idempotencyKey: "tenant:t_demo:pa:\(selectedAction.reviewItemId):v1:confirm"
-            )
-        }
+        return ledgerEvents.filter { $0.actionId == selectedAction.id }
     }
 
     var highRiskCount: Int {

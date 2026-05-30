@@ -143,6 +143,88 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertEqual(model.items.first { $0.id == "review-002" }?.status, .rejected)
     }
 
+    func testLedgerForSelectedActionUsesBackendEventsInOrder() async {
+        let action = makeSuggestedAction(id: "act-ledger", reviewItemId: "review-ledger")
+        let events = [
+            makeTimelineEvent(
+                id: "le-audit",
+                actionId: action.id,
+                stage: .auditEvent,
+                status: .ok,
+                timestamp: "2026-05-30T10:02:00Z",
+                message: "Audit event recorded.",
+                idempotencyKey: "audit:le-audit"
+            ),
+            makeTimelineEvent(
+                id: "le-unrelated",
+                actionId: "act-other",
+                stage: .confirmedAction,
+                status: .ok,
+                timestamp: "2026-05-30T10:00:00Z",
+                message: "Other action confirmed.",
+                idempotencyKey: "decision:act-other:v1:confirm"
+            ),
+            makeTimelineEvent(
+                id: "le-operation",
+                actionId: action.id,
+                stage: .operationLedger,
+                status: .ok,
+                timestamp: "2026-05-30T10:01:00Z",
+                message: "Operation ledger confirmed.",
+                idempotencyKey: "decision:act-ledger:v1:confirm"
+            )
+        ]
+        let model = ReviewInboxViewModel(provider: StaticSnapshotProvider(snapshot: ReviewInboxDisplaySnapshot(
+            items: [makeDisplayItem(id: "review-ledger")],
+            evidence: [],
+            actions: [action],
+            ledgerEvents: events
+        )))
+
+        await model.load()
+
+        XCTAssertEqual(model.ledgerForSelectedAction.map(\.id), ["le-audit", "le-operation"])
+        XCTAssertEqual(model.ledgerForSelectedAction.first?.message, "Audit event recorded.")
+        XCTAssertEqual(model.ledgerForSelectedAction.first?.timestamp, "2026-05-30T10:02:00Z")
+        XCTAssertEqual(model.ledgerForSelectedAction.first?.idempotencyKey, "audit:le-audit")
+    }
+
+    func testApprovedActionWithoutBackendLedgerDoesNotSynthesizeAuditHistory() async {
+        let action = makeSuggestedAction(
+            id: "act-approved",
+            reviewItemId: "review-approved",
+            gateState: .approved
+        )
+        let model = ReviewInboxViewModel(provider: StaticSnapshotProvider(snapshot: ReviewInboxDisplaySnapshot(
+            items: [makeDisplayItem(id: "review-approved", status: .confirmed)],
+            evidence: [],
+            actions: [action],
+            ledgerEvents: []
+        )))
+
+        await model.load()
+
+        XCTAssertTrue(model.ledgerForSelectedAction.isEmpty)
+    }
+
+    func testRejectedActionWithoutBackendLedgerDoesNotSynthesizeAuditHistory() async {
+        let action = makeSuggestedAction(
+            id: "act-rejected",
+            reviewItemId: "review-rejected",
+            gateState: .rejected
+        )
+        let model = ReviewInboxViewModel(provider: StaticSnapshotProvider(snapshot: ReviewInboxDisplaySnapshot(
+            items: [makeDisplayItem(id: "review-rejected", status: .rejected)],
+            evidence: [],
+            actions: [action],
+            ledgerEvents: []
+        )))
+
+        await model.load()
+
+        XCTAssertTrue(model.ledgerForSelectedAction.isEmpty)
+    }
+
     func testUnauthorizedLoadTriggersSessionInvalidation() async {
         let provider = LoadFailingProvider(error: ReviewInboxDataProviderError.unauthorized)
         var invalidationMessages: [String] = []
@@ -225,6 +307,75 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertEqual(model.selectedItem?.id, "review-new")
         XCTAssertEqual(model.loadState, .ready)
     }
+}
+
+private struct StaticSnapshotProvider: ReviewInboxDataProviding {
+    let snapshot: ReviewInboxDisplaySnapshot
+
+    func loadSnapshot() async throws -> ReviewInboxDisplaySnapshot {
+        snapshot
+    }
+
+    func submitDecision(_ decision: ReviewInboxDecisionCommand, snapshot: ReviewInboxDisplaySnapshot) async throws -> ReviewInboxDisplaySnapshot {
+        snapshot
+    }
+}
+
+private func makeDisplayItem(
+    id: String,
+    status: ReviewInboxDisplayStatus = .needsConfirmation
+) -> ReviewInboxDisplayItem {
+    ReviewInboxDisplayItem(
+        id: id,
+        objectiveTitle: "目标",
+        keyResultTitle: "关键结果",
+        ownerName: "负责人",
+        weekLabel: "2026 第 22 周",
+        riskLevel: .high,
+        riskReason: "需要复核",
+        confidenceScore: 0.88,
+        status: status,
+        lastUpdatedAt: "2026-05-30T10:00:00Z",
+        syncCursor: 1
+    )
+}
+
+private func makeSuggestedAction(
+    id: String,
+    reviewItemId: String,
+    gateState: ReviewInboxGateState = .pending
+) -> ReviewInboxSuggestedAction {
+    ReviewInboxSuggestedAction(
+        id: id,
+        reviewItemId: reviewItemId,
+        version: 1,
+        actionType: .updateProgress,
+        rationale: "补充进展",
+        expectedImpact: "更新一条进展",
+        dryRunResultSummary: "将更新 1 条进展记录。",
+        estimatedWriteTargetsCount: 1,
+        gateState: gateState
+    )
+}
+
+private func makeTimelineEvent(
+    id: String,
+    actionId: String,
+    stage: ReviewInboxTimelineStage,
+    status: ReviewInboxTimelineStatus,
+    timestamp: String,
+    message: String,
+    idempotencyKey: String
+) -> ReviewInboxTimelineEvent {
+    ReviewInboxTimelineEvent(
+        id: id,
+        actionId: actionId,
+        stage: stage,
+        stageStatus: status,
+        timestamp: timestamp,
+        message: message,
+        idempotencyKey: idempotencyKey
+    )
 }
 
 private struct LoadFailingProvider: ReviewInboxDataProviding {

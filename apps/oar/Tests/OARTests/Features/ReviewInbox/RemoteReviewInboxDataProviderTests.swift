@@ -33,6 +33,7 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
         let snapshot = try await provider.loadSnapshot()
 
         XCTAssertEqual(snapshot.items.first?.id, "ri_1")
+        XCTAssertEqual(snapshot.ledgerEvents.map(\.id), ["le_remote_1"])
     }
 
     func testSubmitDecisionEncodesActionVersionAndSyncCursor() async throws {
@@ -236,7 +237,17 @@ final class RemoteReviewInboxDataProviderTests: XCTestCase {
           ],
           "proposed_actions": [],
           "evidence": [],
-          "ledger_events": []
+          "ledger_events": [
+            {
+              "id": "le_remote_1",
+              "action_id": "pa_1",
+              "stage": "operation_ledger",
+              "stage_status": "ok",
+              "timestamp_display": "2026-05-28T10:01:00Z",
+              "message": "Operation ledger confirmed.",
+              "idempotency_key": "decision:pa_1:v2:confirm"
+            }
+          ]
         }
         """.utf8
     )
