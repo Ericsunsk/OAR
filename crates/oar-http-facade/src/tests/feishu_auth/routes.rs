@@ -1,7 +1,12 @@
+use super::super::postgres_support::{device_session, run_live_postgres_test, seed_user};
+use crate::feishu_auth::{FeishuGrantPersistenceRuntime, FeishuLoginRuntime};
 use crate::{dispatch_request_with_runtime, OarHttpFacadeRuntime};
 use hyper::http::{Method, StatusCode};
+use oar_core::domain::device_sync::SessionState;
+use oar_core::storage::postgres::PostgresDeviceSessionRepository;
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 #[tokio::test]
 async fn configured_runtime_dispatch_creates_and_polls_pending_feishu_login_session() {
@@ -121,16 +126,100 @@ async fn configured_runtime_logout_requires_oar_bearer_and_session_store() {
     assert!(!unavailable.body.contains("oar_session_dev"));
 }
 
-fn configured_runtime() -> Arc<OarHttpFacadeRuntime> {
-    Arc::new(
-        OarHttpFacadeRuntime::from_env_map(&|key| match key {
-            "OAR_FEISHU_APP_ID" => Some("cli_test".to_string()),
-            "OAR_FEISHU_APP_SECRET" => Some("super-secret".to_string()),
-            "OAR_FEISHU_REDIRECT_URI" => {
-                Some("https://oar.example.test/auth/feishu/callback".to_string())
-            }
-            _ => None,
-        })
-        .expect("runtime"),
+#[tokio::test]
+async fn logout_route_revokes_active_oar_session_and_is_idempotent_when_database_is_available() {
+    run_live_postgres_test(
+        "logout_route_revokes_active_oar_session",
+        |pool| async move {
+            let tenant_id = "tenant_logout_route";
+            let user_id = "user_logout_route";
+            let session_id = "oar_session_logout_route";
+            seed_user(&pool, tenant_id, user_id).await?;
+
+            let repository = PostgresDeviceSessionRepository::new(pool.clone());
+            let now = SystemTime::UNIX_EPOCH + Duration::from_millis(1_748_310_000_000);
+            let session = device_session(tenant_id, user_id, session_id, "review_inbox", 0, now);
+            repository
+                .upsert_with_identity_hash(&session, "sha256:logout-route")
+                .await?;
+
+            let runtime = configured_runtime_with_persistence(pool);
+            let first = dispatch_request_with_runtime(
+                Arc::clone(&runtime),
+                &Method::POST,
+                "/auth/logout",
+                None,
+                Some("Bearer oar_session_logout_route"),
+                None,
+            )
+            .await;
+            let first_body: Value = serde_json::from_str(&first.body).expect("first logout json");
+            assert_eq!(first.status, StatusCode::OK);
+            assert_eq!(first_body["status"], "signed_out");
+
+            let revoked = repository
+                .get_by_id(tenant_id, session_id)
+                .await?
+                .expect("session should still exist after logout");
+            assert_eq!(revoked.state, SessionState::Revoked);
+            let revoked_at = revoked.revoked_at.expect("revoked_at should be set");
+
+            let second = dispatch_request_with_runtime(
+                runtime,
+                &Method::POST,
+                "/auth/logout",
+                None,
+                Some("Bearer oar_session_logout_route"),
+                None,
+            )
+            .await;
+            let second_body: Value =
+                serde_json::from_str(&second.body).expect("second logout json");
+            assert_eq!(second.status, StatusCode::OK);
+            assert_eq!(second_body["status"], "signed_out");
+
+            let after_second = repository
+                .get_by_id(tenant_id, session_id)
+                .await?
+                .expect("session should still exist after second logout");
+            assert_eq!(after_second.state, SessionState::Revoked);
+            assert_eq!(after_second.revoked_at, Some(revoked_at));
+
+            Ok(())
+        },
     )
+    .await;
+}
+
+fn configured_runtime() -> Arc<OarHttpFacadeRuntime> {
+    Arc::new(OarHttpFacadeRuntime::from_env_map(&configured_env).expect("runtime"))
+}
+
+fn configured_runtime_with_persistence(pool: sqlx::PgPool) -> Arc<OarHttpFacadeRuntime> {
+    let feishu_login = FeishuLoginRuntime::from_env_map(
+        &configured_env,
+        Some(FeishuGrantPersistenceRuntime::new(
+            pool,
+            "key-test-v1".to_string(),
+            [7; 32],
+        )),
+    )
+    .expect("login runtime")
+    .expect("configured login runtime");
+    Arc::new(OarHttpFacadeRuntime {
+        feishu_login: Some(Arc::new(feishu_login)),
+        agent: None,
+        agent_settings: None,
+    })
+}
+
+fn configured_env(key: &str) -> Option<String> {
+    match key {
+        "OAR_FEISHU_APP_ID" => Some("cli_test".to_string()),
+        "OAR_FEISHU_APP_SECRET" => Some("super-secret".to_string()),
+        "OAR_FEISHU_REDIRECT_URI" => {
+            Some("https://oar.example.test/auth/feishu/callback".to_string())
+        }
+        _ => None,
+    }
 }
