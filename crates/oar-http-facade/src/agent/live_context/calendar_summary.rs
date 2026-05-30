@@ -10,7 +10,7 @@ use oar_lark_adapter::{
 use super::summary::{compact_text, finalize_summary, truncate_chars};
 use crate::feishu_auth::iso8601_utc;
 
-const FREE_BUSY_WINDOW_DAYS: u64 = 7;
+const CALENDAR_LOOKAHEAD_DAYS: u64 = 7;
 const BUSY_SLOT_EXAMPLE_LIMIT: usize = 4;
 const EVENT_EXAMPLE_LIMIT: usize = 5;
 
@@ -21,7 +21,7 @@ pub(super) async fn read_my_calendar_free_busy_summary(
     now: SystemTime,
 ) -> Result<String, oar_lark_adapter::FeishuCalendarReadError> {
     let time_min = iso8601_utc(now);
-    let time_max = iso8601_utc(now + Duration::from_secs(FREE_BUSY_WINDOW_DAYS * 24 * 60 * 60));
+    let time_max = iso8601_utc(now + Duration::from_secs(CALENDAR_LOOKAHEAD_DAYS * 24 * 60 * 60));
     let page = calendar_client
         .batch_free_busy(CalendarFreeBusyBatchRequest {
             user_access_token: access_token,
@@ -50,7 +50,7 @@ pub(super) async fn read_my_calendar_events_summary(
         .await?;
     let calendar_id = primary_page.calendar.calendar_id;
     let time_min = unix_seconds(now);
-    let time_max = unix_seconds(now + Duration::from_secs(FREE_BUSY_WINDOW_DAYS * 24 * 60 * 60));
+    let time_max = unix_seconds(now + Duration::from_secs(CALENDAR_LOOKAHEAD_DAYS * 24 * 60 * 60));
     let page = calendar_client
         .event_instance_view(CalendarEventInstanceViewRequest {
             user_access_token: access_token,
@@ -180,8 +180,28 @@ fn summarize_event_example(event: &CalendarEventInstance) -> String {
 
 fn event_time_text(time_info: Option<&CalendarEventTimeInfo>) -> Option<String> {
     time_info.and_then(|time_info| {
-        compact_optional_text(time_info.timestamp.as_deref().or(time_info.date.as_deref()))
+        time_info
+            .timestamp
+            .as_deref()
+            .and_then(iso8601_utc_from_unix_seconds)
+            .or_else(|| compact_optional_text(time_info.date.as_deref()))
+            .or_else(|| compact_optional_text(time_info.timestamp.as_deref()))
     })
+}
+
+fn iso8601_utc_from_unix_seconds(value: &str) -> Option<String> {
+    let seconds = value.trim().parse::<u64>().ok()?;
+    Some(compact_iso8601_utc_minute(&iso8601_utc(
+        UNIX_EPOCH + Duration::from_secs(seconds),
+    )))
+}
+
+fn compact_iso8601_utc_minute(value: &str) -> String {
+    if value.len() >= 17 && value.ends_with('Z') {
+        format!("{}Z", &value[..16])
+    } else {
+        value.to_string()
+    }
 }
 
 fn compact_optional_text(value: Option<&str>) -> Option<String> {
@@ -270,14 +290,15 @@ mod tests {
         let summary = summarize_event_instances_page(&page);
 
         assert!(summary.contains("未来 7 天读取到 6 条日程实例"));
-        assert!(summary.contains("1780000000-1780003600"));
+        assert!(summary.contains("2026-05-28T20:26Z-2026-05-28T21:26Z"));
         assert!(summary.contains("Team sync"));
         assert!(summary.contains("地点 Boardroom"));
         assert!(summary.contains("组织者 Alice"));
         assert!(summary.contains("状态 confirmed"));
         assert!(summary.contains("忙闲 busy"));
         assert!(summary.contains("参与人 2 位"));
-        assert!(summary.contains("Fifth"));
+        assert!(summary.contains("Second"));
+        assert!(!summary.contains("1780000000"));
         assert!(!summary.contains("Sixth"));
         assert!(!summary.contains("evt_secret"));
     }

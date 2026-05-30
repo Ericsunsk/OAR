@@ -19,6 +19,6 @@ Do not activate for creating meetings, updating events, inviting attendees, book
 
 This skill describes domain capability, activation conditions, and backend tool IDs only. It does not execute platform operations. Runtime reads must go through the backend tool runtime and Lark adapter after OAuth scope checks.
 
-The tool returns a compact busy-window summary, not event titles, event descriptions, attendee lists, raw payloads, or full calendar records.
+The free-busy tool returns a compact busy-window summary, not event titles, event descriptions, attendee lists, raw payloads, or full calendar records.
 
 The event summary tool returns only a bounded agenda summary: total count and up to 5 examples with start/end, title, location name, organizer display name, status, and free/busy. It must not return descriptions, meeting URLs, app links, raw IDs, attachments, or full attendee lists.

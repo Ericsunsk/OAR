@@ -289,8 +289,9 @@ DATABASE_URL=postgres://... docker compose -f docker/compose.yml up --build
 且移动端扫码时需要是手机可访问的公网地址。飞书 app secret、token 和绕过人工确认 / ledger 的开关不放入 Dockerfile。
 未设置 `OAR_FEISHU_AUTH_SCOPE` 时，代码内置默认授权会请求 OAR 已声明用户级能力所需的
 Feishu scopes，包括 `offline_access`、OKR period/content/progress/review/setting 读取、
-OKR progress 写入、calendar free-busy 读取和 task 读取；task create/write scope 仅用于
-DraftOnly/补授权准备。OAuth grant scope 不等于生产执行 allowlist。
+OKR progress 写入、calendar free-busy 读取、calendar agenda/event instance 读取和
+task 读取；task create/write scope 仅用于 DraftOnly/补授权准备。OAuth grant scope
+不等于生产执行 allowlist。
 `authen/v1/user_info` 获取基础身份不需要额外应用权限，`offline_access` 用于让飞书返回 refresh token，
 支持 OAR 加密落库 `TokenGrant` 并后续刷新。飞书开发者后台必须先开启默认授权包含的对应权限。
 设置变更后必须让用户重新用 OAR 扫码授权；旧 `TokenGrant` 不会因为后台新增 app scope 自动获得 OAuth grant scope。
