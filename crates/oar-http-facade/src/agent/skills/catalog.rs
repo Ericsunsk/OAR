@@ -1,4 +1,5 @@
 use super::builtin::{feishu_calendar, feishu_okr, feishu_task};
+use crate::agent::tools::AgentReadTool;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentSkill {
@@ -12,15 +13,9 @@ pub(in crate::agent) struct AgentSkillSpec {
     pub(in crate::agent) id: &'static str,
     pub(in crate::agent) display_name: &'static str,
     pub(in crate::agent) purpose: &'static str,
-    pub(in crate::agent) tools: &'static [AgentSkillToolSpec],
+    pub(in crate::agent) tools: &'static [AgentReadTool],
     pub(in crate::agent) safety: &'static str,
     pub(in crate::agent) manifest_markdown: &'static str,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::agent) struct AgentSkillToolSpec {
-    pub(in crate::agent) name: &'static str,
-    pub(in crate::agent) description: &'static str,
 }
 
 impl AgentSkill {
@@ -58,7 +53,10 @@ impl AgentSkill {
         let tools = spec
             .tools
             .iter()
-            .map(|tool| format!("{}（{}）", tool.name, tool.description))
+            .map(|tool| {
+                let tool = tool.spec();
+                format!("{}（{}）", tool.name, tool.description)
+            })
             .collect::<Vec<_>>()
             .join("；");
         format!(
@@ -71,7 +69,6 @@ impl AgentSkill {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::tools::AgentReadTool;
 
     #[test]
     fn builtin_skill_specs_expose_expected_manifests_and_tools() {
@@ -85,8 +82,8 @@ mod tests {
         assert_eq!(spec.display_name, "Feishu OKR");
         assert_eq!(spec.tools.len(), 2);
         assert_skill_tools_registered(spec);
-        assert_eq!(spec.tools[0].name, "feishu.okr.summarize_my_okr");
-        assert_eq!(spec.tools[1].name, "feishu.okr.summarize_my_progress");
+        assert_eq!(spec.tools[0], AgentReadTool::OkrSummary);
+        assert_eq!(spec.tools[1], AgentReadTool::OkrProgress);
         assert!(spec.safety.contains("后端 tool runtime"));
         assert!(spec.manifest_markdown.contains("## Activation"));
         assert!(spec
@@ -103,8 +100,8 @@ mod tests {
         assert!(spec.purpose.contains("飞书任务"));
         assert_eq!(spec.tools.len(), 1);
         assert_skill_tools_registered(spec);
-        assert_eq!(spec.tools[0].name, "feishu.task.summarize_my_tasks");
-        assert!(spec.tools[0].description.contains("只读汇总"));
+        assert_eq!(spec.tools[0], AgentReadTool::TaskSummary);
+        assert!(spec.tools[0].spec().description.contains("只读汇总"));
         assert!(spec.manifest_markdown.contains("# Feishu Task"));
     }
 
@@ -114,17 +111,18 @@ mod tests {
         assert!(spec.purpose.contains("忙闲"));
         assert_eq!(spec.tools.len(), 1);
         assert_skill_tools_registered(spec);
-        assert_eq!(spec.tools[0].name, "feishu.calendar.summarize_my_free_busy");
-        assert!(spec.tools[0].description.contains("未来 7 天"));
+        assert_eq!(spec.tools[0], AgentReadTool::CalendarFreeBusy);
+        assert!(spec.tools[0].spec().description.contains("未来 7 天"));
         assert!(spec.manifest_markdown.contains("# Feishu Calendar"));
     }
 
     fn assert_skill_tools_registered(spec: AgentSkillSpec) {
-        for skill_tool in spec.tools {
-            let registered = AgentReadTool::from_name(skill_tool.name)
+        for tool in spec.tools {
+            let tool_spec = tool.spec();
+            let registered = AgentReadTool::from_name(tool_spec.name)
                 .expect("builtin skill tool must be registered");
-            assert_eq!(registered.spec().name, skill_tool.name);
-            assert!(!skill_tool.description.trim().is_empty());
+            assert_eq!(registered, *tool);
+            assert!(!tool_spec.description.trim().is_empty());
         }
     }
 }

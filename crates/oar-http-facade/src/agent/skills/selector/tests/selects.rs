@@ -116,6 +116,31 @@ fn selects_both_okr_intents_when_latest_request_asks_count_and_progress() {
 }
 
 #[test]
+fn selects_feishu_read_tools_when_user_explicitly_retries_tool_ids() {
+    let okr_summary = request_with_latest_user_text("请重试 `feishu.okr.summarize_my_okr`");
+    assert_eq!(
+        select_feishu_okr_read_intents(&okr_summary),
+        vec![FeishuOkrReadIntent::Summary]
+    );
+    assert_eq!(select_skills(&okr_summary), vec![AgentSkill::Okr]);
+
+    let okr_progress = request_with_latest_user_text("retry feishu.okr.summarize_my_progress");
+    assert_eq!(
+        select_feishu_okr_read_intents(&okr_progress),
+        vec![FeishuOkrReadIntent::Progress]
+    );
+    assert_eq!(select_skills(&okr_progress), vec![AgentSkill::Okr]);
+
+    let task = request_with_latest_user_text("重新读取 feishu.task.summarize_my_tasks");
+    assert!(super::task::latest_user_requests_feishu_task_summary(&task));
+    assert_eq!(select_skills(&task), vec![AgentSkill::Task]);
+
+    let calendar = request_with_latest_user_text("run feishu.calendar.summarize_my_free_busy");
+    assert!(super::calendar::latest_user_requests_feishu_calendar_free_busy(&calendar));
+    assert_eq!(select_skills(&calendar), vec![AgentSkill::Calendar]);
+}
+
+#[test]
 fn selects_only_progress_for_target_progress_phrasing() {
     for text in ["看我的 OKR 目标进展", "show my OKR objective progress"] {
         let request = request_with_latest_user_text(text);

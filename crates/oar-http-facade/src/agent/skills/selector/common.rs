@@ -47,6 +47,29 @@ pub(super) fn asks_to_count(text: &str) -> bool {
         || normalized.contains("how many")
 }
 
+pub(super) fn asks_to_run_read_tool(text: &str, tool_name: &str) -> bool {
+    if !text.contains(tool_name) {
+        return false;
+    }
+
+    let normalized = text.to_ascii_lowercase();
+    text.contains("重试")
+        || text.contains("重新读取")
+        || text.contains("读取")
+        || text.contains("调用")
+        || text.contains("运行")
+        || text.contains("执行")
+        || text.contains("查")
+        || text.contains("看")
+        || contains_latin_token(&normalized, "retry")
+        || contains_latin_token(&normalized, "rerun")
+        || contains_latin_token(&normalized, "read")
+        || contains_latin_token(&normalized, "run")
+        || contains_latin_token(&normalized, "call")
+        || contains_latin_token(&normalized, "invoke")
+        || contains_latin_token(&normalized, "show")
+}
+
 pub(super) fn is_self_scoped(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
     let compact = text.split_whitespace().collect::<String>();

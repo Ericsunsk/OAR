@@ -1,7 +1,9 @@
 use crate::agent::request::AgentStreamRequest;
+use crate::agent::tools::AgentReadTool;
 
 use super::common::{
-    asks_to_read, contains_latin_token, is_self_scoped, latest_user_text, targets_non_self,
+    asks_to_read, asks_to_run_read_tool, contains_latin_token, is_self_scoped, latest_user_text,
+    targets_non_self,
 };
 
 pub(super) fn latest_user_requests_feishu_task_summary(request: &AgentStreamRequest) -> bool {
@@ -13,11 +15,16 @@ pub(super) fn latest_user_requests_feishu_task_summary(request: &AgentStreamRequ
 }
 
 fn latest_user_has_explicit_self_task_read_intent(text: &str) -> bool {
-    mentions_task(text)
-        && asks_to_read(text)
-        && is_self_scoped(text)
-        && !targets_non_self(text)
-        && !asks_task_write(text)
+    latest_user_requests_task_summary_tool(text)
+        || (mentions_task(text)
+            && asks_to_read(text)
+            && is_self_scoped(text)
+            && !targets_non_self(text)
+            && !asks_task_write(text))
+}
+
+fn latest_user_requests_task_summary_tool(text: &str) -> bool {
+    asks_to_run_read_tool(text, AgentReadTool::TaskSummary.spec().name) && !targets_non_self(text)
 }
 
 fn mentions_task(text: &str) -> bool {

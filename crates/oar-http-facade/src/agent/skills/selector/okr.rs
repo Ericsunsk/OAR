@@ -1,8 +1,9 @@
 use crate::agent::request::AgentStreamRequest;
+use crate::agent::tools::AgentReadTool;
 
 use super::common::{
-    asks_to_count, asks_to_read, contains_latin_token, is_self_scoped, latest_user_text,
-    mentions_feishu, targets_non_self,
+    asks_to_count, asks_to_read, asks_to_run_read_tool, contains_latin_token, is_self_scoped,
+    latest_user_text, mentions_feishu, targets_non_self,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,17 +24,24 @@ pub(in crate::agent) fn latest_user_feishu_okr_read_intents(
     }
 
     let mut intents = Vec::new();
-    if latest_user_has_explicit_self_okr_summary_intent(latest_user_text)
+    if latest_user_requests_okr_read_tool(latest_user_text, AgentReadTool::OkrSummary)
+        || latest_user_has_explicit_self_okr_summary_intent(latest_user_text)
         || (latest_user_has_contextual_feishu_count_intent(latest_user_text)
             && request_has_recent_okr_topic(request))
     {
         intents.push(FeishuOkrReadIntent::Summary);
     }
-    if latest_user_has_explicit_self_okr_progress_intent(latest_user_text) {
+    if latest_user_requests_okr_read_tool(latest_user_text, AgentReadTool::OkrProgress)
+        || latest_user_has_explicit_self_okr_progress_intent(latest_user_text)
+    {
         intents.push(FeishuOkrReadIntent::Progress);
     }
 
     intents
+}
+
+fn latest_user_requests_okr_read_tool(text: &str, tool: AgentReadTool) -> bool {
+    asks_to_run_read_tool(text, tool.spec().name) && !targets_non_self(text)
 }
 
 fn latest_user_has_explicit_self_okr_summary_intent(text: &str) -> bool {

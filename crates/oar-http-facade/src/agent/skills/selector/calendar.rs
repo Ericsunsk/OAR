@@ -1,7 +1,9 @@
 use crate::agent::request::AgentStreamRequest;
+use crate::agent::tools::AgentReadTool;
 
 use super::common::{
-    contains_latin_token, is_self_scoped, latest_user_text, mentions_feishu, targets_non_self,
+    asks_to_run_read_tool, contains_latin_token, is_self_scoped, latest_user_text, mentions_feishu,
+    targets_non_self,
 };
 
 pub(super) fn latest_user_requests_feishu_calendar_free_busy(request: &AgentStreamRequest) -> bool {
@@ -13,12 +15,18 @@ pub(super) fn latest_user_requests_feishu_calendar_free_busy(request: &AgentStre
 }
 
 fn latest_user_has_explicit_self_calendar_free_busy_intent(text: &str) -> bool {
-    (mentions_feishu(text) || mentions_calendar(text))
-        && mentions_calendar_free_busy(text)
-        && is_self_scoped(text)
+    latest_user_requests_calendar_free_busy_tool(text)
+        || ((mentions_feishu(text) || mentions_calendar(text))
+            && mentions_calendar_free_busy(text)
+            && is_self_scoped(text)
+            && !targets_non_self(text)
+            && !asks_calendar_write(text)
+            && !asks_calendar_event_listing(text))
+}
+
+fn latest_user_requests_calendar_free_busy_tool(text: &str) -> bool {
+    asks_to_run_read_tool(text, AgentReadTool::CalendarFreeBusy.spec().name)
         && !targets_non_self(text)
-        && !asks_calendar_write(text)
-        && !asks_calendar_event_listing(text)
 }
 
 fn mentions_calendar(text: &str) -> bool {

@@ -81,3 +81,15 @@ fn does_not_select_feishu_okr_for_kr_substrings_inside_other_words() {
     assert!(select_skills(&request_with_latest_user_text("show my kraken balance")).is_empty());
     assert!(select_skills(&request_with_latest_user_text("show my okra recipe")).is_empty());
 }
+
+#[test]
+fn does_not_select_read_tool_id_mentions_without_run_or_retry_intent() {
+    assert!(select_skills(&request_with_latest_user_text(
+        "feishu.okr.summarize_my_okr 是什么"
+    ))
+    .is_empty());
+    assert!(select_skills(&request_with_latest_user_text(
+        "解释 feishu.task.summarize_my_tasks 的作用"
+    ))
+    .is_empty());
+}

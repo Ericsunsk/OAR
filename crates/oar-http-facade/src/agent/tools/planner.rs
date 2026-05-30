@@ -125,6 +125,34 @@ mod tests {
     }
 
     #[test]
+    fn planner_requests_read_tools_when_user_explicitly_retries_tool_ids() {
+        assert_eq!(
+            plan_read_tools(&request_with_latest_user_text(
+                "请重试 `feishu.okr.summarize_my_okr`"
+            )),
+            vec![AgentReadTool::OkrSummary]
+        );
+        assert_eq!(
+            plan_read_tools(&request_with_latest_user_text(
+                "retry feishu.okr.summarize_my_progress"
+            )),
+            vec![AgentReadTool::OkrProgress]
+        );
+        assert_eq!(
+            plan_read_tools(&request_with_latest_user_text(
+                "重新读取 feishu.task.summarize_my_tasks"
+            )),
+            vec![AgentReadTool::TaskSummary]
+        );
+        assert_eq!(
+            plan_read_tools(&request_with_latest_user_text(
+                "run feishu.calendar.summarize_my_free_busy"
+            )),
+            vec![AgentReadTool::CalendarFreeBusy]
+        );
+    }
+
+    #[test]
     fn planner_requests_my_task_summary_for_explicit_user_task_read() {
         let request = request_with_latest_user_text("查下我的飞书任务有几条");
 
