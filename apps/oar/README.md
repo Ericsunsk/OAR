@@ -75,9 +75,10 @@ Review Inbox storage; Feishu callback also stores an encrypted per-user
 and, unless `OAR_FEISHU_AUTH_SCOPE`
 overrides it, also requests the capability-derived Feishu scopes needed by OAR
 user-level tools and actions.
-Review Inbox live data is still backend follow-up work,
-so the snapshot endpoint currently returns an empty Review Inbox contract and decision
-write paths remain disabled until the
+Review Inbox snapshot and decision recording are backed by the OAR backend
+Postgres repository/recorder when persistence is configured. Whether the client
+shows items depends on backend-seeded review inbox data; production execution
+still remains disabled until the
 `ConfirmedAction -> OperationLedger -> PlatformAdapter -> AuditEvent` execution
 chain is connected. `OAR_FEISHU_APP_ID` / `OAR_FEISHU_APP_SECRET` identify the
 OAR Feishu application for this deployment, not a shared user or bot identity;

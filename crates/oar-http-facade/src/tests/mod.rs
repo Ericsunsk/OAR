@@ -2,6 +2,7 @@ mod config;
 mod feishu_auth;
 mod health;
 mod postgres_support;
+mod review_inbox_routes;
 mod routing_guards;
 mod runtime;
 mod session_auth;

@@ -219,8 +219,8 @@ swift run
 `GET /auth/feishu/callback` 在服务端用授权码换取用户凭证、读取安全用户信息，再
 返回 OAR 自己的会话字段。配置 `DATABASE_URL` 和 `OAR_GRANT_KEY_*` 后，后端会启用 OAR session store、
 受保护路由、Review Inbox 与 Agent settings 持久化；callback 成功也会将用户绑定 OAuth grant
-加密落库为 `TokenGrant`。未配置数据库时保留本地内存登录行为；真实 Review Inbox 数据仍是后续工作；
-`GET /review-inbox/snapshot` 目前返回空快照，decision 写路径明确返回不支持。前端期望的 HTTP endpoint 记录在
+加密落库为 `TokenGrant`。未配置数据库时保留本地内存登录行为；Review Inbox snapshot 和 decision
+记录路径已接 Postgres，是否有数据取决于库内是否存在 review item；生产执行链路仍按阶段接通。前端期望的 HTTP endpoint 记录在
 [`apps/oar/README.md`](apps/oar/README.md)。
 
 Agent 模型请求只从后端发出。macOS 前端通过 `POST /agent/stream` 发送会话上下文和消息，
