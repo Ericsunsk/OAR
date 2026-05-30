@@ -4,6 +4,7 @@ pub mod audit_trace;
 pub mod capability;
 pub mod confirmed_action;
 pub mod execution_policy;
+pub mod execution_request;
 pub mod executor;
 pub mod operation_ledger;
 pub mod operation_ledger_repository;

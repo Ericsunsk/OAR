@@ -59,10 +59,20 @@ fn confirmed_action_execution_queue_is_tenant_scoped_and_ordered() {
 
     assert!(sql.contains("from operation_ledger"));
     assert!(sql.contains("join confirmed_actions"));
+    assert!(sql.contains("join proposed_action_decisions"));
+    assert!(sql.contains("join proposed_actions"));
+    assert!(sql.contains("left join lateral"));
+    assert!(sql.contains("from proposed_action_evidence_refs"));
     assert!(sql.contains("confirmed_actions.idempotency_key = operation_ledger.idempotency_key"));
+    assert!(
+        sql.contains("proposed_action_decisions.confirmed_action_id = confirmed_actions.action_id")
+    );
+    assert!(sql.contains("proposed_actions.id = proposed_action_decisions.proposed_action_id"));
     assert!(sql.contains("operation_ledger.tenant_id = $1"));
     assert!(sql.contains("operation_ledger.status = 'confirmed'"));
     assert!(sql.contains("confirmed_actions.status = 'confirmed'"));
+    assert!(sql.contains("proposed_action_decisions.decision in ('confirm', 'edit_then_confirm')"));
+    assert!(sql.contains("array_agg(proposed_action_evidence_refs.evidence_id"));
     assert!(sql.contains("order by operation_ledger.created_at asc"));
     assert!(sql.contains("limit $2"));
 }

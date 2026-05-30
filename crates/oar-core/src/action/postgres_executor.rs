@@ -2,6 +2,7 @@ use super::audit_event::{AuditEvent, AuditStateSummary};
 use super::audit_trace::AuditTrace;
 use super::confirmed_action::{ActionStatus, ConfirmedAction};
 use super::execution_policy::{ActionActorBinding, ExecutionDenied, ExecutionPolicy};
+use super::execution_request::ConfirmedExecutionRequest;
 use super::executor::{
     action_audit_trace, safe_denial_message, ActionAdapter, AdapterError, ExecutionError,
     ExecutionReport, PolicyDenialReport,
@@ -46,10 +47,11 @@ where
         }
     }
 
-    pub async fn execute_confirmed_action(
+    pub async fn execute_confirmed_request(
         &mut self,
-        action: &ConfirmedAction,
+        request: &ConfirmedExecutionRequest,
     ) -> Result<ExecutionReport, ExecutionError> {
+        let action = request.action();
         let mut trace = action_audit_trace(action);
         let mut events = Vec::new();
         let confirmed_event = self.event_confirmed(&mut trace, action);
@@ -87,7 +89,7 @@ where
             events.push(confirmed_event);
         }
 
-        let dry_run = self.adapter.dry_run(action)?;
+        let dry_run = self.adapter.dry_run(request)?;
         let dry_run_event = self.event_dry_run(&mut trace, dry_run.before, dry_run.after);
         let dry_run_outbox = self.outbox_for(action, &dry_run_event);
         let dry_run_at_ms = self.now_ms();
@@ -122,7 +124,7 @@ where
             events.push(dry_run_event);
         }
 
-        match self.adapter.execute(action) {
+        match self.adapter.execute(request) {
             Ok(execution) => {
                 let succeeded_event = self.event_succeeded(
                     &mut trace,
@@ -181,15 +183,16 @@ where
         }
     }
 
-    pub async fn execute_confirmed_action_with_policy(
+    pub async fn execute_confirmed_request_with_policy(
         &mut self,
-        action: &ConfirmedAction,
+        request: &ConfirmedExecutionRequest,
         action_type: &str,
         required_scope: &str,
         actor_binding: &ActionActorBinding,
         grant: &TokenGrant,
         policy: &ExecutionPolicy,
     ) -> Result<ExecutionReport, ExecutionError> {
+        let action = request.action();
         if let Err(denial) =
             policy.evaluate(action, action_type, required_scope, grant, actor_binding)
         {
@@ -205,7 +208,7 @@ where
             }));
         }
 
-        self.execute_confirmed_action(action).await
+        self.execute_confirmed_request(request).await
     }
 
     pub fn adapter(&self) -> &A {

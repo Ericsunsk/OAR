@@ -250,9 +250,9 @@ pub struct StoredReviewInboxLedgerEvent {
     pub idempotency_key: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StoredPendingConfirmedAction {
-    pub action: ConfirmedAction,
+    pub request: crate::action::execution_request::ConfirmedExecutionRequest,
     pub operation: OperationRecord,
 }
 

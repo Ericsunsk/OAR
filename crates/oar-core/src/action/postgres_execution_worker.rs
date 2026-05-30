@@ -73,7 +73,7 @@ where
         };
 
         for item in pending {
-            match self.executor.execute_confirmed_action(&item.action).await {
+            match self.executor.execute_confirmed_request(&item.request).await {
                 Ok(execution) => {
                     if execution.duplicate {
                         report.duplicate += 1;

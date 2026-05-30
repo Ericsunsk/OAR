@@ -7,15 +7,41 @@ use oar_core::action::audit_event::{AuditEvent, AuditEventType};
 use oar_core::action::capability::all_capabilities;
 use oar_core::action::confirmed_action::ConfirmedAction;
 use oar_core::action::execution_policy::{ActionActorBinding, ExecutionPolicy};
+use oar_core::action::execution_request::{ConfirmedExecutionDecision, ConfirmedExecutionRequest};
 use oar_core::action::executor::{ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution};
 use oar_core::domain::identity::{
     ActorKind, LarkIdentityId, OAuthTokens, ScopeBoundary, SecretString, TenantId, TokenGrant,
     TokenGrantId, TokenGrantState,
 };
+use oar_core::domain::proposed_action::ProposedActionKind;
+use serde_json::json;
 
 pub fn confirmed_action(idempotency_key: &str) -> ConfirmedAction {
     ConfirmedAction::proposed("action-1", "tenant-1", "user-1", idempotency_key)
         .confirm(SystemTime::UNIX_EPOCH)
+}
+
+pub fn okr_progress_execution_request(idempotency_key: &str) -> ConfirmedExecutionRequest {
+    ConfirmedExecutionRequest {
+        confirmed_action: confirmed_action(idempotency_key),
+        proposed_action_id: "action-1".to_string(),
+        proposed_action_version: 1,
+        action_kind: ProposedActionKind::UpdateKrProgress,
+        target_user_id: Some("user-1".to_string()),
+        owner_user_id: None,
+        evidence_ids: vec!["evidence-1".to_string()],
+        effective_payload: json!({
+            "target": {
+                "objective_id": "objective_mock_alpha",
+                "kr_id": "kr_mock_beta"
+            },
+            "mutation": {
+                "progress_delta": 5,
+                "note": "weekly check-in"
+            }
+        }),
+        decision: ConfirmedExecutionDecision::Confirm,
+    }
 }
 
 pub fn token_grant(scopes: &[&str], state: TokenGrantState) -> TokenGrant {
@@ -95,7 +121,10 @@ impl MockAdapter {
 }
 
 impl ActionAdapter for MockAdapter {
-    fn dry_run(&mut self, _action: &ConfirmedAction) -> Result<AdapterDryRun, AdapterError> {
+    fn dry_run(
+        &mut self,
+        _request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterDryRun, AdapterError> {
         self.state.borrow_mut().dry_run_calls += 1;
         Ok(AdapterDryRun {
             before: Some(AuditStateSummary {
@@ -111,7 +140,10 @@ impl ActionAdapter for MockAdapter {
         })
     }
 
-    fn execute(&mut self, _action: &ConfirmedAction) -> Result<AdapterExecution, AdapterError> {
+    fn execute(
+        &mut self,
+        _request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterExecution, AdapterError> {
         let mut state = self.state.borrow_mut();
         state.execute_calls += 1;
         if let Some(error) = state.execute_error.clone() {

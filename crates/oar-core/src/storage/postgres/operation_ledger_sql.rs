@@ -95,15 +95,43 @@ SELECT
     floor(extract(epoch from confirmed_actions.confirmed_at) * 1000)::bigint AS confirmed_at_ms,
     operation_ledger.operation_id,
     operation_ledger.status,
-    operation_ledger.last_error
+    operation_ledger.last_error,
+    proposed_actions.id AS proposed_action_id,
+    proposed_actions.version AS proposed_action_version,
+    proposed_actions.kind AS proposed_action_kind,
+    proposed_actions.custom_kind AS proposed_action_custom_kind,
+    proposed_actions.target_user_id,
+    proposed_actions.owner_user_id,
+    proposed_actions.suggested_payload,
+    proposed_action_decisions.decision AS proposed_action_decision,
+    proposed_action_decisions.edited_payload,
+    evidence_refs.evidence_ids
 FROM operation_ledger
 JOIN confirmed_actions
   ON confirmed_actions.tenant_id = operation_ledger.tenant_id
  AND confirmed_actions.action_id = operation_ledger.action_id
  AND confirmed_actions.idempotency_key = operation_ledger.idempotency_key
+JOIN proposed_action_decisions
+  ON proposed_action_decisions.tenant_id = confirmed_actions.tenant_id
+ AND proposed_action_decisions.confirmed_action_id = confirmed_actions.action_id
+JOIN proposed_actions
+  ON proposed_actions.tenant_id = proposed_action_decisions.tenant_id
+ AND proposed_actions.id = proposed_action_decisions.proposed_action_id
+ AND proposed_actions.version = proposed_action_decisions.proposed_action_version
+LEFT JOIN LATERAL (
+    SELECT COALESCE(
+        array_agg(proposed_action_evidence_refs.evidence_id ORDER BY proposed_action_evidence_refs.evidence_id),
+        ARRAY[]::text[]
+    ) AS evidence_ids
+    FROM proposed_action_evidence_refs
+    WHERE proposed_action_evidence_refs.tenant_id = proposed_actions.tenant_id
+      AND proposed_action_evidence_refs.proposed_action_id = proposed_actions.id
+      AND proposed_action_evidence_refs.proposed_action_version = proposed_actions.version
+) evidence_refs ON TRUE
 WHERE operation_ledger.tenant_id = $1
   AND operation_ledger.status = 'confirmed'
   AND confirmed_actions.status = 'confirmed'
+  AND proposed_action_decisions.decision IN ('confirm', 'edit_then_confirm')
 ORDER BY operation_ledger.created_at ASC, operation_ledger.operation_id ASC
 LIMIT $2
 "#;

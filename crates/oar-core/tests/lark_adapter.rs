@@ -1,10 +1,13 @@
 use std::time::SystemTime;
 
 use oar_core::action::confirmed_action::ConfirmedAction;
+use oar_core::action::execution_request::{ConfirmedExecutionDecision, ConfirmedExecutionRequest};
+use oar_core::domain::proposed_action::ProposedActionKind;
 use oar_core::lark::adapter::{
     LarkAdapter, LarkAdapterError, LarkExecutionMode, LarkExecutionRequest, MockLarkAdapter,
     ProgressMutation, ProgressMutationKind,
 };
+use serde_json::json;
 
 fn request(idempotency_key: &str) -> LarkExecutionRequest {
     let action = ConfirmedAction::proposed(
@@ -27,6 +30,26 @@ fn request(idempotency_key: &str) -> LarkExecutionRequest {
     }
 }
 
+fn execution_request(payload: serde_json::Value) -> ConfirmedExecutionRequest {
+    ConfirmedExecutionRequest {
+        confirmed_action: ConfirmedAction::proposed(
+            "action-mock-1",
+            "tenant-mock-1",
+            "user-mock-1",
+            "idem-execution-request",
+        )
+        .confirm(SystemTime::UNIX_EPOCH),
+        proposed_action_id: "proposed-mock-1".to_string(),
+        proposed_action_version: 1,
+        action_kind: ProposedActionKind::UpdateKrProgress,
+        target_user_id: Some("user-mock-1".to_string()),
+        owner_user_id: None,
+        evidence_ids: vec!["evidence-mock-1".to_string()],
+        effective_payload: payload,
+        decision: ConfirmedExecutionDecision::Confirm,
+    }
+}
+
 #[test]
 fn dry_run_returns_structured_non_sensitive_summary() {
     let adapter = MockLarkAdapter::succeeding();
@@ -39,6 +62,45 @@ fn dry_run_returns_structured_non_sensitive_summary() {
     assert!(summary.accepted);
     assert_eq!(summary.resource_hint, "objectiv:kr_mock_");
     assert_eq!(summary.message, "dry-run accepted");
+}
+
+#[test]
+fn progress_mutation_is_decoded_from_execution_request_payload() {
+    let mutation = ProgressMutation::from_execution_request(&execution_request(json!({
+        "target": {
+            "objective_id": "objective_mock_alpha",
+            "kr_id": "kr_mock_beta"
+        },
+        "mutation": {
+            "progress_delta": 5,
+            "note": "weekly check-in"
+        }
+    })))
+    .unwrap();
+
+    assert_eq!(mutation.kind, ProgressMutationKind::Update);
+    assert_eq!(mutation.objective_id, "objective_mock_alpha");
+    assert_eq!(mutation.key_result_id, "kr_mock_beta");
+    assert_eq!(mutation.progress_delta, 5);
+    assert_eq!(mutation.note.as_deref(), Some("weekly check-in"));
+}
+
+#[test]
+fn progress_mutation_rejects_payload_without_mutation() {
+    let err = ProgressMutation::from_execution_request(&execution_request(json!({
+        "target": {
+            "objective_id": "objective_mock_alpha",
+            "kr_id": "kr_mock_beta"
+        }
+    })))
+    .unwrap_err();
+
+    assert_eq!(
+        err,
+        LarkAdapterError::UnsupportedAction {
+            reason: "missing progress mutation".to_string(),
+        }
+    );
 }
 
 #[test]

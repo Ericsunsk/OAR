@@ -80,6 +80,11 @@ pub enum PostgresRepositoryError {
         from: ActionStatus,
         to: ActionStatus,
     },
+    #[error("invalid execution queue row for {field}: {reason}")]
+    InvalidExecutionQueueRow {
+        field: &'static str,
+        reason: &'static str,
+    },
     #[error("unknown operation idempotency key: {0}")]
     UnknownOperationIdempotencyKey(String),
     #[error(

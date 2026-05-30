@@ -225,9 +225,9 @@ mod postgres_feature_api_contract {
             PostgresReviewInboxRepository::load_review_decision_context;
         let _record_review_decision = PostgresReviewDecisionRecorder::record_decision;
         let _execute =
-            PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action;
+            PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_request;
         let _execute_with_policy =
-            PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_action_with_policy;
+            PostgresActionExecutor::<MockLarkAdapter, fn() -> u64>::execute_confirmed_request_with_policy;
         let _upsert_grant = PostgresTokenGrantRepository::upsert_encrypted_grant;
         let _get_grant = PostgresTokenGrantRepository::get_by_id;
         let _apply_refresh_command = PostgresTokenGrantRepository::apply_refresh_command;

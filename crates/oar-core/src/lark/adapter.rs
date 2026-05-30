@@ -1,6 +1,8 @@
 use crate::action::audit_event::AuditStateSummary;
 use crate::action::confirmed_action::ConfirmedAction;
+use crate::action::execution_request::ConfirmedExecutionRequest;
 use crate::action::executor::{ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution};
+use crate::domain::proposed_action::ProposedActionKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgressMutationKind {
@@ -112,6 +114,67 @@ impl MockLarkAdapter {
     }
 }
 
+impl ProgressMutation {
+    pub fn from_execution_request(
+        request: &ConfirmedExecutionRequest,
+    ) -> Result<Self, LarkAdapterError> {
+        let kind = match &request.action_kind {
+            ProposedActionKind::CreateKrProgress => ProgressMutationKind::Create,
+            ProposedActionKind::UpdateKrProgress => ProgressMutationKind::Update,
+            _ => {
+                return Err(LarkAdapterError::UnsupportedAction {
+                    reason: "unsupported action kind".to_string(),
+                });
+            }
+        };
+        let target = request.effective_payload.get("target").ok_or_else(|| {
+            LarkAdapterError::UnsupportedAction {
+                reason: "missing progress target".to_string(),
+            }
+        })?;
+        let objective_id = target
+            .get("objective_id")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| LarkAdapterError::UnsupportedAction {
+                reason: "missing objective id".to_string(),
+            })?;
+        let key_result_id = target
+            .get("kr_id")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| LarkAdapterError::UnsupportedAction {
+                reason: "missing key result id".to_string(),
+            })?;
+        let mutation = request.effective_payload.get("mutation").ok_or_else(|| {
+            LarkAdapterError::UnsupportedAction {
+                reason: "missing progress mutation".to_string(),
+            }
+        })?;
+        let progress_delta = mutation
+            .get("progress_delta")
+            .and_then(|value| value.as_i64())
+            .and_then(|value| i32::try_from(value).ok())
+            .ok_or_else(|| LarkAdapterError::UnsupportedAction {
+                reason: "invalid progress delta".to_string(),
+            })?;
+        let note = mutation
+            .get("note")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        Ok(Self {
+            kind,
+            objective_id: objective_id.to_string(),
+            key_result_id: key_result_id.to_string(),
+            progress_delta,
+            note,
+        })
+    }
+}
+
 impl LarkAdapter for MockLarkAdapter {
     fn dry_run(
         &self,
@@ -135,16 +198,13 @@ impl LarkAdapter for MockLarkAdapter {
 }
 
 impl ActionAdapter for MockLarkAdapter {
-    fn dry_run(&mut self, action: &ConfirmedAction) -> Result<AdapterDryRun, AdapterError> {
+    fn dry_run(
+        &mut self,
+        request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterDryRun, AdapterError> {
         let request = LarkExecutionRequest {
-            confirmed_action: action.clone(),
-            mutation: ProgressMutation {
-                kind: ProgressMutationKind::Update,
-                objective_id: "objective_mock_alpha".to_string(),
-                key_result_id: "kr_mock_beta".to_string(),
-                progress_delta: 5,
-                note: Some("weekly check-in".to_string()),
-            },
+            confirmed_action: request.confirmed_action.clone(),
+            mutation: ProgressMutation::from_execution_request(request)?,
         };
         let summary = LarkAdapter::dry_run(self, &request).map_err(AdapterError::from)?;
         Ok(AdapterDryRun {
@@ -157,16 +217,13 @@ impl ActionAdapter for MockLarkAdapter {
         })
     }
 
-    fn execute(&mut self, action: &ConfirmedAction) -> Result<AdapterExecution, AdapterError> {
+    fn execute(
+        &mut self,
+        request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterExecution, AdapterError> {
         let request = LarkExecutionRequest {
-            confirmed_action: action.clone(),
-            mutation: ProgressMutation {
-                kind: ProgressMutationKind::Update,
-                objective_id: "objective_mock_alpha".to_string(),
-                key_result_id: "kr_mock_beta".to_string(),
-                progress_delta: 5,
-                note: Some("weekly check-in".to_string()),
-            },
+            confirmed_action: request.confirmed_action.clone(),
+            mutation: ProgressMutation::from_execution_request(request)?,
         };
         let summary = LarkAdapter::execute(self, &request).map_err(AdapterError::from)?;
         Ok(AdapterExecution {

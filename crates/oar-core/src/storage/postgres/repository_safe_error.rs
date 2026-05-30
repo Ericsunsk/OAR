@@ -61,6 +61,7 @@ pub fn postgres_repository_safe_error_reason(error: &PostgresRepositoryError) ->
         PostgresRepositoryError::InvalidOperationStatusTransition { .. } => {
             "invalid_operation_status_transition"
         }
+        PostgresRepositoryError::InvalidExecutionQueueRow { .. } => "invalid_execution_queue_row",
         PostgresRepositoryError::UnknownOperationIdempotencyKey(_) => {
             "unknown_operation_idempotency_key"
         }
@@ -125,6 +126,19 @@ mod tests {
         assert_eq!(
             postgres_repository_safe_error("tenant_maintenance_stage_failed", &error),
             "tenant_maintenance_stage_failed: unknown_tenant_status"
+        );
+    }
+
+    #[test]
+    fn postgres_repository_safe_error_reason_handles_invalid_execution_queue_rows() {
+        let error = PostgresRepositoryError::InvalidExecutionQueueRow {
+            field: "edited_payload",
+            reason: "raw corrupted row detail",
+        };
+
+        assert_eq!(
+            postgres_repository_safe_error_reason(&error),
+            "invalid_execution_queue_row"
         );
     }
 }

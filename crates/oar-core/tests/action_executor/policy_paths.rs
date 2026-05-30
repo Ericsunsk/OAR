@@ -7,8 +7,8 @@ use oar_core::action::executor::{ActionExecutor, ExecutionError};
 use oar_core::domain::identity::TokenGrantState;
 
 use crate::common::{
-    actor_binding, assert_success_event_sequence, confirmed_action, okr_progress_write_policy,
-    token_grant, MockAdapter,
+    actor_binding, assert_success_event_sequence, okr_progress_execution_request,
+    okr_progress_write_policy, token_grant, MockAdapter,
 };
 
 #[test]
@@ -17,13 +17,14 @@ fn policy_denied_action_does_not_call_adapter_or_mark_success_and_records_safe_r
     let mut ticks = VecDeque::from([7_u64, 8, 9]);
     let mut executor =
         ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
-    let action = confirmed_action("idem-policy-denied-1");
+    let request = okr_progress_execution_request("idem-policy-denied-1");
+    let action = request.action().clone();
     let policy = okr_progress_write_policy();
     let grant = token_grant(&["offline_access"], TokenGrantState::Valid);
     let binding = actor_binding("user-1");
 
-    let result = executor.execute_confirmed_action_with_policy(
-        &action,
+    let result = executor.execute_confirmed_request_with_policy(
+        &request,
         "okr.progress.update",
         "okr.progress.write",
         &binding,
@@ -90,14 +91,14 @@ fn allowed_policy_preserves_happy_path_execution() {
     let mut ticks = VecDeque::from([11_u64, 22, 33]);
     let mut executor =
         ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
-    let action = confirmed_action("idem-policy-allow-1");
+    let request = okr_progress_execution_request("idem-policy-allow-1");
     let policy = okr_progress_write_policy();
     let grant = token_grant(&["okr.progress.write"], TokenGrantState::Valid);
     let binding = actor_binding("user-1");
 
     let report = executor
-        .execute_confirmed_action_with_policy(
-            &action,
+        .execute_confirmed_request_with_policy(
+            &request,
             "okr.progress.update",
             "okr.progress.write",
             &binding,

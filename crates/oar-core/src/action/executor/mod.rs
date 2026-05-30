@@ -11,6 +11,7 @@ use crate::action::audit_event::{AuditEvent, AuditStateSummary};
 use crate::action::audit_repository::{AuditEventRepository, InMemoryAuditEventRepository};
 use crate::action::confirmed_action::{ActionStatus, ConfirmedAction};
 use crate::action::execution_policy::{ActionActorBinding, ExecutionDenied, ExecutionPolicy};
+use crate::action::execution_request::ConfirmedExecutionRequest;
 use crate::action::operation_ledger::{OperationRecord, SubmitResult};
 use crate::action::operation_ledger_repository::{
     InMemoryOperationLedgerRepository, OperationLedgerRepository,
@@ -24,8 +25,14 @@ pub use result::{ExecutionError, ExecutionReport, PolicyDenialReport};
 pub(crate) use trace::action_audit_trace;
 
 pub trait ActionAdapter {
-    fn dry_run(&mut self, action: &ConfirmedAction) -> Result<AdapterDryRun, AdapterError>;
-    fn execute(&mut self, action: &ConfirmedAction) -> Result<AdapterExecution, AdapterError>;
+    fn dry_run(
+        &mut self,
+        request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterDryRun, AdapterError>;
+    fn execute(
+        &mut self,
+        request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterExecution, AdapterError>;
 }
 
 pub struct ActionExecutor<
@@ -86,31 +93,33 @@ where
         }
     }
 
-    pub fn execute_confirmed_action(
+    pub fn execute_confirmed_request(
         &mut self,
-        action: &ConfirmedAction,
+        request: &ConfirmedExecutionRequest,
     ) -> Result<ExecutionReport, ExecutionError> {
+        let action = request.action();
         match self.ledger.submit_confirmed_action(action)? {
-            SubmitResult::Created(created) => self.run_from_submitted(action, created),
+            SubmitResult::Created(created) => self.run_from_submitted(request, created),
             SubmitResult::Existing(existing) if is_terminal_status(existing.status) => {
                 Ok(self.duplicate_report(existing))
             }
             SubmitResult::Existing(existing) if existing.status == ActionStatus::Executing => {
                 Ok(self.duplicate_report(existing))
             }
-            SubmitResult::Existing(existing) => self.run_from_submitted(action, existing),
+            SubmitResult::Existing(existing) => self.run_from_submitted(request, existing),
         }
     }
 
-    pub fn execute_confirmed_action_with_policy(
+    pub fn execute_confirmed_request_with_policy(
         &mut self,
-        action: &ConfirmedAction,
+        request: &ConfirmedExecutionRequest,
         action_type: &str,
         required_scope: &str,
         actor_binding: &ActionActorBinding,
         grant: &TokenGrant,
         policy: &ExecutionPolicy,
     ) -> Result<ExecutionReport, ExecutionError> {
+        let action = request.action();
         if let Err(denial) =
             policy.evaluate(action, action_type, required_scope, grant, actor_binding)
         {
@@ -123,7 +132,7 @@ where
             }));
         }
 
-        self.execute_confirmed_action(action)
+        self.execute_confirmed_request(request)
     }
 
     pub fn ledger(&self) -> &L {
@@ -140,19 +149,20 @@ where
 
     fn run_from_submitted(
         &mut self,
-        action: &ConfirmedAction,
+        request: &ConfirmedExecutionRequest,
         submitted: OperationRecord,
     ) -> Result<ExecutionReport, ExecutionError> {
+        let action = request.action();
         let mut trace = action_audit_trace(action);
         let mut events = Vec::new();
 
         if submitted.status == ActionStatus::Confirmed {
             self.record_confirmed(action, &mut trace, &mut events)?;
-            self.record_dry_run(action, &mut trace, &mut events)?;
+            self.record_dry_run(request, &mut trace, &mut events)?;
             self.ledger.mark_executing(&action.idempotency_key)?;
         }
 
-        let execute_result = self.adapter.execute(action);
+        let execute_result = self.adapter.execute(request);
         let operation = match execute_result {
             Ok(execution) => {
                 let record = self.ledger.mark_succeeded(&action.idempotency_key)?;
@@ -203,11 +213,11 @@ where
 
     fn record_dry_run(
         &mut self,
-        action: &ConfirmedAction,
+        request: &ConfirmedExecutionRequest,
         trace: &mut crate::action::audit_trace::AuditTrace,
         events: &mut Vec<AuditEvent>,
     ) -> Result<(), ExecutionError> {
-        let dry_run = self.adapter.dry_run(action)?;
+        let dry_run = self.adapter.dry_run(request)?;
         let dry_run_event = self.event_dry_run(trace, dry_run.before, dry_run.after);
         self.record_event(events, dry_run_event)
     }

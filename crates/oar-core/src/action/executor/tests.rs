@@ -2,6 +2,9 @@ use std::time::SystemTime;
 
 use crate::action::audit_event::AuditEventType;
 use crate::action::confirmed_action::ConfirmedAction;
+use crate::action::execution_request::{ConfirmedExecutionDecision, ConfirmedExecutionRequest};
+use crate::domain::proposed_action::ProposedActionKind;
+use serde_json::json;
 
 use super::{ActionAdapter, ActionExecutor, AdapterDryRun, AdapterError, AdapterExecution};
 
@@ -11,15 +14,44 @@ struct FailingAdapter {
     message: String,
 }
 
+fn execution_request(idempotency_key: &str) -> ConfirmedExecutionRequest {
+    ConfirmedExecutionRequest {
+        confirmed_action: ConfirmedAction::proposed("act-1", "tenant-1", "user-1", idempotency_key)
+            .confirm(SystemTime::UNIX_EPOCH),
+        proposed_action_id: "act-1".to_string(),
+        proposed_action_version: 1,
+        action_kind: ProposedActionKind::UpdateKrProgress,
+        target_user_id: Some("user-1".to_string()),
+        owner_user_id: None,
+        evidence_ids: vec!["evidence-1".to_string()],
+        effective_payload: json!({
+            "target": {
+                "objective_id": "objective-1",
+                "kr_id": "kr-1"
+            },
+            "mutation": {
+                "progress_delta": 1
+            }
+        }),
+        decision: ConfirmedExecutionDecision::Confirm,
+    }
+}
+
 impl ActionAdapter for FailingAdapter {
-    fn dry_run(&mut self, _action: &ConfirmedAction) -> Result<AdapterDryRun, AdapterError> {
+    fn dry_run(
+        &mut self,
+        _request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterDryRun, AdapterError> {
         Ok(AdapterDryRun {
             before: None,
             after: None,
         })
     }
 
-    fn execute(&mut self, _action: &ConfirmedAction) -> Result<AdapterExecution, AdapterError> {
+    fn execute(
+        &mut self,
+        _request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterExecution, AdapterError> {
         Err(AdapterError::from_safe_message(
             self.code.clone(),
             self.message.clone(),
@@ -57,8 +89,7 @@ fn adapter_error_debug_redacts_safe_message() {
 
 #[test]
 fn execution_failure_records_safe_message_only() {
-    let action = ConfirmedAction::proposed("act-1", "tenant-1", "user-1", "idem-1")
-        .confirm(SystemTime::UNIX_EPOCH);
+    let request = execution_request("idem-1");
     let adapter = FailingAdapter {
         code: "execution failed".to_string(),
         message: "stderr: Authorization: Bearer at_secret_value".to_string(),
@@ -66,7 +97,7 @@ fn execution_failure_records_safe_message_only() {
     let mut executor = ActionExecutor::with_clock(adapter, || 1_u64);
 
     let report = executor
-        .execute_confirmed_action(&action)
+        .execute_confirmed_request(&request)
         .expect("execution should return report");
 
     assert_eq!(

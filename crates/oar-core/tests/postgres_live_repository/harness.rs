@@ -16,6 +16,9 @@ pub(crate) use oar_core::action::confirmed_action::{ActionStatus, ConfirmedActio
 pub(crate) use oar_core::action::execution_policy::{
     ActionActorBinding, ExecutionDenied, ExecutionPolicy,
 };
+pub(crate) use oar_core::action::execution_request::{
+    ConfirmedExecutionDecision, ConfirmedExecutionRequest,
+};
 pub(crate) use oar_core::action::executor::{
     ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution, ExecutionError,
 };
@@ -126,7 +129,10 @@ impl LiveMockAdapter {
 }
 
 impl ActionAdapter for LiveMockAdapter {
-    fn dry_run(&mut self, _action: &ConfirmedAction) -> Result<AdapterDryRun, AdapterError> {
+    fn dry_run(
+        &mut self,
+        _request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterDryRun, AdapterError> {
         self.state.lock().expect("adapter mutex").dry_run_calls += 1;
         Ok(AdapterDryRun {
             before: Some(summary("before")),
@@ -134,7 +140,10 @@ impl ActionAdapter for LiveMockAdapter {
         })
     }
 
-    fn execute(&mut self, _action: &ConfirmedAction) -> Result<AdapterExecution, AdapterError> {
+    fn execute(
+        &mut self,
+        _request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterExecution, AdapterError> {
         let mut state = self.state.lock().expect("adapter mutex");
         state.execute_calls += 1;
         if let Some(error) = state.execute_error.clone() {
@@ -334,6 +343,29 @@ pub(crate) fn confirmed_action(
 ) -> ConfirmedAction {
     ConfirmedAction::proposed(action_id, tenant_id, actor_user_id, idempotency_key)
         .confirm(SystemTime::UNIX_EPOCH)
+}
+
+pub(crate) fn confirmed_execution_request(action: ConfirmedAction) -> ConfirmedExecutionRequest {
+    ConfirmedExecutionRequest {
+        proposed_action_id: action.action_id.clone(),
+        proposed_action_version: 1,
+        action_kind: ProposedActionKind::UpdateKrProgress,
+        target_user_id: Some(action.actor_user_id.clone()),
+        owner_user_id: None,
+        evidence_ids: vec!["evidence_1".to_string()],
+        effective_payload: json!({
+            "target": {
+                "objective_id": "objective_live_alpha",
+                "kr_id": "kr_live_beta"
+            },
+            "mutation": {
+                "progress_delta": 1,
+                "note": "live executor test"
+            }
+        }),
+        decision: ConfirmedExecutionDecision::Confirm,
+        confirmed_action: action,
+    }
 }
 
 pub(crate) fn actor(actor_id: &str) -> AuditActor {

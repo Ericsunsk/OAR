@@ -8,7 +8,7 @@ use oar_core::action::operation_ledger::SubmitResult;
 use oar_core::action::operation_ledger_repository::InMemoryOperationLedgerRepository;
 use oar_core::lark::adapter::MockLarkAdapter;
 
-use crate::common::{assert_success_event_sequence, confirmed_action, MockAdapter};
+use crate::common::{assert_success_event_sequence, okr_progress_execution_request, MockAdapter};
 
 #[test]
 fn executes_confirmed_action_through_ledger_adapter_and_audit() {
@@ -16,9 +16,9 @@ fn executes_confirmed_action_through_ledger_adapter_and_audit() {
     let mut ticks = VecDeque::from([10_u64, 20, 30]);
     let mut executor =
         ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
-    let action = confirmed_action("idem-exec-1");
+    let request = okr_progress_execution_request("idem-exec-1");
 
-    let report = executor.execute_confirmed_action(&action).unwrap();
+    let report = executor.execute_confirmed_request(&request).unwrap();
 
     assert!(!report.duplicate);
     assert_eq!(report.operation.status, ActionStatus::Succeeded);
@@ -45,10 +45,10 @@ fn duplicate_terminal_idempotency_key_returns_existing_terminal_result() {
     let mut ticks = VecDeque::from([1_u64, 2, 3, 4, 5, 6]);
     let mut executor =
         ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
-    let action = confirmed_action("idem-dup-1");
+    let request = okr_progress_execution_request("idem-dup-1");
 
-    let first = executor.execute_confirmed_action(&action).unwrap();
-    let second = executor.execute_confirmed_action(&action).unwrap();
+    let first = executor.execute_confirmed_request(&request).unwrap();
+    let second = executor.execute_confirmed_request(&request).unwrap();
 
     assert_eq!(adapter.dry_run_calls(), 1);
     assert_eq!(adapter.execute_calls(), 1);
@@ -63,7 +63,8 @@ fn duplicate_terminal_idempotency_key_returns_existing_terminal_result() {
 fn resumes_from_existing_confirmed_record_without_recreating_operation() {
     let adapter = MockAdapter::new();
     let mut ticks = VecDeque::from([11_u64, 12, 13]);
-    let action = confirmed_action("idem-resume-confirmed");
+    let request = okr_progress_execution_request("idem-resume-confirmed");
+    let action = request.action().clone();
     let ledger = InMemoryOperationLedgerRepository::new();
     let created = ledger.submit_confirmed_action(&action).unwrap();
     let expected_operation_id = match created {
@@ -77,7 +78,7 @@ fn resumes_from_existing_confirmed_record_without_recreating_operation() {
         InMemoryAuditEventRepository::new(),
     );
 
-    let report = executor.execute_confirmed_action(&action).unwrap();
+    let report = executor.execute_confirmed_request(&request).unwrap();
 
     assert!(!report.duplicate);
     assert_eq!(report.operation.operation_id, expected_operation_id);
@@ -90,7 +91,8 @@ fn resumes_from_existing_confirmed_record_without_recreating_operation() {
 #[test]
 fn existing_executing_record_is_reported_as_inflight_duplicate() {
     let adapter = MockAdapter::new();
-    let action = confirmed_action("idem-resume-executing");
+    let request = okr_progress_execution_request("idem-resume-executing");
+    let action = request.action().clone();
     let ledger = InMemoryOperationLedgerRepository::new();
     ledger.submit_confirmed_action(&action).unwrap();
     ledger.mark_executing(&action.idempotency_key).unwrap();
@@ -102,7 +104,7 @@ fn existing_executing_record_is_reported_as_inflight_duplicate() {
         InMemoryAuditEventRepository::new(),
     );
 
-    let report = executor.execute_confirmed_action(&action).unwrap();
+    let report = executor.execute_confirmed_request(&request).unwrap();
 
     assert!(report.duplicate);
     assert_eq!(report.operation.status, ActionStatus::Executing);
@@ -117,9 +119,9 @@ fn execute_failure_marks_ledger_failed_and_emits_failure_event() {
     let mut ticks = VecDeque::from([100_u64, 200, 300]);
     let mut executor =
         ActionExecutor::with_clock(adapter.clone(), move || ticks.pop_front().unwrap_or(999));
-    let action = confirmed_action("idem-fail-1");
+    let request = okr_progress_execution_request("idem-fail-1");
 
-    let report = executor.execute_confirmed_action(&action).unwrap();
+    let report = executor.execute_confirmed_request(&request).unwrap();
 
     assert_eq!(adapter.dry_run_calls(), 1);
     assert_eq!(adapter.execute_calls(), 1);
@@ -150,9 +152,9 @@ fn mock_lark_adapter_runs_through_action_executor() {
     let mut ticks = VecDeque::from([1_000_u64, 2_000, 3_000]);
     let mut executor =
         ActionExecutor::with_clock(adapter, move || ticks.pop_front().unwrap_or(9_999));
-    let action = confirmed_action("idem-lark-adapter");
+    let request = okr_progress_execution_request("idem-lark-adapter");
 
-    let report = executor.execute_confirmed_action(&action).unwrap();
+    let report = executor.execute_confirmed_request(&request).unwrap();
 
     assert_eq!(report.operation.status, ActionStatus::Succeeded);
     assert_success_event_sequence(&report.events);
