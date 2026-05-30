@@ -4,6 +4,8 @@ enum ReviewInboxMockData {
     static let reviewItems: [ReviewInboxDisplayItem] = [
         ReviewInboxDisplayItem(
             id: "review-001",
+            proposedActionID: "act-001",
+            proposedActionVersion: 1,
             objectiveTitle: "扩大企业试点采用",
             keyResultTitle: "激活 12 个合格试点团队",
             ownerName: "陈敏",
@@ -17,6 +19,8 @@ enum ReviewInboxMockData {
         ),
         ReviewInboxDisplayItem(
             id: "review-002",
+            proposedActionID: "act-003",
+            proposedActionVersion: 1,
             objectiveTitle: "提升新用户接入稳定性",
             keyResultTitle: "首轮配置失败率降至 4% 以下",
             ownerName: "周然",
@@ -30,6 +34,8 @@ enum ReviewInboxMockData {
         ),
         ReviewInboxDisplayItem(
             id: "review-003",
+            proposedActionID: "act-004",
+            proposedActionVersion: 1,
             objectiveTitle: "稳定复盘执行系统",
             keyResultTitle: "动作审计覆盖率达到 95%",
             ownerName: "赵一",
@@ -43,6 +49,8 @@ enum ReviewInboxMockData {
         ),
         ReviewInboxDisplayItem(
             id: "review-004",
+            proposedActionID: "act-005",
+            proposedActionVersion: 1,
             objectiveTitle: "建立客户复盘节奏",
             keyResultTitle: "完成 8 场设计伙伴复盘",
             ownerName: "林浩",

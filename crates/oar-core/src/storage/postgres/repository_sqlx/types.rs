@@ -250,6 +250,12 @@ pub struct StoredReviewInboxLedgerEvent {
     pub idempotency_key: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredPendingConfirmedAction {
+    pub action: ConfirmedAction,
+    pub operation: OperationRecord,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoredReviewInboxLedgerStage {
     ConfirmedAction,

@@ -13,6 +13,8 @@ private extension ReviewInboxItemDTO {
     var displayModel: ReviewInboxDisplayItem {
         ReviewInboxDisplayItem(
             id: id,
+            proposedActionID: proposedActionID,
+            proposedActionVersion: proposedActionVersion,
             objectiveTitle: objectiveTitle,
             keyResultTitle: keyResultTitle,
             ownerName: ownerDisplayName,

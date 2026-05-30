@@ -84,3 +84,26 @@ FROM operation_ledger
 WHERE tenant_id = $1 AND idempotency_key = $2
 LIMIT 1
 "#;
+
+pub const LIST_CONFIRMED_ACTIONS_READY_FOR_EXECUTION: &str = r#"
+SELECT
+    confirmed_actions.action_id,
+    confirmed_actions.tenant_id,
+    confirmed_actions.actor_user_id,
+    confirmed_actions.idempotency_key,
+    confirmed_actions.status AS action_status,
+    floor(extract(epoch from confirmed_actions.confirmed_at) * 1000)::bigint AS confirmed_at_ms,
+    operation_ledger.operation_id,
+    operation_ledger.status,
+    operation_ledger.last_error
+FROM operation_ledger
+JOIN confirmed_actions
+  ON confirmed_actions.tenant_id = operation_ledger.tenant_id
+ AND confirmed_actions.action_id = operation_ledger.action_id
+ AND confirmed_actions.idempotency_key = operation_ledger.idempotency_key
+WHERE operation_ledger.tenant_id = $1
+  AND operation_ledger.status = 'confirmed'
+  AND confirmed_actions.status = 'confirmed'
+ORDER BY operation_ledger.created_at ASC, operation_ledger.operation_id ASC
+LIMIT $2
+"#;

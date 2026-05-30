@@ -62,6 +62,27 @@ final class ReviewInboxViewModelTests: XCTestCase {
         XCTAssertEqual(model.selectedItem?.id, "review-001")
     }
 
+    func testSelectionPrefersBackendCurrentActionForItem() async {
+        let currentAction = makeSuggestedAction(id: "act-current", reviewItemId: "review-multi", version: 2)
+        let olderAction = makeSuggestedAction(id: "act-older", reviewItemId: "review-multi", version: 1)
+        let model = ReviewInboxViewModel(provider: StaticSnapshotProvider(snapshot: ReviewInboxDisplaySnapshot(
+            items: [
+                makeDisplayItem(
+                    id: "review-multi",
+                    proposedActionID: "act-current",
+                    proposedActionVersion: 2
+                )
+            ],
+            evidence: [],
+            actions: [olderAction, currentAction],
+            ledgerEvents: []
+        )))
+
+        await model.load()
+
+        XCTAssertEqual(model.selectedAction?.id, "act-current")
+    }
+
     func testAgentWorkspaceContextSummarizesCountsRisksAndPendingActions() async {
         let model = ReviewInboxViewModel(provider: MockReviewInboxDataProvider())
         await model.load()
@@ -311,6 +332,8 @@ final class ReviewInboxViewModelTests: XCTestCase {
         let firstSnapshot = ReviewInboxDisplaySnapshot(
             items: [.init(
                 id: "review-old",
+                proposedActionID: "act-old",
+                proposedActionVersion: 1,
                 objectiveTitle: "旧",
                 keyResultTitle: "旧快照",
                 ownerName: "A",
@@ -329,6 +352,8 @@ final class ReviewInboxViewModelTests: XCTestCase {
         let secondSnapshot = ReviewInboxDisplaySnapshot(
             items: [.init(
                 id: "review-new",
+                proposedActionID: "act-new",
+                proposedActionVersion: 1,
                 objectiveTitle: "新",
                 keyResultTitle: "新快照",
                 ownerName: "B",
@@ -377,10 +402,14 @@ private struct StaticSnapshotProvider: ReviewInboxDataProviding {
 
 private func makeDisplayItem(
     id: String,
-    status: ReviewInboxDisplayStatus = .needsConfirmation
+    status: ReviewInboxDisplayStatus = .needsConfirmation,
+    proposedActionID: String = "act-default",
+    proposedActionVersion: UInt64 = 1
 ) -> ReviewInboxDisplayItem {
     ReviewInboxDisplayItem(
         id: id,
+        proposedActionID: proposedActionID,
+        proposedActionVersion: proposedActionVersion,
         objectiveTitle: "目标",
         keyResultTitle: "关键结果",
         ownerName: "负责人",
@@ -397,12 +426,13 @@ private func makeDisplayItem(
 private func makeSuggestedAction(
     id: String,
     reviewItemId: String,
-    gateState: ReviewInboxGateState = .pending
+    gateState: ReviewInboxGateState = .pending,
+    version: UInt64 = 1
 ) -> ReviewInboxSuggestedAction {
     ReviewInboxSuggestedAction(
         id: id,
         reviewItemId: reviewItemId,
-        version: 1,
+        version: version,
         actionType: .updateProgress,
         rationale: "补充进展",
         expectedImpact: "更新一条进展",

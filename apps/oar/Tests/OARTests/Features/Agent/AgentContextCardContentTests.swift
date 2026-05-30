@@ -5,6 +5,8 @@ final class AgentContextCardContentTests: XCTestCase {
     func testContentUsesConversationContextInsteadOfStaleItemAndAction() {
         let staleItem = ReviewInboxDisplayItem(
             id: "review-stale",
+            proposedActionID: "action-stale",
+            proposedActionVersion: 1,
             objectiveTitle: "旧目标",
             keyResultTitle: "旧的 KR 标题",
             ownerName: "旧负责人",

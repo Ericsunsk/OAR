@@ -40,12 +40,12 @@ pub use repository_sqlx::{
     PostgresTokenRefreshOrchestratorReport, PostgresTokenRefreshRecorder,
     PostgresTokenRefreshRecorderReport, PostgresTokenRefreshSweep, PostgresTokenRefreshSweepReport,
     PostgresTokenRefreshSweepRequest, PostgresWorkspaceUserRepository, RotateEncryptedGrantRequest,
-    StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity, StoredProposedAction,
-    StoredProposedActionDecision, StoredProposedActionDecisionKind, StoredReviewDecisionContext,
-    StoredReviewInboxAction, StoredReviewInboxActionDecision, StoredReviewInboxEvidence,
-    StoredReviewInboxItem, StoredReviewInboxLedgerEvent, StoredReviewInboxLedgerStage,
-    StoredReviewInboxLedgerStatus, StoredReviewInboxSnapshot, StoredSchedulerJob, StoredTenant,
-    StoredWorkspaceUser,
+    StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity, StoredPendingConfirmedAction,
+    StoredProposedAction, StoredProposedActionDecision, StoredProposedActionDecisionKind,
+    StoredReviewDecisionContext, StoredReviewInboxAction, StoredReviewInboxActionDecision,
+    StoredReviewInboxEvidence, StoredReviewInboxItem, StoredReviewInboxLedgerEvent,
+    StoredReviewInboxLedgerStage, StoredReviewInboxLedgerStatus, StoredReviewInboxSnapshot,
+    StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
 };
 #[cfg(feature = "postgres")]
 pub use tenant_maintenance::{

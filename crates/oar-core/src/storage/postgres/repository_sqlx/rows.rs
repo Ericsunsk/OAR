@@ -14,10 +14,11 @@ use super::util::{
 use super::{
     AuditActor, AuditEvent, AuditOutboxMessage, AuditScope, AuditTarget, EncryptedTokenGrantRecord,
     OperationRecord, PgRepositoryResult, StoredDeviceSession, StoredEvidenceItem,
-    StoredLarkIdentity, StoredReviewInboxAction, StoredReviewInboxActionDecision,
-    StoredReviewInboxEvidence, StoredReviewInboxItem, StoredReviewInboxLedgerEvent,
-    StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
+    StoredLarkIdentity, StoredPendingConfirmedAction, StoredReviewInboxAction,
+    StoredReviewInboxActionDecision, StoredReviewInboxEvidence, StoredReviewInboxItem,
+    StoredReviewInboxLedgerEvent, StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
 };
+use crate::action::confirmed_action::ConfirmedAction;
 use crate::domain::identity::{TenantId, TokenGrantId};
 use crate::domain::token_refresh::types::TokenRefreshGrantSnapshot;
 use sqlx::postgres::PgRow;
@@ -32,6 +33,26 @@ pub(super) fn operation_record_from_row(row: &PgRow) -> PgRepositoryResult<Opera
         idempotency_key: row.try_get("idempotency_key")?,
         status: action_status_from_db(&status)?,
         last_error: row.try_get("last_error")?,
+    })
+}
+
+pub(super) fn pending_confirmed_action_from_row(
+    row: &PgRow,
+) -> PgRepositoryResult<StoredPendingConfirmedAction> {
+    let status: String = row.try_get("action_status")?;
+    let confirmed_at_ms =
+        optional_non_negative_i64_to_u64(row.try_get("confirmed_at_ms")?, "confirmed_at_ms")?;
+
+    Ok(StoredPendingConfirmedAction {
+        action: ConfirmedAction {
+            action_id: row.try_get("action_id")?,
+            tenant_id: row.try_get("tenant_id")?,
+            actor_user_id: row.try_get("actor_user_id")?,
+            idempotency_key: row.try_get("idempotency_key")?,
+            status: action_status_from_db(&status)?,
+            confirmed_at: confirmed_at_ms.map(ms_to_system_time),
+        },
+        operation: operation_record_from_row(row)?,
     })
 }
 

@@ -91,6 +91,17 @@ impl PostgresOperationLedgerRepository {
         .await
     }
 
+    pub async fn list_confirmed_actions_ready_for_execution(
+        &self,
+        tenant_id: &str,
+        limit: u32,
+    ) -> PgRepositoryResult<Vec<StoredPendingConfirmedAction>> {
+        super::list_confirmed_actions_ready_for_execution_with_executor(
+            &self.pool, tenant_id, limit,
+        )
+        .await
+    }
+
     async fn transition(
         &self,
         transition: super::OperationStatusTransition,

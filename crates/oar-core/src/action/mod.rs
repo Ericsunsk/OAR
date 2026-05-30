@@ -11,4 +11,6 @@ pub mod safety;
 pub mod token_refresh_audit;
 
 #[cfg(feature = "postgres")]
+pub mod postgres_execution_worker;
+#[cfg(feature = "postgres")]
 pub mod postgres_executor;

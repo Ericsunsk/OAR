@@ -13,8 +13,8 @@ use oar_core::storage::postgres::identity_sql::{
     GET_WORKSPACE_USER_BY_ID, UPSERT_LARK_IDENTITY, UPSERT_TENANT, UPSERT_WORKSPACE_USER,
 };
 use oar_core::storage::postgres::operation_ledger_sql::{
-    GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
-    SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
+    GET_BY_IDEMPOTENCY_KEY, LIST_CONFIRMED_ACTIONS_READY_FOR_EXECUTION, MARK_EXECUTING,
+    MARK_FAILED, MARK_SUCCEEDED, SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
 };
 use oar_core::storage::postgres::review_inbox_sql::{
     INSERT_EVIDENCE_ITEM, INSERT_PROPOSED_ACTION, INSERT_PROPOSED_ACTION_DECISION,
@@ -41,6 +41,7 @@ fn compact(sql: &str) -> String {
 #[test]
 fn default_build_exposes_postgres_sql_contract_constants() {
     let operation_sql = compact(SUBMIT_CONFIRMED_ACTION_AND_LEDGER);
+    let execution_queue_sql = compact(LIST_CONFIRMED_ACTIONS_READY_FOR_EXECUTION);
     let transition_sql = compact(MARK_EXECUTING);
     let audit_sql = compact(APPEND_AUDIT_EVENT);
     let claim_outbox_sql = compact(CLAIM_AUDIT_OUTBOX);
@@ -57,6 +58,8 @@ fn default_build_exposes_postgres_sql_contract_constants() {
     assert!(operation_sql.contains("insert into operation_ledger"));
     assert!(operation_sql.contains("true as created"));
     assert!(operation_sql.contains("false as created"));
+    assert!(execution_queue_sql.contains("operation_ledger.status = 'confirmed'"));
+    assert!(execution_queue_sql.contains("join confirmed_actions"));
     assert!(transition_sql.contains("update operation_ledger"));
     assert!(audit_sql.contains("insert into audit_events"));
     assert!(claim_outbox_sql.contains("for update skip locked"));

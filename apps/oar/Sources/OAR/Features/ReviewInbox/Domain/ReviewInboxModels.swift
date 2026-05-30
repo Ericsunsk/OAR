@@ -86,6 +86,8 @@ enum ReviewInboxTimelineStatus: String {
 
 struct ReviewInboxDisplayItem: Identifiable, Equatable {
     let id: String
+    let proposedActionID: String
+    let proposedActionVersion: UInt64
     let objectiveTitle: String
     let keyResultTitle: String
     let ownerName: String

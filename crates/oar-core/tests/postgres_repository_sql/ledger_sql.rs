@@ -1,6 +1,6 @@
 use oar_core::storage::postgres::operation_ledger_sql::{
-    GET_BY_IDEMPOTENCY_KEY, MARK_EXECUTING, MARK_FAILED, MARK_SUCCEEDED,
-    SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
+    GET_BY_IDEMPOTENCY_KEY, LIST_CONFIRMED_ACTIONS_READY_FOR_EXECUTION, MARK_EXECUTING,
+    MARK_FAILED, MARK_SUCCEEDED, SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
 };
 
 use crate::compact;
@@ -51,4 +51,18 @@ fn operation_lookup_is_tenant_scoped() {
     assert!(sql.contains("select operation_id, tenant_id"));
     assert!(sql.contains("where tenant_id = $1 and idempotency_key = $2"));
     assert!(sql.contains("limit 1"));
+}
+
+#[test]
+fn confirmed_action_execution_queue_is_tenant_scoped_and_ordered() {
+    let sql = compact(LIST_CONFIRMED_ACTIONS_READY_FOR_EXECUTION);
+
+    assert!(sql.contains("from operation_ledger"));
+    assert!(sql.contains("join confirmed_actions"));
+    assert!(sql.contains("confirmed_actions.idempotency_key = operation_ledger.idempotency_key"));
+    assert!(sql.contains("operation_ledger.tenant_id = $1"));
+    assert!(sql.contains("operation_ledger.status = 'confirmed'"));
+    assert!(sql.contains("confirmed_actions.status = 'confirmed'"));
+    assert!(sql.contains("order by operation_ledger.created_at asc"));
+    assert!(sql.contains("limit $2"));
 }

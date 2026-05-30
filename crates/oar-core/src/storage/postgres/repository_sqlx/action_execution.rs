@@ -324,6 +324,23 @@ where
     existing.as_ref().map(operation_record_from_row).transpose()
 }
 
+pub(super) async fn list_confirmed_actions_ready_for_execution_with_executor<'e, E>(
+    executor: E,
+    tenant_id: &str,
+    limit: u32,
+) -> PgRepositoryResult<Vec<StoredPendingConfirmedAction>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(LIST_CONFIRMED_ACTIONS_READY_FOR_EXECUTION)
+        .bind(tenant_id)
+        .bind(i64::from(limit))
+        .fetch_all(executor)
+        .await?;
+
+    rows.iter().map(pending_confirmed_action_from_row).collect()
+}
+
 pub(super) fn resolve_transition_miss(
     existing: Option<OperationRecord>,
     transition: OperationStatusTransition,

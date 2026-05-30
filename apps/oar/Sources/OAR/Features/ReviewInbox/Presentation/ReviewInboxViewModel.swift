@@ -83,10 +83,11 @@ final class ReviewInboxViewModel {
 
     var selectedAction: ReviewInboxSuggestedAction? {
         if let selectedActionID,
-           let action = actions.first(where: { $0.id == selectedActionID }) {
+           let action = actionsForSelectedItem.first(where: { $0.id == selectedActionID }) {
             return action
         }
-        return actionsForSelectedItem.first
+        guard let selectedItem else { return nil }
+        return preferredAction(for: selectedItem)
     }
 
     var ledgerForSelectedAction: [ReviewInboxTimelineEvent] {
@@ -154,7 +155,7 @@ final class ReviewInboxViewModel {
 
     func select(_ item: ReviewInboxDisplayItem) {
         selectedItemID = item.id
-        selectedActionID = actions.first { $0.reviewItemId == item.id }?.id
+        selectedActionID = preferredAction(for: item)?.id
         confirmationNote = ""
     }
 
@@ -248,14 +249,27 @@ final class ReviewInboxViewModel {
         return sortedItems.firstIndex(where: { $0.id == selectedItem.id })
     }
 
+    private func preferredAction(for item: ReviewInboxDisplayItem) -> ReviewInboxSuggestedAction? {
+        actions.first {
+            $0.reviewItemId == item.id
+                && $0.id == item.proposedActionID
+                && $0.version == item.proposedActionVersion
+        } ?? actions.first { $0.reviewItemId == item.id }
+    }
+
     private func reconcileSelectionWithCurrentFilter() {
         if selectedItemID == nil || !sortedItems.contains(where: { $0.id == selectedItemID }) {
             selectedItemID = sortedItems.first?.id
         }
 
+        guard let selectedItem else {
+            selectedActionID = nil
+            confirmationNote = ""
+            return
+        }
         let selectedItemActionIDs = Set(actionsForSelectedItem.map(\.id))
         if selectedActionID == nil || !selectedItemActionIDs.contains(selectedActionID ?? "") {
-            selectedActionID = actionsForSelectedItem.first?.id
+            selectedActionID = preferredAction(for: selectedItem)?.id
         }
 
         confirmationNote = ""

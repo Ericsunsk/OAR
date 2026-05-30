@@ -1,4 +1,7 @@
 use super::harness::*;
+use oar_core::action::postgres_execution_worker::{
+    PostgresConfirmedActionDrainConfig, PostgresConfirmedActionWorker,
+};
 
 #[derive(Clone)]
 struct DryRunRaceAdapter {
@@ -195,6 +198,112 @@ fn postgres_live_action_executor_duplicate_retry_skips_adapter_and_side_effects(
             .await?;
         assert_eq!(events.len(), 3);
         assert_eq!(audit_outbox_count(&pool, "tenant_executor_dup").await?, 3);
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_confirmed_action_queue_lists_only_ready_tenant_work() {
+    run_live_postgres_test("confirmed_action_queue_ready", |pool| async move {
+        seed_user(&pool, "tenant_queue_ready", "user_queue_ready").await?;
+        seed_user(&pool, "tenant_queue_other", "user_queue_other").await?;
+
+        let repository = PostgresOperationLedgerRepository::new(pool.clone());
+        let ready = confirmed_action(
+            "action_queue_ready",
+            "tenant_queue_ready",
+            "user_queue_ready",
+            "idem_queue_ready",
+        );
+        let already_executing = confirmed_action(
+            "action_queue_executing",
+            "tenant_queue_ready",
+            "user_queue_ready",
+            "idem_queue_executing",
+        );
+        let other_tenant = confirmed_action(
+            "action_queue_other",
+            "tenant_queue_other",
+            "user_queue_other",
+            "idem_queue_other",
+        );
+
+        repository
+            .submit_confirmed_action(&ready, 1_748_260_000_000, "op_queue_ready")
+            .await?;
+        repository
+            .submit_confirmed_action(&already_executing, 1_748_260_001_000, "op_queue_executing")
+            .await?;
+        repository
+            .submit_confirmed_action(&other_tenant, 1_748_260_002_000, "op_queue_other")
+            .await?;
+        repository
+            .mark_executing(
+                "tenant_queue_ready",
+                "idem_queue_executing",
+                1_748_260_003_000,
+            )
+            .await
+            .map_err(|error| format!("mark_executing failed: {error:?}"))?;
+
+        let pending = repository
+            .list_confirmed_actions_ready_for_execution("tenant_queue_ready", 10)
+            .await?;
+
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].action, ready);
+        assert_eq!(pending[0].operation.operation_id, "op_queue_ready");
+        assert_eq!(pending[0].operation.status, ActionStatus::Confirmed);
+
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_confirmed_action_worker_drains_ready_work_through_executor() {
+    run_live_postgres_test("confirmed_action_worker_drain", |pool| async move {
+        seed_user(&pool, "tenant_worker_drain", "user_worker_drain").await?;
+
+        let repository = PostgresOperationLedgerRepository::new(pool.clone());
+        let action = confirmed_action(
+            "action_worker_drain",
+            "tenant_worker_drain",
+            "user_worker_drain",
+            "idem_worker_drain",
+        );
+        repository
+            .submit_confirmed_action(&action, 1_748_260_000_000, "op_worker_drain")
+            .await?;
+
+        let adapter = LiveMockAdapter::succeeding();
+        let executor = postgres_action_executor(pool.clone(), adapter.clone());
+        let mut worker = PostgresConfirmedActionWorker::new(
+            repository.clone(),
+            executor,
+            PostgresConfirmedActionDrainConfig::new("tenant_worker_drain", 10),
+        );
+
+        let report = worker.drain_once().await?;
+
+        assert_eq!(report.selected, 1);
+        assert_eq!(report.attempted, 1);
+        assert_eq!(report.succeeded, 1);
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.duplicate, 0);
+        assert_eq!(report.execution_errors, 0);
+        assert_eq!(adapter.dry_run_calls(), 1);
+        assert_eq!(adapter.execute_calls(), 1);
+
+        let operation = repository
+            .get_by_idempotency_key("tenant_worker_drain", "idem_worker_drain")
+            .await?
+            .expect("operation should exist");
+        assert_eq!(operation.status, ActionStatus::Succeeded);
+
+        let second = worker.drain_once().await?;
+        assert_eq!(second.selected, 0);
+        assert_eq!(adapter.execute_calls(), 1);
 
         Ok(())
     });
