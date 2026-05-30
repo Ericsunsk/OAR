@@ -5,9 +5,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use oar_core::storage::postgres::PostgresRepositoryError;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
+use super::postgres::{postgres_repository_safe_error, postgres_repository_safe_error_reason};
 use super::*;
 
 struct FnRuntimeTick<F> {
