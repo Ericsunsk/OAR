@@ -469,9 +469,7 @@ evidence_items.id ASC
 pub const LIST_REVIEW_INBOX_LEDGER_EVENTS_FOR_SNAPSHOT: &str = r#"
 WITH selected_items AS (
     SELECT
-    id,
     tenant_id,
-    user_id,
     proposed_action_id,
     proposed_action_version,
     operation_id,
