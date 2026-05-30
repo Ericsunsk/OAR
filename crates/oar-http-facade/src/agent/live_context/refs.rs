@@ -1,11 +1,6 @@
-use oar_lark_adapter::parse_task_source_ref;
+use oar_lark_adapter::{parse_okr_kr_source_ref, parse_task_source_ref, OkrKrSourceRef};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ParsedOkrEvidenceRef {
-    pub(super) okr_id: String,
-    pub(super) objective_id: String,
-    pub(super) kr_id: String,
-}
+pub(super) type ParsedOkrEvidenceRef = OkrKrSourceRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ParsedTaskEvidenceRef {
@@ -14,14 +9,7 @@ pub(super) struct ParsedTaskEvidenceRef {
 }
 
 pub(super) fn parse_okr_evidence_ref(source_ref: &str) -> Option<ParsedOkrEvidenceRef> {
-    let trimmed = source_ref.trim();
-    if let Some(path_like) = trimmed.strip_prefix("okr://") {
-        return parse_path_style_ref(path_like);
-    }
-    if let Some(value) = trimmed.strip_prefix("okr:") {
-        return parse_colon_style_ref(value);
-    }
-    None
+    parse_okr_kr_source_ref(source_ref)
 }
 
 pub(super) fn parse_task_evidence_ref(source_ref: &str) -> Option<ParsedTaskEvidenceRef> {
@@ -39,64 +27,6 @@ pub(super) fn parse_task_evidence_ref(source_ref: &str) -> Option<ParsedTaskEvid
         source_ref: normalized,
         task_id: parsed.task_id,
     })
-}
-
-fn parse_path_style_ref(value: &str) -> Option<ParsedOkrEvidenceRef> {
-    let segments = value
-        .split('/')
-        .map(str::trim)
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
-    if segments.len() != 5 {
-        return None;
-    }
-    if segments[1] != "objectives" || segments[3] != "krs" {
-        return None;
-    }
-    if !valid_platform_ref_segment(segments[0])
-        || !valid_platform_ref_segment(segments[2])
-        || !valid_platform_ref_segment(segments[4])
-    {
-        return None;
-    }
-    Some(ParsedOkrEvidenceRef {
-        okr_id: segments[0].to_string(),
-        objective_id: segments[2].to_string(),
-        kr_id: segments[4].to_string(),
-    })
-}
-
-fn parse_colon_style_ref(value: &str) -> Option<ParsedOkrEvidenceRef> {
-    let segments = value.split(':').map(str::trim).collect::<Vec<_>>();
-    if segments.len() != 5 {
-        return None;
-    }
-    if segments[1] != "objective" || segments[3] != "kr" {
-        return None;
-    }
-    if !valid_platform_ref_segment(segments[0])
-        || !valid_platform_ref_segment(segments[2])
-        || !valid_platform_ref_segment(segments[4])
-    {
-        return None;
-    }
-    Some(ParsedOkrEvidenceRef {
-        okr_id: segments[0].to_string(),
-        objective_id: segments[2].to_string(),
-        kr_id: segments[4].to_string(),
-    })
-}
-
-fn valid_platform_ref_segment(value: &str) -> bool {
-    let trimmed = value.trim();
-    !trimmed.is_empty()
-        && trimmed.chars().count() <= 100
-        && !trimmed.contains('/')
-        && !trimmed.contains('?')
-        && !trimmed.contains('#')
-        && trimmed
-            .chars()
-            .all(|character| !character.is_whitespace() && !character.is_control())
 }
 
 #[cfg(test)]
@@ -119,6 +49,16 @@ mod tests {
         assert_eq!(parsed.okr_id, "okr_demo");
         assert_eq!(parsed.objective_id, "obj_demo");
         assert_eq!(parsed.kr_id, "kr_demo");
+    }
+
+    #[test]
+    fn parse_okr_ref_decodes_adapter_owned_percent_encoding() {
+        let parsed =
+            parse_okr_evidence_ref("okr://okr%3A1/objectives/obj%2F1/krs/kr%20a%25%3F%23%3A")
+                .expect("okr");
+        assert_eq!(parsed.okr_id, "okr:1");
+        assert_eq!(parsed.objective_id, "obj/1");
+        assert_eq!(parsed.kr_id, "kr a%?#:");
     }
 
     #[test]

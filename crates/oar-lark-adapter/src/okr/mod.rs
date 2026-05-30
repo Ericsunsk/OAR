@@ -6,6 +6,7 @@ mod read_model;
 mod request_builder;
 mod response_parser;
 mod review_inbox;
+mod source_ref;
 mod types;
 mod validation;
 
@@ -19,6 +20,7 @@ pub use review_inbox::{
     plan_okr_review_inbox_sync, OkrReviewInboxPlan, OkrReviewInboxPlanError,
     OkrReviewInboxPlanInput,
 };
+pub use source_ref::{parse_okr_kr_source_ref, OkrKrSourceRef};
 pub use types::{
     FeishuOkr, FeishuOkrBatchGetData, FeishuOkrBatchGetRequest, FeishuOkrBatchGetResponse,
     FeishuOkrCycle, FeishuOkrCycleListData, FeishuOkrCycleListRequest, FeishuOkrCycleListResponse,

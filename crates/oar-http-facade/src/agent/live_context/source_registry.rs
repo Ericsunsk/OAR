@@ -144,6 +144,23 @@ mod tests {
     }
 
     #[test]
+    fn resolves_encoded_okr_refs_to_raw_ids() {
+        let refs = vec![evidence_ref(
+            "okr",
+            "okr://okr%3A1/objectives/obj%2F1/krs/kr%20a%25%3F%23%3A",
+            "Encoded OKR evidence",
+        )];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert_eq!(resolution.okr_refs.len(), 1);
+        assert_eq!(resolution.okr_refs[0].1.okr_id, "okr:1");
+        assert_eq!(resolution.okr_refs[0].1.objective_id, "obj/1");
+        assert_eq!(resolution.okr_refs[0].1.kr_id, "kr a%?#:");
+        assert!(resolution.degraded.is_empty());
+    }
+
+    #[test]
     fn scope_gate_clears_only_sources_missing_their_real_feishu_scope() {
         let refs = vec![
             evidence_ref(
@@ -203,6 +220,23 @@ mod tests {
 
         assert_eq!(resolution.degraded.len(), 1);
         assert!(resolution.degraded[0].contains("source_ref 不是可识别的任务引用"));
+        assert!(!resolution.degraded[0].contains("sk-secret"));
+        assert!(!resolution.degraded[0].contains("auth code"));
+        assert!(!resolution.degraded[0].contains("raw transcript"));
+    }
+
+    #[test]
+    fn invalid_okr_refs_degrade_without_echoing_evidence_summary_or_ref() {
+        let refs = vec![evidence_ref(
+            "okr",
+            "okr://sk-secret-ref/objectives/obj_demo/krs/kr%",
+            "sk-secret auth code raw transcript",
+        )];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert_eq!(resolution.degraded.len(), 1);
+        assert!(resolution.degraded[0].contains("source_ref 不是可识别的 OKR 引用"));
         assert!(!resolution.degraded[0].contains("sk-secret"));
         assert!(!resolution.degraded[0].contains("auth code"));
         assert!(!resolution.degraded[0].contains("raw transcript"));

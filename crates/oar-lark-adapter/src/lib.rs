@@ -67,7 +67,7 @@ pub use oauth::{
 };
 pub use okr::{
     build_batch_get_okr_request, build_list_cycle_objectives_request, build_list_cycles_request,
-    build_list_objective_key_results_request, build_progress_list_request,
+    build_list_objective_key_results_request, build_progress_list_request, parse_okr_kr_source_ref,
     plan_okr_review_inbox_sync, AsyncFeishuOkrRead, FeishuOkr, FeishuOkrBatchGetData,
     FeishuOkrBatchGetRequest, FeishuOkrBatchGetResponse, FeishuOkrCycle, FeishuOkrCycleListData,
     FeishuOkrCycleListRequest, FeishuOkrCycleListResponse, FeishuOkrCycleObjectivesListData,
@@ -77,9 +77,10 @@ pub use okr::{
     FeishuOkrProgressListData, FeishuOkrProgressListRequest, FeishuOkrProgressListResponse,
     FeishuOkrProgressListTarget, FeishuOkrProgressRate, FeishuOkrProgressRecord,
     FeishuOkrProgressRecordRef, FeishuOkrReadClient, FeishuOkrReadError, OkrDepartmentIdType,
-    OkrReadCycle, OkrReadCyclesPage, OkrReadKeyResult, OkrReadKeyResultsPage, OkrReadObjective,
-    OkrReadObjectivesPage, OkrReadOkr, OkrReadProgressPage, OkrReadProgressRecord, OkrReadSnapshot,
-    OkrReviewInboxPlan, OkrReviewInboxPlanError, OkrReviewInboxPlanInput, OkrUserIdType,
+    OkrKrSourceRef, OkrReadCycle, OkrReadCyclesPage, OkrReadKeyResult, OkrReadKeyResultsPage,
+    OkrReadObjective, OkrReadObjectivesPage, OkrReadOkr, OkrReadProgressPage,
+    OkrReadProgressRecord, OkrReadSnapshot, OkrReviewInboxPlan, OkrReviewInboxPlanError,
+    OkrReviewInboxPlanInput, OkrUserIdType,
 };
 #[cfg(feature = "postgres")]
 pub use postgres::{PostgresFeishuGrantMaterialStore, PostgresFeishuGrantMaterialStoreError};

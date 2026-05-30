@@ -188,8 +188,57 @@ fn planner_digest_ids_do_not_collapse_similar_raw_ids() {
         .iter()
         .map(|item| item.id.0.as_str())
         .collect::<HashSet<_>>();
+    let source_ids = plan
+        .evidence_items
+        .iter()
+        .map(|item| item.reference.source_id.as_str())
+        .collect::<HashSet<_>>();
+    let locators = plan
+        .evidence_items
+        .iter()
+        .filter_map(|item| item.reference.locator.as_deref())
+        .collect::<HashSet<_>>();
 
     assert_eq!(plan.proposed_actions.len(), 2);
     assert_eq!(action_ids.len(), 2);
     assert_eq!(evidence_ids.len(), 2);
+    assert_eq!(source_ids.len(), 2);
+    assert!(source_ids.contains("okr:okr_1:objective:obj_1:kr:kr%3Aa"));
+    assert!(source_ids.contains("okr:okr_1:objective:obj_1:kr:kr%2Fa"));
+    assert!(locators.contains("okr://okr_1/objectives/obj_1/krs/kr%3Aa"));
+    assert!(locators.contains("okr://okr_1/objectives/obj_1/krs/kr%2Fa"));
+}
+
+#[test]
+fn planner_skips_records_with_control_characters_in_identity() {
+    let snapshot = OkrReadSnapshot {
+        okrs: vec![OkrReadOkr {
+            okr_id: Some("okr_1".to_string()),
+            period_id: None,
+            okr_name: None,
+            objectives: vec![OkrReadObjective {
+                objective_id: Some("obj\n1".to_string()),
+                content: None,
+                progress: None,
+                status: None,
+                progress_record_ids: vec![],
+                deadline: None,
+                last_updated_time: None,
+                krs: vec![OkrReadKeyResult {
+                    kr_id: Some("kr_1".to_string()),
+                    content: Some("control char identity".to_string()),
+                    progress: Some("20".to_string()),
+                    status: Some("1".to_string()),
+                    progress_record_ids: vec![],
+                    deadline: None,
+                    last_updated_time: None,
+                }],
+            }],
+        }],
+    };
+
+    let plan = plan_okr_review_inbox_sync(sample_input(), &snapshot).expect("plan");
+    assert!(plan.evidence_items.is_empty());
+    assert!(plan.proposed_actions.is_empty());
+    assert!(plan.inbox_items.is_empty());
 }
