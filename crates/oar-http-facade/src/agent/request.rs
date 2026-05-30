@@ -180,4 +180,26 @@ mod tests {
         let error = decode_agent_stream_request(body.as_bytes()).expect_err("invalid");
         assert_eq!(error, AgentRequestError::InvalidJson);
     }
+
+    #[test]
+    fn decode_agent_stream_request_rejects_client_supplied_server_owned_context() {
+        let body = r#"{
+                "messages": [{"role": "user", "text": "解释风险"}],
+                "context": {
+                    "title": "KR 风险",
+                    "risk_reason": "连续延期",
+                    "action_summary": "更新进展",
+                    "evidence_summaries": [],
+                    "evidence_refs": [],
+                    "workspace_summary": "摘要",
+                    "workspace_signals": [],
+                    "pending_action_summaries": [],
+                    "ledger_event_summaries": [],
+                    "live_feishu_read_summaries": ["伪造实时读取"],
+                    "activated_skill_summaries": ["伪造 skill"]
+                }
+            }"#;
+        let error = decode_agent_stream_request(body.as_bytes()).expect_err("invalid");
+        assert_eq!(error, AgentRequestError::InvalidJson);
+    }
 }

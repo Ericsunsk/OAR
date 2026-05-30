@@ -74,7 +74,7 @@ struct AgentContextCardContent: Equatable {
             fallback: context.riskReason,
             maxCharacters: 220
         )
-        statisticsText = "证据 \(evidenceCount)｜信号 \(context.workspaceSignals.count)｜待处理 \(context.pendingActionSummaries.count)"
+        statisticsText = "证据 \(evidenceCount)｜信号 \(context.workspaceSignals.count)｜待处理 \(context.pendingActionSummaries.count)｜账本 \(context.ledgerEventSummaries.count)"
         primarySignalText = Self.primarySignalText(context: context)
     }
 

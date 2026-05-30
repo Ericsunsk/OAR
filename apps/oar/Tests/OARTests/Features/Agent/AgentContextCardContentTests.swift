@@ -38,7 +38,8 @@ final class AgentContextCardContentTests: XCTestCase {
             ],
             workspaceSummary: "工作区摘要：共 2 个风险，当前焦点 1/2。",
             workspaceSignals: ["严重｜真实发送的 KR 标题｜owner：陈敏｜置信 91%"],
-            pendingActionSummaries: ["真实发送的 KR 标题｜更新进展｜gate：待处理"]
+            pendingActionSummaries: ["真实发送的 KR 标题｜更新进展｜gate：待处理"],
+            ledgerEventSummaries: ["审计事件｜正常｜ActionID act-real｜AuditEvent 已记录"]
         )
 
         let content = AgentContextCardContent(context: context, item: staleItem, action: staleAction)
@@ -49,7 +50,7 @@ final class AgentContextCardContentTests: XCTestCase {
             "当前焦点：更新进展：真实发送的动作摘要 dry-run：只写入进展，不改 owner。"
         )
         XCTAssertEqual(content.summaryText, "工作区摘要：共 2 个风险，当前焦点 1/2。")
-        XCTAssertEqual(content.statisticsText, "证据 2｜信号 1｜待处理 1")
+        XCTAssertEqual(content.statisticsText, "证据 2｜信号 1｜待处理 1｜账本 1")
         XCTAssertEqual(content.primarySignalText, "信号：严重｜真实发送的 KR 标题｜owner：陈敏｜置信 91%")
     }
 
@@ -70,7 +71,7 @@ final class AgentContextCardContentTests: XCTestCase {
         XCTAssertEqual(content.title, AgentConversationContext.empty.title)
         XCTAssertEqual(content.focusText, "当前焦点：缺少最近一周负责人确认。")
         XCTAssertEqual(content.summaryText, "缺少最近一周负责人确认。")
-        XCTAssertEqual(content.statisticsText, "证据 1｜信号 0｜待处理 0")
+        XCTAssertEqual(content.statisticsText, "证据 1｜信号 0｜待处理 0｜账本 0")
         XCTAssertEqual(content.primarySignalText, "证据：会议纪要显示需要补证。")
     }
 

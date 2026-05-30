@@ -1,26 +1,32 @@
 use super::request::AgentConversationContextDTO;
+use oar_core::security::contains_sensitive_marker;
 
 const EVIDENCE_SUMMARY_LIMIT: usize = 4;
 const WORKSPACE_SECTION_LIMIT: usize = 5;
 const LEDGER_EVENT_SECTION_LIMIT: usize = 5;
 const LIVE_FEISHU_SECTION_LIMIT: usize = 4;
 const ACTIVATED_SKILL_SECTION_LIMIT: usize = 4;
+const PROMPT_CONTEXT_TEXT_LIMIT: usize = 240;
+const REDACTED_CONTEXT_SUMMARY: &str = "已隐藏敏感摘要。";
 
 #[derive(Default)]
 pub(super) struct AgentSystemPromptBuilder;
 
 impl AgentSystemPromptBuilder {
     pub(super) fn make_prompt(context: &AgentConversationContextDTO) -> String {
+        let title =
+            safe_prompt_context_text(&context.title).unwrap_or_else(|| "未选择风险".to_string());
+        let risk_reason = safe_prompt_context_text(&context.risk_reason)
+            .unwrap_or_else(|| "暂无风险说明。".to_string());
+        let action_summary = safe_prompt_context_text(&context.action_summary)
+            .unwrap_or_else(|| "暂无建议动作。".to_string());
         let evidence = numbered_section(
             &context.evidence_summaries,
             EVIDENCE_SUMMARY_LIMIT,
             "暂无摘要证据。",
         );
-        let workspace_summary = if context.workspace_summary.trim().is_empty() {
-            "暂无工作区摘要。"
-        } else {
-            context.workspace_summary.trim()
-        };
+        let workspace_summary = safe_prompt_context_text(&context.workspace_summary)
+            .unwrap_or_else(|| "暂无工作区摘要。".to_string());
         let workspace_signals = numbered_section(
             &context.workspace_signals,
             WORKSPACE_SECTION_LIMIT,
@@ -93,9 +99,9 @@ Review-inbox 安全审计摘要：
 - 明确区分“前端/既有摘要 / review-inbox 审计摘要”和“后端实时读取结果”。
 - 明确区分“证据支持”和“仍需确认”。
 - 如果用户要求写确认、拒绝或执行理由，只输出可供用户复制的草稿，不要说已经执行。"#,
-            title = context.title,
-            risk_reason = context.risk_reason,
-            action_summary = context.action_summary,
+            title = title,
+            risk_reason = risk_reason,
+            action_summary = action_summary,
             evidence = evidence,
             workspace_summary = workspace_summary,
             workspace_signals = workspace_signals,
@@ -112,13 +118,37 @@ fn numbered_section(items: &[String], limit: usize, empty_text: &str) -> String 
         return empty_text.to_string();
     }
 
-    items
+    let summaries = items
         .iter()
         .take(limit)
+        .filter_map(|summary| safe_prompt_context_text(summary))
         .enumerate()
         .map(|(index, summary)| format!("{}. {}", index + 1, summary))
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect::<Vec<_>>();
+    if summaries.is_empty() {
+        return empty_text.to_string();
+    }
+    summaries.join("\n")
+}
+
+fn safe_prompt_context_text(text: &str) -> Option<String> {
+    let cleaned = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.is_empty() {
+        return None;
+    }
+    if contains_sensitive_marker(&cleaned) {
+        return Some(REDACTED_CONTEXT_SUMMARY.to_string());
+    }
+    Some(truncate_chars(&cleaned, PROMPT_CONTEXT_TEXT_LIMIT))
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let mut truncated = text.chars().take(max_chars).collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 #[cfg(test)]
@@ -232,6 +262,71 @@ mod tests {
                 "prompt introduced sensitive/raw term: {sensitive_term}"
             );
         }
+    }
+
+    #[test]
+    fn prompt_builder_redacts_sensitive_client_context_before_prompting() {
+        let prompt = AgentSystemPromptBuilder::make_prompt(&AgentConversationContextDTO {
+            title: "KR sk-secret".to_string(),
+            risk_reason: "Authorization: Bearer at_live_fake".to_string(),
+            action_summary: "raw_payload contains token".to_string(),
+            evidence_summaries: vec!["access token leaked".to_string()],
+            evidence_refs: vec![],
+            workspace_summary: "client_secret should not enter prompt".to_string(),
+            workspace_signals: vec!["stdout raw trace".to_string()],
+            pending_action_summaries: vec!["credential should not enter prompt".to_string()],
+            ledger_event_summaries: vec!["raw_payload sk-secret token leaked".to_string()],
+            live_feishu_read_summaries: vec!["refresh_token rt_live_fake".to_string()],
+            activated_skill_summaries: vec!["feishu.okr｜Feishu OKR｜用途：读取 OKR".to_string()],
+        });
+
+        assert!(prompt.contains(REDACTED_CONTEXT_SUMMARY));
+        for forbidden in [
+            "sk-secret",
+            "Authorization: Bearer",
+            "at_live_fake",
+            "raw_payload",
+            "access token leaked",
+            "client_secret",
+            "stdout raw trace",
+            "credential should not enter prompt",
+            "rt_live_fake",
+        ] {
+            assert!(
+                !prompt.contains(forbidden),
+                "prompt leaked sensitive client context: {forbidden}"
+            );
+        }
+        assert!(prompt.contains("feishu.okr｜Feishu OKR"));
+    }
+
+    #[test]
+    fn prompt_builder_compacts_and_truncates_client_context_items() {
+        let long_summary = format!(
+            "{}{}",
+            "长".repeat(PROMPT_CONTEXT_TEXT_LIMIT),
+            "尾部不应出现"
+        );
+        let prompt = AgentSystemPromptBuilder::make_prompt(&AgentConversationContextDTO {
+            title: "  KR   风险  ".to_string(),
+            risk_reason: "  连续   延期  ".to_string(),
+            action_summary: "  更新   进度  ".to_string(),
+            evidence_summaries: vec![long_summary],
+            evidence_refs: vec![],
+            workspace_summary: "  工作区   摘要  ".to_string(),
+            workspace_signals: vec![],
+            pending_action_summaries: vec![],
+            ledger_event_summaries: vec![],
+            live_feishu_read_summaries: vec![],
+            activated_skill_summaries: vec![],
+        });
+
+        assert!(prompt.contains("焦点标题：KR 风险"));
+        assert!(prompt.contains("风险信号：连续 延期"));
+        assert!(prompt.contains("可用动作和 dry-run：更新 进度"));
+        assert!(prompt.contains("工作区 摘要"));
+        assert!(prompt.contains("..."));
+        assert!(!prompt.contains("尾部不应出现"));
     }
 
     #[test]
