@@ -51,8 +51,7 @@ impl PostgresExecutionRecorder {
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionRecorderReport> {
         self.record_status_transition(StatusTransitionRequest {
-            sql: MARK_EXECUTING,
-            target_status: ActionStatus::Executing,
+            transition: super::OperationStatusTransition::mark_executing(),
             tenant_id,
             idempotency_key,
             error: None,
@@ -72,8 +71,7 @@ impl PostgresExecutionRecorder {
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionRecorderReport> {
         self.record_status_transition(StatusTransitionRequest {
-            sql: MARK_SUCCEEDED,
-            target_status: ActionStatus::Succeeded,
+            transition: super::OperationStatusTransition::mark_succeeded(),
             tenant_id,
             idempotency_key,
             error: None,
@@ -94,8 +92,7 @@ impl PostgresExecutionRecorder {
         outbox: &AuditOutboxEnvelope,
     ) -> PgRepositoryResult<PostgresExecutionRecorderReport> {
         self.record_status_transition(StatusTransitionRequest {
-            sql: MARK_FAILED,
-            target_status: ActionStatus::Failed,
+            transition: super::OperationStatusTransition::mark_failed(),
             tenant_id,
             idempotency_key,
             error: Some(error),
@@ -115,8 +112,7 @@ impl PostgresExecutionRecorder {
         let mut tx = self.pool.begin().await?;
         let (operation, duplicate) = super::transition_in_tx(
             &mut tx,
-            request.sql,
-            request.target_status,
+            request.transition,
             request.tenant_id,
             request.idempotency_key,
             request.error,
@@ -130,7 +126,7 @@ impl PostgresExecutionRecorder {
             let inbox_item_id = super::review_inbox::update_review_inbox_ledger_projection_in_tx(
                 &mut tx,
                 &operation,
-                request.target_status,
+                request.transition.target_status(),
                 request.now_ms,
             )
             .await?;
@@ -154,4 +150,14 @@ impl PostgresExecutionRecorder {
             duplicate,
         })
     }
+}
+
+struct StatusTransitionRequest<'a> {
+    transition: super::OperationStatusTransition,
+    tenant_id: &'a str,
+    idempotency_key: &'a str,
+    error: Option<&'a str>,
+    now_ms: u64,
+    event: &'a AuditEvent,
+    outbox: &'a AuditOutboxEnvelope,
 }

@@ -238,17 +238,6 @@ pub struct PostgresReviewDecisionRecorderRequest<'a> {
     pub outbox: &'a AuditOutboxEnvelope,
 }
 
-pub(super) struct StatusTransitionRequest<'a> {
-    pub(super) sql: &'static str,
-    pub(super) target_status: ActionStatus,
-    pub(super) tenant_id: &'a str,
-    pub(super) idempotency_key: &'a str,
-    pub(super) error: Option<&'a str>,
-    pub(super) now_ms: u64,
-    pub(super) event: &'a AuditEvent,
-    pub(super) outbox: &'a AuditOutboxEnvelope,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostgresTokenRefreshRecorderReport {
     pub apply_result: Option<TokenRefreshApplyResult>,

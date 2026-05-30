@@ -85,7 +85,6 @@ pub use repositories::{
     PostgresTokenRefreshRecorder, PostgresTokenRefreshSweep, PostgresWorkspaceUserRepository,
 };
 use rows::*;
-use types::StatusTransitionRequest;
 pub use types::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
     InsertProposedActionDecisionRequest, PostgresExecutionRecorderReport,
