@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use hyper::http::{Method, StatusCode};
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::agent_routes;
 use crate::feishu_auth::{
@@ -12,6 +12,7 @@ use crate::feishu_auth::{
 use crate::response::{
     json_facade_response, not_found, not_implemented, service_unavailable, FacadeResponse,
 };
+use crate::review_inbox_routes;
 use crate::runtime::OarHttpFacadeRuntime;
 use crate::{
     authenticate_oar_session, oar_session_auth_error_response,
@@ -55,7 +56,7 @@ pub async fn dispatch_request_with_runtime(
                 Ok(context) => context,
                 Err(error) => return oar_session_auth_error_response(error),
             };
-            return review_inbox_snapshot_for_context(&auth_context);
+            return review_inbox_routes::snapshot_for_context(&runtime, &auth_context).await;
         }
         (&Method::POST, "/review-inbox/decisions") => {
             let auth_context = match authenticate_oar_session(&runtime, authorization).await {
@@ -131,22 +132,6 @@ pub fn dispatch_request(
             }),
         ),
     }
-}
-
-fn empty_review_inbox_snapshot() -> Value {
-    json!({
-        "contract_version": 1,
-        "generated_at": "1970-01-01T00:00:00Z",
-        "items": [],
-        "proposed_actions": [],
-        "evidence": [],
-        "ledger_events": []
-    })
-}
-
-fn review_inbox_snapshot_for_context(context: &AuthenticatedContext) -> FacadeResponse {
-    let _ = (&context.session_id, &context.tenant_id, &context.user_id);
-    json_facade_response(StatusCode::OK, empty_review_inbox_snapshot())
 }
 
 fn review_decision_not_wired_for_context(context: &AuthenticatedContext) -> FacadeResponse {

@@ -159,6 +159,13 @@ pub struct StoredProposedActionDecision {
     pub decided_at: SystemTime,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoredProposedActionDecisionKind {
+    Confirm,
+    EditThenConfirm,
+    Reject,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredReviewInboxItem {
     pub id: String,
@@ -174,6 +181,45 @@ pub struct StoredReviewInboxItem {
     pub updated_at: SystemTime,
     pub ledger_status: Option<ActionStatus>,
     pub operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredReviewInboxSnapshot {
+    pub items: Vec<StoredReviewInboxItem>,
+    pub actions: Vec<StoredReviewInboxAction>,
+    pub evidence: Vec<StoredReviewInboxEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredReviewInboxAction {
+    pub review_item_id: String,
+    pub id: String,
+    pub tenant_id: String,
+    pub actor_user_id: String,
+    pub target_user_id: Option<String>,
+    pub owner_user_id: Option<String>,
+    pub version: u64,
+    pub status: ProposedActionStatus,
+    pub kind: ProposedActionKind,
+    pub risk_severity: RiskSeverity,
+    pub evidence_ids: Vec<String>,
+    pub suggested_payload: Value,
+    pub decision: Option<StoredReviewInboxActionDecision>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredReviewInboxActionDecision {
+    pub id: String,
+    pub actor_user_id: String,
+    pub decision: StoredProposedActionDecisionKind,
+    pub confirmed_action_id: Option<String>,
+    pub decided_at: SystemTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredReviewInboxEvidence {
+    pub review_item_id: String,
+    pub item: StoredEvidenceItem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,4 +1,5 @@
 use super::*;
+use oar_core::storage::postgres::StoredProposedActionDecisionKind;
 
 #[test]
 fn postgres_live_review_inbox_roundtrip_and_ordering() {
@@ -122,6 +123,91 @@ fn postgres_live_review_inbox_decision_uniqueness_is_version_scoped() {
         assert!(first);
         assert!(!duplicate_same_version);
         assert!(second_version);
+        Ok(())
+    });
+}
+
+#[test]
+fn postgres_live_review_inbox_snapshot_loads_related_safe_rows() {
+    run_live_postgres_test("review_inbox_snapshot_related_rows", |pool| async move {
+        seed_user(&pool, "tenant_snapshot", "user_snapshot").await?;
+        let repository = PostgresReviewInboxRepository::new(pool.clone());
+
+        repository
+            .insert_evidence_item(
+                "tenant_snapshot",
+                &evidence_item(
+                    "evidence_action_snapshot",
+                    "Snapshot evidence summary",
+                    "kr_snapshot",
+                ),
+            )
+            .await?;
+        let action = proposed_action("tenant_snapshot", "user_snapshot", "action_snapshot", 1);
+        repository
+            .insert_proposed_action(&action, Some(ms(1_748_250_020_000)))
+            .await?;
+        repository
+            .insert_proposed_action_evidence_ref(
+                "tenant_snapshot",
+                "action_snapshot",
+                1,
+                "evidence_action_snapshot",
+            )
+            .await?;
+        repository
+            .insert_proposed_action_decision(InsertProposedActionDecisionRequest {
+                id: "decision_snapshot",
+                tenant_id: "tenant_snapshot",
+                proposed_action_id: "action_snapshot",
+                proposed_action_version: 1,
+                actor_user_id: "user_snapshot",
+                decision: &ProposedActionDecision::Reject,
+                confirmed_action_id: None,
+                decided_at: ms(1_748_250_021_000),
+            })
+            .await?;
+        repository
+            .upsert_review_inbox_item(&inbox_item(InboxItemSpec {
+                id: "inbox_snapshot",
+                tenant_id: "tenant_snapshot",
+                user_id: "user_snapshot",
+                proposed_action_id: "action_snapshot",
+                proposed_action_version: 1,
+                sort_key: 300,
+                sync_cursor: 303,
+                status: ReviewInboxItemStatus::Open,
+                ledger_status: None,
+                operation_id: None,
+            }))
+            .await?;
+
+        let snapshot = repository
+            .load_review_inbox_snapshot("tenant_snapshot", "user_snapshot", 0, 10)
+            .await?;
+
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.actions.len(), 1);
+        assert_eq!(snapshot.evidence.len(), 1);
+        assert_eq!(snapshot.items[0].id, "inbox_snapshot");
+        assert_eq!(snapshot.actions[0].review_item_id, "inbox_snapshot");
+        assert_eq!(snapshot.actions[0].id, "action_snapshot");
+        assert_eq!(
+            snapshot.actions[0].evidence_ids,
+            vec!["evidence_action_snapshot".to_string()]
+        );
+        assert_eq!(
+            snapshot.actions[0]
+                .decision
+                .as_ref()
+                .map(|decision| decision.decision),
+            Some(StoredProposedActionDecisionKind::Reject)
+        );
+        assert_eq!(snapshot.evidence[0].review_item_id, "inbox_snapshot");
+        assert_eq!(
+            snapshot.evidence[0].item.summary,
+            "Snapshot evidence summary"
+        );
         Ok(())
     });
 }

@@ -44,7 +44,8 @@ use crate::storage::postgres::operation_ledger_sql::{
 };
 use crate::storage::postgres::review_inbox_sql::{
     INSERT_EVIDENCE_ITEM, INSERT_PROPOSED_ACTION, INSERT_PROPOSED_ACTION_DECISION,
-    INSERT_PROPOSED_ACTION_EVIDENCE_REF, LIST_REVIEW_INBOX_ITEMS,
+    INSERT_PROPOSED_ACTION_EVIDENCE_REF, LIST_REVIEW_INBOX_ACTIONS_FOR_SNAPSHOT,
+    LIST_REVIEW_INBOX_EVIDENCE_FOR_SNAPSHOT, LIST_REVIEW_INBOX_ITEMS,
     UPDATE_REVIEW_INBOX_LEDGER_PROJECTION, UPSERT_REVIEW_INBOX_ITEM,
 };
 use crate::storage::postgres::scheduler_sql::{
@@ -92,8 +93,9 @@ pub use types::{
     PostgresTokenRefreshOrchestratorReport, PostgresTokenRefreshRecorderReport,
     PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest, RotateEncryptedGrantRequest,
     StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity, StoredProposedAction,
-    StoredProposedActionDecision, StoredReviewInboxItem, StoredSchedulerJob, StoredTenant,
-    StoredWorkspaceUser,
+    StoredProposedActionDecision, StoredProposedActionDecisionKind, StoredReviewInboxAction,
+    StoredReviewInboxActionDecision, StoredReviewInboxEvidence, StoredReviewInboxItem,
+    StoredReviewInboxSnapshot, StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
 };
 use util::*;
 

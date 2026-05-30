@@ -1,6 +1,7 @@
 use oar_core::storage::postgres::review_inbox_sql::{
     INSERT_EVIDENCE_ITEM, INSERT_PROPOSED_ACTION, INSERT_PROPOSED_ACTION_DECISION,
-    INSERT_PROPOSED_ACTION_EVIDENCE_REF, LIST_REVIEW_INBOX_ITEMS,
+    INSERT_PROPOSED_ACTION_EVIDENCE_REF, LIST_REVIEW_INBOX_ACTIONS_FOR_SNAPSHOT,
+    LIST_REVIEW_INBOX_EVIDENCE_FOR_SNAPSHOT, LIST_REVIEW_INBOX_ITEMS,
     UPDATE_REVIEW_INBOX_LEDGER_PROJECTION, UPSERT_REVIEW_INBOX_ITEM,
 };
 
@@ -105,4 +106,36 @@ fn review_inbox_list_is_incremental_and_ordered_for_weekly_inbox() {
     assert!(sql.contains("and sync_cursor_value > $3"));
     assert!(sql.contains("order by sort_key desc, updated_at desc, id asc"));
     assert!(sql.contains("limit $4"));
+}
+
+#[test]
+fn review_inbox_snapshot_reads_page_then_related_safe_rows() {
+    let actions_sql = compact(LIST_REVIEW_INBOX_ACTIONS_FOR_SNAPSHOT);
+    let evidence_sql = compact(LIST_REVIEW_INBOX_EVIDENCE_FOR_SNAPSHOT);
+
+    for sql in [&actions_sql, &evidence_sql] {
+        assert!(sql.starts_with("with selected_items as"));
+        assert!(sql.contains("from review_inbox_items"));
+        assert!(sql.contains("where tenant_id = $1"));
+        assert!(sql.contains("and user_id = $2"));
+        assert!(sql.contains("and sync_cursor_value > $3"));
+        assert!(sql.contains("limit $4"));
+        assert!(sql.contains("order by sort_key desc, updated_at desc, id asc"));
+        assert!(sql.contains("selected_items.id as review_item_id"));
+        assert!(!sql.contains("raw_payload"));
+        assert!(!sql.contains("raw_content"));
+        assert!(!sql.contains("raw_transcript"));
+        assert!(!sql.contains("access_token"));
+        assert!(!sql.contains("refresh_token"));
+    }
+
+    assert!(actions_sql.contains("join proposed_actions"));
+    assert!(actions_sql.contains("left join proposed_action_decisions"));
+    assert!(actions_sql.contains("array_agg(proposed_action_evidence_refs.evidence_id"));
+    assert!(actions_sql.contains("suggested_payload"));
+
+    assert!(evidence_sql.contains("join proposed_action_evidence_refs"));
+    assert!(evidence_sql.contains("join evidence_items"));
+    assert!(evidence_sql.contains("evidence_items.summary"));
+    assert!(evidence_sql.contains("evidence_items.content_hash"));
 }

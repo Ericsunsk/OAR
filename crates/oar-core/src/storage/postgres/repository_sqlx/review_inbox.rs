@@ -113,6 +113,72 @@ impl PostgresReviewInboxRepository {
 
         rows.iter().map(stored_review_inbox_item_from_row).collect()
     }
+
+    pub async fn load_review_inbox_snapshot(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        after_cursor: u64,
+        limit: u32,
+    ) -> PgRepositoryResult<StoredReviewInboxSnapshot> {
+        if limit == 0 {
+            return Ok(StoredReviewInboxSnapshot {
+                items: Vec::new(),
+                actions: Vec::new(),
+                evidence: Vec::new(),
+            });
+        }
+
+        let item_rows = sqlx::query(LIST_REVIEW_INBOX_ITEMS)
+            .bind(tenant_id)
+            .bind(user_id)
+            .bind(after_cursor as i64)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
+        let items = item_rows
+            .iter()
+            .map(stored_review_inbox_item_from_row)
+            .collect::<PgRepositoryResult<Vec<_>>>()?;
+
+        if items.is_empty() {
+            return Ok(StoredReviewInboxSnapshot {
+                items,
+                actions: Vec::new(),
+                evidence: Vec::new(),
+            });
+        }
+
+        let action_rows = sqlx::query(LIST_REVIEW_INBOX_ACTIONS_FOR_SNAPSHOT)
+            .bind(tenant_id)
+            .bind(user_id)
+            .bind(after_cursor as i64)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
+        let actions = action_rows
+            .iter()
+            .map(stored_review_inbox_action_from_row)
+            .collect::<PgRepositoryResult<Vec<_>>>()?;
+
+        let evidence_rows = sqlx::query(LIST_REVIEW_INBOX_EVIDENCE_FOR_SNAPSHOT)
+            .bind(tenant_id)
+            .bind(user_id)
+            .bind(after_cursor as i64)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
+        let evidence = evidence_rows
+            .iter()
+            .map(stored_review_inbox_evidence_from_row)
+            .collect::<PgRepositoryResult<Vec<_>>>()?;
+
+        Ok(StoredReviewInboxSnapshot {
+            items,
+            actions,
+            evidence,
+        })
+    }
 }
 
 pub(super) async fn insert_proposed_action_decision_in_tx(

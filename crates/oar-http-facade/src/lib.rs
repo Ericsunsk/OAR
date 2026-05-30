@@ -5,6 +5,7 @@ mod agent_routes;
 mod config;
 mod feishu_auth;
 mod response;
+mod review_inbox_routes;
 mod routing;
 mod runtime;
 mod server;

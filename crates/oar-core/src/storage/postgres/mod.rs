@@ -41,7 +41,9 @@ pub use repository_sqlx::{
     PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest,
     PostgresWorkspaceUserRepository, RotateEncryptedGrantRequest, StoredDeviceSession,
     StoredEvidenceItem, StoredLarkIdentity, StoredProposedAction, StoredProposedActionDecision,
-    StoredReviewInboxItem, StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
+    StoredProposedActionDecisionKind, StoredReviewInboxAction, StoredReviewInboxActionDecision,
+    StoredReviewInboxEvidence, StoredReviewInboxItem, StoredReviewInboxSnapshot,
+    StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
 };
 #[cfg(feature = "postgres")]
 pub use tenant_maintenance::{

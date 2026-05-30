@@ -2,9 +2,10 @@ use super::codec::{
     action_status_from_db, audit_actor_kind_from_db, audit_event_type_from_db,
     device_entry_point_from_db, device_session_state_from_db, evidence_source_kind_from_db,
     evidence_visibility_scope_from_db, identity_actor_kind_from_db,
-    review_inbox_item_status_from_db, scheduler_job_kind_from_db, scheduler_job_status_from_db,
-    scope_boundary_from_db, tenant_status_from_db, token_grant_state_from_db,
-    workspace_user_status_from_db,
+    proposed_action_decision_kind_from_db, proposed_action_kind_from_db,
+    proposed_action_status_from_db, review_inbox_item_status_from_db, risk_severity_from_db,
+    scheduler_job_kind_from_db, scheduler_job_status_from_db, scope_boundary_from_db,
+    tenant_status_from_db, token_grant_state_from_db, workspace_user_status_from_db,
 };
 use super::util::{
     json_value_option, ms_to_system_time, non_negative_i64_to_u64, optional_non_negative_i64_to_u64,
@@ -12,7 +13,8 @@ use super::util::{
 use super::{
     AuditActor, AuditEvent, AuditOutboxMessage, AuditScope, AuditTarget, EncryptedTokenGrantRecord,
     OperationRecord, PgRepositoryResult, StoredDeviceSession, StoredEvidenceItem,
-    StoredLarkIdentity, StoredReviewInboxItem, StoredSchedulerJob, StoredTenant,
+    StoredLarkIdentity, StoredReviewInboxAction, StoredReviewInboxActionDecision,
+    StoredReviewInboxEvidence, StoredReviewInboxItem, StoredSchedulerJob, StoredTenant,
     StoredWorkspaceUser,
 };
 use crate::domain::identity::{TenantId, TokenGrantId};
@@ -270,6 +272,58 @@ pub(super) fn stored_review_inbox_item_from_row(
             .transpose()?,
         operation_id: row.try_get("operation_id")?,
     })
+}
+
+pub(super) fn stored_review_inbox_action_from_row(
+    row: &PgRow,
+) -> PgRepositoryResult<StoredReviewInboxAction> {
+    let status: String = row.try_get("status")?;
+    let kind: String = row.try_get("kind")?;
+    let custom_kind: Option<String> = row.try_get("custom_kind")?;
+    let risk_severity: String = row.try_get("risk_severity")?;
+    Ok(StoredReviewInboxAction {
+        review_item_id: row.try_get("review_item_id")?,
+        id: row.try_get("id")?,
+        tenant_id: row.try_get("tenant_id")?,
+        actor_user_id: row.try_get("actor_user_id")?,
+        target_user_id: row.try_get("target_user_id")?,
+        owner_user_id: row.try_get("owner_user_id")?,
+        version: non_negative_i64_to_u64(row.try_get("version")?, "version")?,
+        status: proposed_action_status_from_db(&status)?,
+        kind: proposed_action_kind_from_db(&kind, custom_kind)?,
+        risk_severity: risk_severity_from_db(&risk_severity)?,
+        evidence_ids: row.try_get("evidence_ids")?,
+        suggested_payload: row.try_get("suggested_payload")?,
+        decision: stored_review_inbox_action_decision_from_row(row)?,
+    })
+}
+
+pub(super) fn stored_review_inbox_evidence_from_row(
+    row: &PgRow,
+) -> PgRepositoryResult<StoredReviewInboxEvidence> {
+    Ok(StoredReviewInboxEvidence {
+        review_item_id: row.try_get("review_item_id")?,
+        item: stored_evidence_item_from_row(row)?,
+    })
+}
+
+fn stored_review_inbox_action_decision_from_row(
+    row: &PgRow,
+) -> PgRepositoryResult<Option<StoredReviewInboxActionDecision>> {
+    let Some(id) = row.try_get("decision_id")? else {
+        return Ok(None);
+    };
+    let decision: String = row.try_get("decision")?;
+    Ok(Some(StoredReviewInboxActionDecision {
+        id,
+        actor_user_id: row.try_get("decision_actor_user_id")?,
+        decision: proposed_action_decision_kind_from_db(&decision)?,
+        confirmed_action_id: row.try_get("confirmed_action_id")?,
+        decided_at: ms_to_system_time(non_negative_i64_to_u64(
+            row.try_get("decided_at_ms")?,
+            "decided_at_ms",
+        )?),
+    }))
 }
 
 pub(super) fn stored_scheduler_job_from_row(row: &PgRow) -> PgRepositoryResult<StoredSchedulerJob> {
