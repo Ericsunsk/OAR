@@ -6,7 +6,7 @@ mod action_execution;
 mod audit;
 #[path = "postgres_live_repository/device_session.rs"]
 mod device_session;
-#[path = "postgres_live_repository/execution_recorder.rs"]
+#[path = "postgres_live_repository/execution_recorder/mod.rs"]
 mod execution_recorder;
 #[path = "postgres_live_repository/harness.rs"]
 mod harness;
@@ -20,7 +20,7 @@ mod review_inbox;
 mod scheduler;
 #[path = "postgres_live_repository/tenant_maintenance.rs"]
 mod tenant_maintenance;
-#[path = "postgres_live_repository/token_refresh.rs"]
+#[path = "postgres_live_repository/token_refresh/mod.rs"]
 mod token_refresh;
 #[path = "postgres_live_repository/token_refresh_scheduler.rs"]
 mod token_refresh_scheduler;
