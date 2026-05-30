@@ -1,11 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 fn migration_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations")
 }
 
-fn read_all_migration_sql() -> Vec<(PathBuf, String)> {
+fn read_all_migration_sql() -> String {
     let dir = migration_dir();
     assert!(
         dir.exists(),
@@ -20,7 +21,7 @@ fn read_all_migration_sql() -> Vec<(PathBuf, String)> {
         if path.extension().and_then(|s| s.to_str()) == Some("sql") {
             let content = fs::read_to_string(&path)
                 .unwrap_or_else(|_| panic!("failed to read {}", path.display()));
-            sql_files.push((path, content));
+            sql_files.push(content);
         }
     }
 
@@ -29,16 +30,12 @@ fn read_all_migration_sql() -> Vec<(PathBuf, String)> {
         "expected at least one .sql migration file in {}",
         dir.display()
     );
-    sql_files
+    sql_files.join("\n")
 }
 
-fn all_sql_lowercase() -> String {
-    let joined = read_all_migration_sql()
-        .into_iter()
-        .map(|(_, s)| s)
-        .collect::<Vec<_>>()
-        .join("\n");
-    joined.to_lowercase()
+fn all_sql_lowercase() -> &'static str {
+    static SQL: OnceLock<String> = OnceLock::new();
+    SQL.get_or_init(|| read_all_migration_sql().to_lowercase())
 }
 
 #[test]
