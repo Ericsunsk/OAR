@@ -161,10 +161,7 @@ final class ReviewInboxViewModel {
             loadState = .ready
         } catch {
             guard requestID == latestLoadRequestID else { return }
-            if let providerError = error as? ReviewInboxDataProviderError,
-               case .unauthorized = providerError {
-                onSessionInvalidated(providerError.errorDescription ?? "登录会话已失效，请重新扫码登录。")
-            }
+            invalidateSessionIfUnauthorized(error)
             let message = "复盘收件箱加载失败：\(error.localizedDescription)"
             lastErrorMessage = message
             loadState = .failed(message)
@@ -243,14 +240,17 @@ final class ReviewInboxViewModel {
             applySnapshot(updated)
             confirmationNote = ""
         } catch {
-            if let providerError = error as? ReviewInboxDataProviderError,
-               case .unauthorized = providerError {
-                onSessionInvalidated(providerError.errorDescription ?? "登录会话已失效，请重新扫码登录。")
-            }
+            invalidateSessionIfUnauthorized(error)
             lastErrorMessage = "决策提交失败：\(error.localizedDescription)"
         }
 
         isSubmittingDecision = false
+    }
+
+    private func invalidateSessionIfUnauthorized(_ error: Error) {
+        guard let providerError = error as? ReviewInboxDataProviderError,
+              case .unauthorized = providerError else { return }
+        onSessionInvalidated(providerError.errorDescription ?? "登录会话已失效，请重新扫码登录。")
     }
 
     private func applySnapshot(_ snapshot: ReviewInboxDisplaySnapshot) {
