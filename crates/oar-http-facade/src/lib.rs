@@ -11,8 +11,6 @@ mod server;
 mod session_auth;
 mod util;
 
-#[cfg(test)]
-use feishu_auth::{create_feishu_login_session, feishu_login_session_event_stream_response};
 pub(crate) use routing::{accepts_event_stream, event_stream_required};
 pub(crate) use session_auth::{
     authenticate_oar_session, oar_session_auth_error_response,
