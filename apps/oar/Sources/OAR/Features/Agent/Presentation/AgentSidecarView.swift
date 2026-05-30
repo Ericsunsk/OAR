@@ -28,7 +28,7 @@ struct AgentSidecarView: View {
         VStack(spacing: 0) {
             header
 
-            AgentContextCard(item: item, action: action)
+            AgentContextCard(context: context, item: item, action: action)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
 
