@@ -1,7 +1,19 @@
 use std::fmt;
 
 use crate::action::audit_event::AuditStateSummary;
+use crate::action::execution_request::ConfirmedExecutionRequest;
 use crate::action::safety::{sanitize_adapter_error_code, sanitize_adapter_error_message};
+
+pub trait ActionAdapter {
+    fn dry_run(
+        &mut self,
+        request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterDryRun, AdapterError>;
+    fn execute(
+        &mut self,
+        request: &ConfirmedExecutionRequest,
+    ) -> Result<AdapterExecution, AdapterError>;
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdapterError {

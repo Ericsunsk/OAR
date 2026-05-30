@@ -18,22 +18,11 @@ use crate::action::operation_ledger_repository::{
 };
 use crate::domain::identity::TokenGrant;
 
-pub use adapter::{AdapterDryRun, AdapterError, AdapterExecution};
+pub use adapter::{ActionAdapter, AdapterDryRun, AdapterError, AdapterExecution};
 use policy::is_terminal_status;
 pub(crate) use policy::safe_denial_message;
 pub use result::{ExecutionError, ExecutionReport, PolicyDenialReport};
 pub(crate) use trace::action_audit_trace;
-
-pub trait ActionAdapter {
-    fn dry_run(
-        &mut self,
-        request: &ConfirmedExecutionRequest,
-    ) -> Result<AdapterDryRun, AdapterError>;
-    fn execute(
-        &mut self,
-        request: &ConfirmedExecutionRequest,
-    ) -> Result<AdapterExecution, AdapterError>;
-}
 
 pub struct ActionExecutor<
     A,
