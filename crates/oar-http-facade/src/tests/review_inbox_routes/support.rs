@@ -30,6 +30,7 @@ pub(super) fn runtime_with_persistence(pool: sqlx::PgPool) -> Arc<OarHttpFacadeR
         feishu_login: None,
         agent: None,
         agent_settings: None,
+        tenant_maintenance: None,
     })
 }
 

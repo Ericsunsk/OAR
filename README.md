@@ -300,6 +300,9 @@ task 读取；task create/write scope 仅用于 DraftOnly/补授权准备。OAut
 写操作仍然必须经过 dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
 本地开发可临时设置 `OAR_ALLOW_EPHEMERAL_GRANT_KEY=true` 让 auth refresh 配置自动生成一次性内存
 grant key；生产环境不要打开，必须注入稳定的 `OAR_GRANT_KEY_ID` / `OAR_GRANT_KEY_HEX`。
+后台租户维护运行时使用显式 `OAR_TENANT_MAINTENANCE_ENABLED=true` 作为唯一开关；当前阶段只做启动期配置门禁，
+尚不启动维护循环。启用时必须有数据库持久化、稳定 grant key、完整飞书 OAuth app 配置和安全的
+`OAR_TENANT_MAINTENANCE_INSTANCE_ID`，并且不能同时使用一次性内存 grant key。
 
 飞书应用凭证模型：
 

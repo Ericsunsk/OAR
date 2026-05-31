@@ -207,6 +207,7 @@ fn configured_runtime_with_persistence(pool: sqlx::PgPool) -> Arc<OarHttpFacadeR
         feishu_login: Some(Arc::new(feishu_login)),
         agent: None,
         agent_settings: None,
+        tenant_maintenance: None,
     })
 }
 
