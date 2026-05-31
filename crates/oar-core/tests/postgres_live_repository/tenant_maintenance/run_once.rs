@@ -20,16 +20,6 @@ fn postgres_live_tenant_maintenance_run_once_executes_sweep_then_outbox_drain() 
         )
         .await?;
 
-        let scheduler = PostgresSchedulerJobRepository::new(pool.clone());
-        scheduler
-            .upsert_job(
-                "job_maintenance_success",
-                "tenant_maintenance_success",
-                SchedulerJobKind::TokenRefreshSweep,
-                due_before_ms,
-            )
-            .await?;
-
         let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
         let mut due = encrypted_token_grant_record(
             "tenant_maintenance_success",
@@ -123,6 +113,16 @@ fn postgres_live_tenant_maintenance_run_once_executes_sweep_then_outbox_drain() 
         assert_eq!(outbox.sent, 1);
         assert_eq!(outbox.retryable, 0);
         assert_eq!(outbox.failed, 0);
+
+        let job = PostgresSchedulerJobRepository::new(pool.clone())
+            .get_job(
+                "tenant_maintenance_success",
+                SchedulerJobKind::TokenRefreshSweep,
+            )
+            .await?
+            .expect("scheduled job should be bootstrapped by maintenance tick");
+        assert_eq!(job.id, TOKEN_REFRESH_SWEEP_SCHEDULER_JOB_ID);
+        assert_eq!(job.status, SchedulerJobStatus::Pending);
 
         let rotated = grant_repo
             .get_by_id("tenant_maintenance_success", "grant_maintenance_due")

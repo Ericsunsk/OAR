@@ -55,5 +55,5 @@ pub use tenant_maintenance::{
 #[cfg(feature = "postgres")]
 pub use token_refresh_scheduler::{
     PostgresTokenRefreshScheduledSweep, TokenRefreshScheduledSweepConfig,
-    TokenRefreshScheduledSweepReport,
+    TokenRefreshScheduledSweepReport, TOKEN_REFRESH_SWEEP_SCHEDULER_JOB_ID,
 };

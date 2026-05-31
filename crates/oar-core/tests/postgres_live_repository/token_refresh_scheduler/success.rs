@@ -21,14 +21,6 @@ fn postgres_live_token_refresh_scheduled_sweep_uses_scheduler_lease_and_reschedu
         .await?;
 
         let scheduler = PostgresSchedulerJobRepository::new(pool.clone());
-        scheduler
-            .upsert_job(
-                "job_tr_scheduled_success",
-                "tenant_tr_scheduled_success",
-                SchedulerJobKind::TokenRefreshSweep,
-                due_before_ms,
-            )
-            .await?;
 
         let grant_repo = PostgresTokenGrantRepository::new(pool.clone());
         let mut due = encrypted_token_grant_record(
@@ -98,6 +90,7 @@ fn postgres_live_token_refresh_scheduled_sweep_uses_scheduler_lease_and_reschedu
             )
             .await?
             .expect("scheduled job should exist");
+        assert_eq!(job.id, TOKEN_REFRESH_SWEEP_SCHEDULER_JOB_ID);
         assert_eq!(job.status, SchedulerJobStatus::Pending);
         assert_eq!(job.lease_id, None);
         assert_eq!(job.lease_until_ms, None);

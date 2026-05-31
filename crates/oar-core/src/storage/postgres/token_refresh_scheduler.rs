@@ -11,6 +11,7 @@ use crate::domain::scheduler::{
 use crate::domain::token_refresh::service::AsyncAuthRefreshAdapter;
 
 const MIN_AUDIT_SEQUENCE_WINDOW: u64 = 1_000_000;
+pub const TOKEN_REFRESH_SWEEP_SCHEDULER_JOB_ID: &str = "token_refresh_sweep";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenRefreshScheduledSweepConfig {
@@ -73,6 +74,14 @@ where
         &mut self,
     ) -> Result<TokenRefreshScheduledSweepReport, PostgresRepositoryError> {
         let started_at_ms = self.now_ms();
+        self.leases
+            .insert_job_if_missing(
+                TOKEN_REFRESH_SWEEP_SCHEDULER_JOB_ID,
+                &self.config.tenant_id,
+                SchedulerJobKind::TokenRefreshSweep,
+                started_at_ms,
+            )
+            .await?;
         let lease_until_ms = started_at_ms.saturating_add(self.config.lease_ms);
         let acquire = self
             .leases
