@@ -147,16 +147,10 @@ final class AgentSettingsViewModel {
                 apiKey: requestAPIKey
             )
             guard currentDetectionInput == detectionInput else { return }
-            lastDetectedInput = detectionInput
-            detectedProtocol = catalog.detectedProtocol
-            models = catalog.models
-            selectedModelID = catalog.recommendedModel ?? catalog.models.first?.id ?? ""
+            apply(catalog: catalog, for: detectionInput)
             statusMessage = "已检测到 \(catalog.models.count) 个模型"
         } catch {
-            lastDetectedInput = nil
-            models = []
-            selectedModelID = ""
-            detectedProtocol = nil
+            resetDetectedCatalog()
             errorMessage = localizedMessage(error)
         }
     }
@@ -196,8 +190,7 @@ final class AgentSettingsViewModel {
             let snapshot = try await provider.clearSettings()
             apply(snapshot: snapshot)
             apiKey = ""
-            models = []
-            lastDetectedInput = nil
+            resetDetectedCatalog()
             statusMessage = "已清除"
         } catch {
             errorMessage = localizedMessage(error)
@@ -215,16 +208,7 @@ final class AgentSettingsViewModel {
         selectedModelID = snapshot.selectedModel ?? ""
         apiKeyStatus = snapshot.apiKeyStatus
         canConfigure = snapshot.canConfigure
-        if selectedModelID.isEmpty {
-            models = []
-        } else {
-            models = [
-                AgentModelCandidate(
-                    id: selectedModelID,
-                    displayName: selectedModelID
-                )
-            ]
-        }
+        models = collapsedCatalogModels(for: selectedModelID)
         lastDetectedInput = currentDetectionInput
     }
 
@@ -235,6 +219,17 @@ final class AgentSettingsViewModel {
     private func invalidateDetectedCatalogIfInputChanged() {
         guard !isApplyingSnapshot, lastDetectedInput != nil else { return }
         guard currentDetectionInput != lastDetectedInput else { return }
+        resetDetectedCatalog()
+    }
+
+    private func apply(catalog: AgentModelCatalog, for detectionInput: DetectionInput) {
+        lastDetectedInput = detectionInput
+        detectedProtocol = catalog.detectedProtocol
+        models = catalog.models
+        selectedModelID = catalog.recommendedModel ?? catalog.models.first?.id ?? ""
+    }
+
+    private func resetDetectedCatalog() {
         lastDetectedInput = nil
         detectedProtocol = nil
         models = []
@@ -247,6 +242,19 @@ final class AgentSettingsViewModel {
         apiKey = ""
         isApplyingSnapshot = false
         lastDetectedInput = currentDetectionInput
+    }
+
+    private func collapsedCatalogModels(for selectedModelID: String) -> [AgentModelCandidate] {
+        if selectedModelID.isEmpty {
+            return []
+        }
+
+        return [
+            AgentModelCandidate(
+                id: selectedModelID,
+                displayName: selectedModelID
+            )
+        ]
     }
 
     private static func apiKeyFingerprint(_ value: String) -> String {

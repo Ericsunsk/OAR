@@ -29,11 +29,11 @@ final class AgentSettingsViewModelTests: XCTestCase {
 
     func testEnvSnapshotIsReadyButDoesNotOfferBlankAPIKeyReuse() async {
         let provider = RecordingAgentSettingsProvider()
-        provider.nextSnapshot = AgentModelSettingsSnapshot(
+        provider.nextSnapshot = Fixture.snapshot(
             source: .env,
-            detectedProtocol: "anthropic",
-            baseURL: "https://api.anthropic.com/v1",
-            selectedModel: "claude-sonnet-4-5",
+            detectedProtocol: Fixture.anthropicProtocol,
+            baseURL: Fixture.anthropicBaseURL,
+            selectedModel: Fixture.claudeSonnet.id,
             apiKeyStatus: .saved,
             canConfigure: false
         )
@@ -51,11 +51,11 @@ final class AgentSettingsViewModelTests: XCTestCase {
 
     func testUserSnapshotAllowsBlankAPIKeyReuseForSameBaseURL() async {
         let provider = RecordingAgentSettingsProvider()
-        provider.nextSnapshot = AgentModelSettingsSnapshot(
+        provider.nextSnapshot = Fixture.snapshot(
             source: .user,
-            detectedProtocol: "openai-compatible",
-            baseURL: "https://api.example.test/v1",
-            selectedModel: "gpt-4.1",
+            detectedProtocol: Fixture.openAIProtocol,
+            baseURL: Fixture.openAIBaseURL,
+            selectedModel: Fixture.gpt41.id,
             apiKeyStatus: .saved,
             canConfigure: true
         )
@@ -71,52 +71,46 @@ final class AgentSettingsViewModelTests: XCTestCase {
 
     func testLoadingSnapshotCollapsesStaleDetectedCatalog() async {
         let provider = RecordingAgentSettingsProvider()
-        provider.nextCatalog = AgentModelCatalog(
-            detectedProtocol: "openai-compatible",
-            models: [
-                AgentModelCandidate(id: "gpt-4.1", displayName: "gpt-4.1"),
-                AgentModelCandidate(id: "gpt-4o", displayName: "gpt-4o")
-            ],
-            recommendedModel: "gpt-4.1"
+        provider.nextCatalog = Fixture.catalog(
+            models: Fixture.openAIModels,
+            recommendedModel: Fixture.gpt41.id
         )
         let model = AgentSettingsViewModel(provider: provider)
-        model.baseURL = "https://api.example.test/v1"
+        model.baseURL = Fixture.openAIBaseURL
         model.apiKey = "sk-one"
 
         await model.detect()
         XCTAssertEqual(model.models.count, 2)
 
-        provider.nextSnapshot = AgentModelSettingsSnapshot(
+        provider.nextSnapshot = Fixture.snapshot(
             source: .env,
-            detectedProtocol: "openai-compatible",
-            baseURL: "https://other.example.test/v1",
-            selectedModel: "gpt-4.1",
+            detectedProtocol: Fixture.openAIProtocol,
+            baseURL: Fixture.otherOpenAIBaseURL,
+            selectedModel: Fixture.gpt41.id,
             apiKeyStatus: .saved,
             canConfigure: true
         )
 
         await model.load()
 
-        XCTAssertEqual(model.models, [
-            AgentModelCandidate(id: "gpt-4.1", displayName: "gpt-4.1")
-        ])
-        XCTAssertEqual(model.baseURL, "https://other.example.test/v1")
+        XCTAssertEqual(model.models, [Fixture.gpt41])
+        XCTAssertEqual(model.baseURL, Fixture.otherOpenAIBaseURL)
         XCTAssertFalse(model.canReuseSavedAPIKey)
     }
 
     func testEditingBaseURLAfterDetectInvalidatesCatalogAndPreventsSave() async {
         let provider = RecordingAgentSettingsProvider()
         let model = AgentSettingsViewModel(provider: provider)
-        model.baseURL = "https://api.example.test/v1"
+        model.baseURL = Fixture.openAIBaseURL
         model.apiKey = "sk-one"
 
         await model.detect()
 
         XCTAssertTrue(model.canSave)
-        XCTAssertEqual(model.detectedProtocol, "openai-compatible")
-        XCTAssertEqual(model.selectedModelID, "gpt-4.1")
+        XCTAssertEqual(model.detectedProtocol, Fixture.openAIProtocol)
+        XCTAssertEqual(model.selectedModelID, Fixture.gpt41.id)
 
-        model.baseURL = "https://api.other.test/v1"
+        model.baseURL = Fixture.alternateOpenAIBaseURL
 
         XCTAssertFalse(model.canSave)
         XCTAssertNil(model.detectedProtocol)
@@ -131,7 +125,7 @@ final class AgentSettingsViewModelTests: XCTestCase {
     func testEditingAPIKeyAfterDetectInvalidatesCatalogAndPreventsSave() async {
         let provider = RecordingAgentSettingsProvider()
         let model = AgentSettingsViewModel(provider: provider)
-        model.baseURL = "https://api.example.test/v1"
+        model.baseURL = Fixture.openAIBaseURL
         model.apiKey = "sk-one"
 
         await model.detect()
@@ -152,78 +146,59 @@ final class AgentSettingsViewModelTests: XCTestCase {
     func testRedetectingCurrentInputsAllowsSave() async {
         let provider = RecordingAgentSettingsProvider()
         let model = AgentSettingsViewModel(provider: provider)
-        model.baseURL = "https://api.example.test/v1"
+        model.baseURL = Fixture.openAIBaseURL
         model.apiKey = "sk-one"
 
         await model.detect()
-        model.baseURL = "https://api.other.test/v1"
-        provider.nextCatalog = AgentModelCatalog(
-            detectedProtocol: "anthropic",
-            models: [
-                AgentModelCandidate(id: "claude-sonnet-4-5", displayName: "Claude Sonnet 4.5")
-            ],
-            recommendedModel: "claude-sonnet-4-5"
+        model.baseURL = Fixture.alternateOpenAIBaseURL
+        provider.nextCatalog = Fixture.catalog(
+            detectedProtocol: Fixture.anthropicProtocol,
+            models: [Fixture.claudeSonnet],
+            recommendedModel: Fixture.claudeSonnet.id
         )
 
         await model.detect()
 
         XCTAssertTrue(model.canSave)
         XCTAssertEqual(provider.detectRequests.map(\.baseURL), [
-            "https://api.example.test/v1",
-            "https://api.other.test/v1"
+            Fixture.openAIBaseURL,
+            Fixture.alternateOpenAIBaseURL
         ])
 
         await model.save()
 
         XCTAssertEqual(provider.saveRequests.count, 1)
-        XCTAssertEqual(provider.saveRequests[0].baseURL, "https://api.other.test/v1")
-        XCTAssertEqual(provider.saveRequests[0].selectedModel, "claude-sonnet-4-5")
+        XCTAssertEqual(provider.saveRequests[0].baseURL, Fixture.alternateOpenAIBaseURL)
+        XCTAssertEqual(provider.saveRequests[0].selectedModel, Fixture.claudeSonnet.id)
     }
 
     func testSaveUsesCurrentSelectedModelFromDetectedCatalog() async {
         let provider = RecordingAgentSettingsProvider()
-        provider.nextCatalog = AgentModelCatalog(
-            detectedProtocol: "openai-compatible",
-            models: [
-                AgentModelCandidate(id: "gpt-4.1", displayName: "gpt-4.1"),
-                AgentModelCandidate(id: "gpt-4o", displayName: "gpt-4o")
-            ],
-            recommendedModel: "gpt-4.1"
+        provider.nextCatalog = Fixture.catalog(
+            models: Fixture.openAIModels,
+            recommendedModel: Fixture.gpt41.id
         )
         let model = AgentSettingsViewModel(provider: provider)
-        model.baseURL = "https://api.example.test/v1"
+        model.baseURL = Fixture.openAIBaseURL
         model.apiKey = "sk-one"
 
         await model.detect()
-        model.selectedModelID = "gpt-4o"
+        model.selectedModelID = Fixture.gpt4o.id
         await model.save()
 
         XCTAssertEqual(provider.saveRequests.count, 1)
-        XCTAssertEqual(provider.saveRequests[0].selectedModel, "gpt-4o")
+        XCTAssertEqual(provider.saveRequests[0].selectedModel, Fixture.gpt4o.id)
         XCTAssertEqual(model.apiKey, "")
-        XCTAssertEqual(model.detectedProtocol, "openai-compatible")
-        XCTAssertEqual(model.selectedModelID, "gpt-4o")
+        XCTAssertEqual(model.detectedProtocol, Fixture.openAIProtocol)
+        XCTAssertEqual(model.selectedModelID, Fixture.gpt4o.id)
         XCTAssertTrue(model.canSave)
     }
 }
 
 private final class RecordingAgentSettingsProvider: AgentSettingsProviding {
     var isAvailable: Bool = true
-    var nextSnapshot = AgentModelSettingsSnapshot(
-        source: .none,
-        detectedProtocol: nil,
-        baseURL: nil,
-        selectedModel: nil,
-        apiKeyStatus: .missing,
-        canConfigure: true
-    )
-    var nextCatalog = AgentModelCatalog(
-        detectedProtocol: "openai-compatible",
-        models: [
-            AgentModelCandidate(id: "gpt-4.1", displayName: "gpt-4.1")
-        ],
-        recommendedModel: "gpt-4.1"
-    )
+    var nextSnapshot = Fixture.snapshot()
+    var nextCatalog = Fixture.catalog()
     private(set) var loadCount = 0
     private(set) var detectRequests: [DetectRequest] = []
     private(set) var saveRequests: [SaveRequest] = []
@@ -246,7 +221,7 @@ private final class RecordingAgentSettingsProvider: AgentSettingsProviding {
         saveRequests.append(
             SaveRequest(baseURL: baseURL, apiKey: apiKey, selectedModel: selectedModel)
         )
-        return AgentModelSettingsSnapshot(
+        return Fixture.snapshot(
             source: .user,
             detectedProtocol: nextCatalog.detectedProtocol,
             baseURL: baseURL,
@@ -257,13 +232,52 @@ private final class RecordingAgentSettingsProvider: AgentSettingsProviding {
     }
 
     func clearSettings() async throws -> AgentModelSettingsSnapshot {
+        Fixture.snapshot()
+    }
+}
+
+private enum Fixture {
+    static let openAIProtocol = "openai-compatible"
+    static let anthropicProtocol = "anthropic"
+    static let openAIBaseURL = "https://api.example.test/v1"
+    static let alternateOpenAIBaseURL = "https://api.other.test/v1"
+    static let otherOpenAIBaseURL = "https://other.example.test/v1"
+    static let anthropicBaseURL = "https://api.anthropic.com/v1"
+    static let gpt41 = AgentModelCandidate(id: "gpt-4.1", displayName: "gpt-4.1")
+    static let gpt4o = AgentModelCandidate(id: "gpt-4o", displayName: "gpt-4o")
+    static let claudeSonnet = AgentModelCandidate(
+        id: "claude-sonnet-4-5",
+        displayName: "Claude Sonnet 4.5"
+    )
+    static let openAIModels = [gpt41, gpt4o]
+
+    static func snapshot(
+        source: AgentModelSettingsSource = .none,
+        detectedProtocol: String? = nil,
+        baseURL: String? = nil,
+        selectedModel: String? = nil,
+        apiKeyStatus: AgentAPIKeyStatus = .missing,
+        canConfigure: Bool = true
+    ) -> AgentModelSettingsSnapshot {
         AgentModelSettingsSnapshot(
-            source: .none,
-            detectedProtocol: nil,
-            baseURL: nil,
-            selectedModel: nil,
-            apiKeyStatus: .missing,
-            canConfigure: true
+            source: source,
+            detectedProtocol: detectedProtocol,
+            baseURL: baseURL,
+            selectedModel: selectedModel,
+            apiKeyStatus: apiKeyStatus,
+            canConfigure: canConfigure
+        )
+    }
+
+    static func catalog(
+        detectedProtocol: String = openAIProtocol,
+        models: [AgentModelCandidate] = [gpt41],
+        recommendedModel: String? = gpt41.id
+    ) -> AgentModelCatalog {
+        AgentModelCatalog(
+            detectedProtocol: detectedProtocol,
+            models: models,
+            recommendedModel: recommendedModel
         )
     }
 }
