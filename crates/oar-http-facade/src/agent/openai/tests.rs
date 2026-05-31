@@ -66,7 +66,7 @@ fn frame_done_maps_to_completed() {
 fn frame_invalid_json_maps_to_error() {
     assert_eq!(
         openai_frame_events("data: not-json\n\n"),
-        vec![AgentStreamFrame::Error("invalid_upstream_event")]
+        AgentStreamFrame::invalid_upstream_event()
     );
 }
 

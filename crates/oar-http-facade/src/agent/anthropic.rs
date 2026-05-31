@@ -214,7 +214,7 @@ fn anthropic_frame_events(frame: &str) -> Vec<AgentStreamFrame> {
         return vec![];
     };
     let Ok(event) = serde_json::from_str::<AnthropicStreamEventDTO>(&payload) else {
-        return vec![AgentStreamFrame::Error("invalid_upstream_event")];
+        return AgentStreamFrame::invalid_upstream_event();
     };
 
     match event.event_type.as_str() {

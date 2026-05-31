@@ -35,7 +35,7 @@ async fn anthropic_frame_maps_text_delta_and_message_stop() {
 fn anthropic_frame_events_maps_invalid_json_to_error() {
     assert_eq!(
         anthropic_frame_events("data: {not-json"),
-        vec![AgentStreamFrame::Error("invalid_upstream_event")]
+        AgentStreamFrame::invalid_upstream_event()
     );
 }
 

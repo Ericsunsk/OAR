@@ -179,7 +179,7 @@ fn openai_frame_events(frame: &str) -> Vec<AgentStreamFrame> {
     }
 
     let Ok(chunk) = serde_json::from_str::<OpenAIChatCompletionStreamChunkDTO>(&payload) else {
-        return vec![AgentStreamFrame::Error("invalid_upstream_event")];
+        return AgentStreamFrame::invalid_upstream_event();
     };
     chunk
         .choices
