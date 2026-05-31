@@ -8,6 +8,7 @@ use hyper::Response;
 use serde_json::json;
 use tracing::warn;
 
+use super::body::collect_limited_body;
 use crate::agent::{
     decode_agent_stream_request, inject_live_feishu_context, AgentRequestError, AgentRuntime,
     AgentStreamError,
@@ -17,6 +18,8 @@ use crate::{
     authenticate_oar_session, oar_session_auth_error_response, AuthenticatedContext,
     OarHttpFacadeRuntime,
 };
+
+const AGENT_STREAM_BODY_LIMIT_BYTES: usize = 1024 * 1024;
 
 pub(super) fn is_route(method: &Method, path: &str) -> bool {
     *method == Method::POST && path == "/agent/stream"
@@ -31,18 +34,18 @@ pub(super) async fn response(
         Ok(context) => context,
         Err(error) => return oar_session_auth_error_response(error).into_hyper_response(),
     };
-    let body = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
-            return json_facade_response(
-                StatusCode::BAD_REQUEST,
-                json!({
-                    "error": "agent_request_body_unreadable",
-                    "safe_message": "Agent request body could not be read."
-                }),
-            )
-            .into_hyper_response();
-        }
+    let body = match collect_limited_body(
+        body,
+        AGENT_STREAM_BODY_LIMIT_BYTES,
+        "agent_request_body_too_large",
+        "Agent request body is too large.",
+        "agent_request_body_unreadable",
+        "Agent request body could not be read.",
+    )
+    .await
+    {
+        Ok(body) => body,
+        Err(response) => return response.into_hyper_response(),
     };
     let mut request = match decode_agent_stream_request(&body) {
         Ok(request) => request,

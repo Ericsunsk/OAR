@@ -7,6 +7,7 @@ use hyper::Response;
 use crate::response::{not_found, FacadeResponse, ResponseBody};
 use crate::{accepts_event_stream, event_stream_required, OarHttpFacadeRuntime};
 
+mod body;
 mod settings;
 mod stream;
 

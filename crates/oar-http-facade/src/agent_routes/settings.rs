@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::http::{Method, StatusCode};
 use serde_json::json;
 
+use super::body::collect_limited_body;
 use crate::agent::{
     decode_agent_model_catalog_request, decode_agent_settings_update_request,
     AgentModelCatalogRequest, AgentRuntime, AgentSettingsSnapshot, AgentSettingsUpdateRequest,
@@ -18,6 +18,8 @@ use crate::{
 mod error_response;
 
 use error_response::agent_model_settings_error_response;
+
+const AGENT_SETTINGS_BODY_LIMIT_BYTES: usize = 64 * 1024;
 
 pub(super) fn is_body_route(method: &Method, path: &str) -> bool {
     is_model_catalog_preview_route(method, path) || is_settings_update_route(method, path)
@@ -37,17 +39,18 @@ pub(super) async fn body_response(
         Ok(context) => context,
         Err(error) => return oar_session_auth_error_response(error),
     };
-    let body = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
-            return json_facade_response(
-                StatusCode::BAD_REQUEST,
-                json!({
-                    "error": "agent_settings_body_unreadable",
-                    "safe_message": "Agent settings request body could not be read."
-                }),
-            );
-        }
+    let body = match collect_limited_body(
+        body,
+        AGENT_SETTINGS_BODY_LIMIT_BYTES,
+        "agent_settings_body_too_large",
+        "Agent settings request body is too large.",
+        "agent_settings_body_unreadable",
+        "Agent settings request body could not be read.",
+    )
+    .await
+    {
+        Ok(body) => body,
+        Err(response) => return response,
     };
 
     if *method == Method::POST {
