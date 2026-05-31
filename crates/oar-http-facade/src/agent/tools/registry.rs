@@ -3,7 +3,7 @@ use oar_core::action::capability::{
     FeishuScope,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::agent) enum AgentReadTool {
     CalendarEvents,
     CalendarFreeBusy,

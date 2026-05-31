@@ -73,3 +73,48 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
     );
     assert!(degraded.is_empty());
 }
+
+#[test]
+fn read_tool_scope_gate_deduplicates_tools_before_scope_checks() {
+    let mut tools = vec![
+        AgentReadTool::OkrSummary,
+        AgentReadTool::OkrSummary,
+        AgentReadTool::OkrProgress,
+        AgentReadTool::OkrProgress,
+    ];
+    let mut degraded = Vec::new();
+
+    gate_read_tools_by_scope(&[], &mut tools, &mut degraded);
+
+    assert!(tools.is_empty());
+    assert_eq!(degraded.len(), 2);
+    assert_eq!(
+        degraded
+            .iter()
+            .filter(|summary| summary.contains("feishu.okr.summarize_my_okr"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        degraded
+            .iter()
+            .filter(|summary| summary.contains("feishu.okr.summarize_my_progress"))
+            .count(),
+        1
+    );
+
+    let mut tools = vec![AgentReadTool::OkrSummary, AgentReadTool::OkrSummary];
+    let mut degraded = Vec::new();
+
+    gate_read_tools_by_scope(
+        &[
+            FeishuScope::OkrPeriodRead.as_str().to_string(),
+            FeishuScope::OkrContentRead.as_str().to_string(),
+        ],
+        &mut tools,
+        &mut degraded,
+    );
+
+    assert_eq!(tools, vec![AgentReadTool::OkrSummary]);
+    assert!(degraded.is_empty());
+}

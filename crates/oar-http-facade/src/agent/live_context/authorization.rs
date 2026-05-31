@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use oar_core::action::capability::FeishuScope;
 
 use super::source_registry::LiveEvidenceResolution;
@@ -21,6 +23,7 @@ pub(super) fn gate_read_tools_by_scope(
     read_tools: &mut Vec<AgentReadTool>,
     degraded: &mut Vec<String>,
 ) {
+    dedupe_read_tools(read_tools);
     read_tools.retain(|tool| {
         let spec = tool.spec();
         let required_scopes = match spec.required_feishu_scope_names() {
@@ -41,6 +44,11 @@ pub(super) fn gate_read_tools_by_scope(
         ));
         false
     });
+}
+
+fn dedupe_read_tools(read_tools: &mut Vec<AgentReadTool>) {
+    let mut seen = HashSet::new();
+    read_tools.retain(|tool| seen.insert(*tool));
 }
 
 fn gate_evidence_refs_by_scope(scopes: &[String], resolution: &mut LiveEvidenceResolution<'_>) {

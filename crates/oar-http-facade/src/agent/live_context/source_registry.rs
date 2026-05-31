@@ -77,11 +77,44 @@ pub(super) fn resolve_evidence_refs<'a>(
     resolution
 }
 
-fn evidence_ref_key(evidence_ref: &AgentEvidenceRefDTO) -> (String, String) {
-    (
-        evidence_ref.source_type.trim().to_ascii_lowercase(),
-        evidence_ref.source_ref.trim().to_string(),
-    )
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum EvidenceRefKey {
+    Okr {
+        okr_id: String,
+        objective_id: String,
+        kr_id: String,
+    },
+    Task {
+        source_ref: String,
+    },
+    Raw {
+        source_type: String,
+        source_ref: String,
+    },
+}
+
+fn evidence_ref_key(evidence_ref: &AgentEvidenceRefDTO) -> EvidenceRefKey {
+    let source_type = evidence_ref.source_type.trim().to_ascii_lowercase();
+    if is_okr_source_type(&source_type) {
+        if let Some(parsed) = parse_okr_evidence_ref(&evidence_ref.source_ref) {
+            return EvidenceRefKey::Okr {
+                okr_id: parsed.okr_id,
+                objective_id: parsed.objective_id,
+                kr_id: parsed.kr_id,
+            };
+        }
+    }
+    if is_task_source_type(&source_type) {
+        if let Some(parsed) = parse_task_evidence_ref(&evidence_ref.source_ref) {
+            return EvidenceRefKey::Task {
+                source_ref: parsed.source_ref,
+            };
+        }
+    }
+    EvidenceRefKey::Raw {
+        source_type,
+        source_ref: evidence_ref.source_ref.trim().to_string(),
+    }
 }
 
 fn is_okr_source_type(source_type: &str) -> bool {
@@ -159,10 +192,16 @@ mod tests {
         let refs = vec![
             evidence_ref("task", " task://task_123 ", "Task evidence"),
             evidence_ref("TASK", "task://task_123", "sk-secret duplicate summary"),
+            evidence_ref("task", "feishu://task/task_123", "feishu task duplicate"),
             evidence_ref(
                 "okr",
                 "okr://okr_demo/objectives/obj_demo/krs/kr_demo",
                 "OKR evidence",
+            ),
+            evidence_ref(
+                "okr",
+                "okr:okr_demo:objective:obj_demo:kr:kr_demo",
+                "OKR duplicate",
             ),
         ];
 
@@ -171,9 +210,10 @@ mod tests {
         assert_eq!(resolution.task_refs.len(), 1);
         assert_eq!(resolution.okr_refs.len(), 1);
         assert_eq!(resolution.degraded.len(), 1);
-        assert!(resolution.degraded[0].contains("已合并 1 条重复 evidence refs"));
+        assert!(resolution.degraded[0].contains("已合并 3 条重复 evidence refs"));
         assert!(!resolution.degraded[0].contains("sk-secret"));
         assert!(!resolution.degraded[0].contains("task_123"));
+        assert!(!resolution.degraded[0].contains("okr_demo"));
     }
 
     #[test]
