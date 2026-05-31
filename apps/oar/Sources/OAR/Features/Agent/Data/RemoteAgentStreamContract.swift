@@ -80,7 +80,15 @@ struct RemoteAgentEventSequence<Base: AsyncSequence>: AsyncSequence where Base.E
 
         mutating func next() async throws -> AgentStreamEvent? {
             while let event = try await eventIterator.next() {
-                let dto = try decoder.decode(RemoteAgentStreamEventDTO.self, from: Data(event.data.utf8))
+                let dto: RemoteAgentStreamEventDTO
+                do {
+                    dto = try decoder.decode(
+                        RemoteAgentStreamEventDTO.self,
+                        from: Data(event.data.utf8)
+                    )
+                } catch {
+                    throw AgentProviderError.invalidResponse
+                }
                 switch dto.event {
                 case "delta":
                     guard let delta = dto.delta, !delta.isEmpty else { continue }

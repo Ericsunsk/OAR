@@ -45,41 +45,10 @@ struct RemoteAgentProvider: AgentProviding {
                         throw AgentProviderError.invalidResponse
                     }
 
-                    switch httpResponse.statusCode {
-                    case 200..<300:
-                        var didYieldContent = false
-                        let streamEvents = RemoteAgentEventSequence(
-                            events: ServerSentEventSequence(bytes: bytes),
-                            decoder: decoder
-                        )
-                        for try await event in streamEvents {
-                            switch event {
-                            case .delta:
-                                didYieldContent = true
-                                continuation.yield(event)
-                            case .completed:
-                                guard didYieldContent else {
-                                    throw AgentProviderError.invalidResponse
-                                }
-                                continuation.yield(.completed)
-                                continuation.finish()
-                                return
-                            }
-
-                            if Task.isCancelled { return }
-                        }
-
-                        guard didYieldContent else {
-                            throw AgentProviderError.invalidResponse
-                        }
-                        continuation.finish()
-                    case 401, 403:
-                        throw AgentProviderError.unauthorized
-                    case 404, 406, 422, 429, 500..<600:
-                        throw AgentProviderError.serverUnavailable
-                    default:
-                        throw AgentProviderError.invalidResponse
+                    if let error = Self.streamError(forStatusCode: httpResponse.statusCode) {
+                        throw error
                     }
+                    try await forwardSuccessfulStream(bytes: bytes, to: continuation)
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -89,6 +58,48 @@ struct RemoteAgentProvider: AgentProviding {
                 task.cancel()
             }
         }
+    }
+
+    private static func streamError(forStatusCode statusCode: Int) -> AgentProviderError? {
+        switch statusCode {
+        case 200..<300:
+            return nil
+        case 401, 403:
+            return .unauthorized
+        case 404, 406, 422, 429, 500..<600:
+            return .serverUnavailable
+        default:
+            return .invalidResponse
+        }
+    }
+
+    private func forwardSuccessfulStream(
+        bytes: URLSession.AsyncBytes,
+        to continuation: AsyncThrowingStream<AgentStreamEvent, Error>.Continuation
+    ) async throws {
+        var didYieldContent = false
+        let streamEvents = RemoteAgentEventSequence(
+            events: ServerSentEventSequence(bytes: bytes),
+            decoder: decoder
+        )
+        for try await event in streamEvents {
+            switch event {
+            case .delta:
+                didYieldContent = true
+                continuation.yield(event)
+            case .completed:
+                guard didYieldContent else {
+                    throw AgentProviderError.invalidResponse
+                }
+                continuation.yield(.completed)
+                continuation.finish()
+                return
+            }
+
+            if Task.isCancelled { return }
+        }
+
+        throw AgentProviderError.invalidResponse
     }
 
     private func agentStreamRequest(

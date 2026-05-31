@@ -90,6 +90,25 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertFalse(model.isSending)
     }
 
+    func testPartialReplyIsPreservedWhenStreamFails() async {
+        let provider = ManualStreamingAgentProvider()
+        let model = AgentSidecarViewModel(provider: provider)
+
+        let sendTask = Task {
+            await model.send("解释风险", context: .empty)
+        }
+        await provider.waitForStream()
+
+        provider.yield("部分回复")
+        await waitForLastMessage("部分回复", in: model)
+        provider.fail(AgentProviderError.invalidResponse)
+        await sendTask.value
+
+        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释风险", "部分回复"])
+        XCTAssertEqual(model.errorMessage, AgentProviderError.invalidResponse.localizedDescription)
+        XCTAssertFalse(model.isSending)
+    }
+
     private func waitForLastMessage(_ expectedText: String, in model: AgentSidecarViewModel) async {
         for _ in 0..<100 {
             if model.messages.last?.text == expectedText {
@@ -147,5 +166,10 @@ private final class ManualStreamingAgentProvider: AgentProviding {
     func finish(with text: String) {
         yield(text)
         finish()
+    }
+
+    func fail(_ error: Error) {
+        continuation?.finish(throwing: error)
+        continuation = nil
     }
 }

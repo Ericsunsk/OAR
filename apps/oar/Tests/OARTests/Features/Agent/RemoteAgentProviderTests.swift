@@ -49,7 +49,7 @@ final class RemoteAgentProviderTests: XCTestCase {
                     httpVersion: nil,
                     headerFields: ["Content-Type": "text/event-stream"]
                 )!,
-                Data(
+                Self.sse(
                     """
                     : keep-alive
 
@@ -59,16 +59,12 @@ final class RemoteAgentProviderTests: XCTestCase {
 
                     data: {"event":"completed"}
 
-                    """.utf8
+                    """
                 )
             )
         }
 
-        let provider = RemoteAgentProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
         let conversation = (0..<12).map { index in
             AgentMessage(role: .assistant, text: "历史回复 \(index)")
         } + [AgentMessage(role: .user, text: "解释风险")]
@@ -103,31 +99,108 @@ final class RemoteAgentProviderTests: XCTestCase {
         XCTAssertEqual(events, [.delta("风险"), .delta("来自延期。"), .completed])
     }
 
-    func testUnauthorizedStatusMapsToSessionError() async {
+    func testHTTPStatusErrorsMapToProviderErrors() async {
+        await Self.assertStreamError(statusCode: 401, mapsTo: .unauthorized)
+        await Self.assertStreamError(statusCode: 403, mapsTo: .unauthorized)
+        await Self.assertStreamError(statusCode: 404, mapsTo: .serverUnavailable)
+        await Self.assertStreamError(statusCode: 406, mapsTo: .serverUnavailable)
+        await Self.assertStreamError(statusCode: 422, mapsTo: .serverUnavailable)
+        await Self.assertStreamError(statusCode: 429, mapsTo: .serverUnavailable)
+        await Self.assertStreamError(statusCode: 500, mapsTo: .serverUnavailable)
+        await Self.assertStreamError(statusCode: 418, mapsTo: .invalidResponse)
+    }
+
+    func testCompletedStreamWithoutDeltaMapsToInvalidResponse() async {
         AgentTestURLProtocol.handler = { request in
             (
                 HTTPURLResponse(
                     url: request.url!,
-                    statusCode: 401,
+                    statusCode: 200,
                     httpVersion: nil,
-                    headerFields: nil
+                    headerFields: ["Content-Type": "text/event-stream"]
                 )!,
-                Data("unauthorized".utf8)
+                Self.sse(
+                    """
+                    data: {"event":"completed"}
+
+                    """
+                )
             )
         }
 
-        let provider = RemoteAgentProvider(
-            baseURL: URL(string: "https://oar.example.test")!,
-            appSession: Self.appSession,
-            urlSession: Self.urlSession
-        )
+        let provider = Self.provider()
 
         do {
-            try await Self.drain(provider.stream(messages: [AgentMessage(role: .user, text: "hi")], context: .empty))
-            XCTFail("Expected unauthorized error")
+            try await Self.drain(
+                provider.stream(messages: [AgentMessage(role: .user, text: "hi")], context: .empty)
+            )
+            XCTFail("Expected invalid response error")
         } catch let error as AgentProviderError {
-            XCTAssertEqual(error, .unauthorized)
-            XCTAssertFalse(error.localizedDescription.contains("oar_session_secret"))
+            XCTAssertEqual(error, .invalidResponse)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testMalformedStreamEventMapsToInvalidResponse() async {
+        AgentTestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                )!,
+                Self.sse(
+                    """
+                    data: not-json
+
+                    """
+                )
+            )
+        }
+
+        let provider = Self.provider()
+
+        do {
+            try await Self.drain(
+                provider.stream(messages: [AgentMessage(role: .user, text: "hi")], context: .empty)
+            )
+            XCTFail("Expected invalid response error")
+        } catch let error as AgentProviderError {
+            XCTAssertEqual(error, .invalidResponse)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testEOFBeforeCompletedMapsToInvalidResponse() async {
+        AgentTestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                )!,
+                Self.sse(
+                    """
+                    data: {"event":"delta","delta":"partial"}
+
+                    """
+                )
+            )
+        }
+
+        let provider = Self.provider()
+
+        do {
+            try await Self.drain(
+                provider.stream(messages: [AgentMessage(role: .user, text: "hi")], context: .empty)
+            )
+            XCTFail("Expected invalid response error")
+        } catch let error as AgentProviderError {
+            XCTAssertEqual(error, .invalidResponse)
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
@@ -146,6 +219,56 @@ final class RemoteAgentProviderTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AgentTestURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    private static func provider() -> RemoteAgentProvider {
+        RemoteAgentProvider(
+            baseURL: URL(string: "https://oar.example.test")!,
+            appSession: Self.appSession,
+            urlSession: Self.urlSession
+        )
+    }
+
+    private static func assertStreamError(
+        statusCode: Int,
+        mapsTo expectedError: AgentProviderError,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        AgentTestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!,
+                Data("error".utf8)
+            )
+        }
+
+        do {
+            try await Self.drain(
+                Self.provider().stream(
+                    messages: [AgentMessage(role: .user, text: "hi")],
+                    context: .empty
+                )
+            )
+            XCTFail("Expected \(expectedError)", file: file, line: line)
+        } catch let error as AgentProviderError {
+            XCTAssertEqual(error, expectedError, file: file, line: line)
+            XCTAssertFalse(
+                error.localizedDescription.contains("oar_session_secret"),
+                file: file,
+                line: line
+            )
+        } catch {
+            XCTFail("Unexpected error: \(error)", file: file, line: line)
+        }
+    }
+
+    private static func sse(_ text: String) -> Data {
+        Data(text.utf8)
     }
 
     private static func collectEvents(
