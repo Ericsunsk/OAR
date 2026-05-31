@@ -63,14 +63,11 @@ impl AgentModelSettingsRuntime {
         default_runtime: Option<&AgentRuntime>,
     ) -> Result<AgentSettingsSnapshot, AgentModelSettingsError> {
         if let Some(setting) = self.load_setting(tenant_id, user_id).await? {
-            return Ok(AgentSettingsSnapshot {
-                source: "user",
-                detected_protocol: Some(setting.protocol.as_str().to_string()),
-                base_url: Some(setting.base_url.as_str().to_string()),
-                selected_model: Some(setting.selected_model),
-                api_key_status: "saved",
-                can_configure: true,
-            });
+            return Ok(AgentSettingsSnapshot::user(
+                setting.protocol.as_str().to_string(),
+                setting.base_url.as_str().to_string(),
+                setting.selected_model,
+            ));
         }
 
         if let Some(default_runtime) = default_runtime {
