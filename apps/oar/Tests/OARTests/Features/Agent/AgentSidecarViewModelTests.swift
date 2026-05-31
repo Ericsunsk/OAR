@@ -37,6 +37,30 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testBufferedStreamingFlushesPausedChunksBeforeCompletion() async {
+        let provider = ManualStreamingAgentProvider()
+        let model = AgentSidecarViewModel(provider: provider, streamFlushInterval: 0.05)
+
+        let sendTask = Task {
+            await model.send("解释风险", context: .empty)
+        }
+        await provider.waitForStream()
+
+        provider.yield("流式")
+        await waitForLastMessage("流式", in: model)
+
+        provider.yield("回复")
+        await waitForLastMessage("流式回复", in: model)
+        XCTAssertTrue(model.isSending)
+
+        provider.finish()
+        await sendTask.value
+
+        XCTAssertFalse(model.isSending)
+        XCTAssertEqual(model.messages.last?.text, "流式回复")
+        XCTAssertNil(model.errorMessage)
+    }
+
     func testMissingBackendProviderShowsConfigurationError() async {
         let model = AgentSidecarViewModel(provider: MissingBackendAgentProvider())
 
@@ -109,12 +133,32 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertFalse(model.isSending)
     }
 
+    func testUnflushedPartialReplyIsPreservedWhenStreamFails() async {
+        let provider = ManualStreamingAgentProvider()
+        let model = AgentSidecarViewModel(provider: provider, streamFlushInterval: 60)
+
+        let sendTask = Task {
+            await model.send("解释风险", context: .empty)
+        }
+        await provider.waitForStream()
+
+        provider.yield("部分")
+        await waitForLastMessage("部分", in: model)
+        provider.yield("回复")
+        provider.fail(AgentProviderError.invalidResponse)
+        await sendTask.value
+
+        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["解释风险", "部分回复"])
+        XCTAssertEqual(model.errorMessage, AgentProviderError.invalidResponse.localizedDescription)
+        XCTAssertFalse(model.isSending)
+    }
+
     private func waitForLastMessage(_ expectedText: String, in model: AgentSidecarViewModel) async {
         for _ in 0..<100 {
             if model.messages.last?.text == expectedText {
                 return
             }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTFail("Expected last message to become \(expectedText), got \(model.messages.last?.text ?? "nil")")
     }

@@ -1,10 +1,10 @@
 import Foundation
 
+private let defaultAgentStreamFlushInterval: TimeInterval = 0.045
+
 @Observable
 @MainActor
 final class AgentSidecarViewModel {
-    private static let streamFlushInterval: TimeInterval = 0.045
-
     private static func initialMessages() -> [AgentMessage] {
         [
             AgentMessage(
@@ -20,11 +20,14 @@ final class AgentSidecarViewModel {
     private(set) var activeFocusItemID: String?
 
     private let provider: AgentProviding
+    private let streamFlushInterval: TimeInterval
 
     init(
-        provider: AgentProviding
+        provider: AgentProviding,
+        streamFlushInterval: TimeInterval = defaultAgentStreamFlushInterval
     ) {
         self.provider = provider
+        self.streamFlushInterval = streamFlushInterval
     }
 
     var isConfigured: Bool {
@@ -51,39 +54,35 @@ final class AgentSidecarViewModel {
         }
 
         let assistantID = UUID()
-        var assistantText = ""
         var didStartAssistantReply = false
+        let displayBuffer = AgentReplyDisplayBuffer(
+            flushInterval: streamFlushInterval
+        ) { [weak self] displayText in
+            guard let self else { return }
+            flushAssistantReply(
+                id: assistantID,
+                text: displayText,
+                thread: &thread,
+                didStart: &didStartAssistantReply
+            )
+        }
 
         do {
-            let displayStream = CoalescedAgentTextStream(
-                events: provider.stream(
-                    messages: thread,
-                    context: context
-                ),
-                flushInterval: Self.streamFlushInterval
-            )
-            for try await displayText in displayStream {
-                assistantText = displayText
-                flushAssistantReply(
-                    id: assistantID,
-                    text: displayText,
-                    thread: &thread,
-                    didStart: &didStartAssistantReply
-                )
+            for try await event in provider.stream(messages: thread, context: context) {
+                switch event {
+                case .delta(let chunk):
+                    displayBuffer.append(chunk)
+                case .completed:
+                    displayBuffer.finish()
+                }
             }
 
-            guard didStartAssistantReply else {
+            displayBuffer.finish()
+            guard displayBuffer.hasDisplayedContent else {
                 throw AgentProviderError.invalidResponse
             }
         } catch {
-            if !assistantText.isEmpty {
-                flushAssistantReply(
-                    id: assistantID,
-                    text: assistantText,
-                    thread: &thread,
-                    didStart: &didStartAssistantReply
-                )
-            }
+            displayBuffer.flushLatest()
             let message = (error as? LocalizedError)?.errorDescription ?? "Agent 暂时不可用。"
             errorMessage = message
         }
@@ -122,53 +121,74 @@ final class AgentSidecarViewModel {
     }
 }
 
-private struct CoalescedAgentTextStream<Base: AsyncSequence>: AsyncSequence where Base.Element == AgentStreamEvent {
-    typealias Element = String
+@MainActor
+private final class AgentReplyDisplayBuffer {
+    private let flushInterval: TimeInterval
+    private let emit: (String) -> Void
+    private var accumulatedText = ""
+    private var lastFlushedText = ""
+    private var lastFlushDate = Date.distantPast
+    private var scheduledFlush: Task<Void, Never>?
 
-    let events: Base
-    let flushInterval: TimeInterval
-
-    func makeAsyncIterator() -> Iterator {
-        Iterator(eventIterator: events.makeAsyncIterator(), flushInterval: flushInterval)
+    init(flushInterval: TimeInterval, flush: @escaping (String) -> Void) {
+        self.flushInterval = flushInterval
+        self.emit = flush
     }
 
-    struct Iterator: AsyncIteratorProtocol {
-        var eventIterator: Base.AsyncIterator
-        let flushInterval: TimeInterval
-        var accumulatedText = ""
-        var lastEmittedText = ""
-        var lastEmitDate = Date.distantPast
-        var didFinish = false
+    var hasDisplayedContent: Bool {
+        !lastFlushedText.isEmpty
+    }
 
-        mutating func next() async throws -> String? {
-            guard !didFinish else { return nil }
+    func append(_ chunk: String) {
+        guard !chunk.isEmpty else { return }
+        accumulatedText += chunk
 
-            while let event = try await eventIterator.next() {
-                switch event {
-                case .delta(let chunk):
-                    guard !chunk.isEmpty else { continue }
-                    accumulatedText += chunk
-
-                    let now = Date()
-                    if now.timeIntervalSince(lastEmitDate) >= flushInterval {
-                        lastEmitDate = now
-                        lastEmittedText = accumulatedText
-                        return accumulatedText
-                    }
-                case .completed:
-                    return finish()
-                }
-            }
-
-            return finish()
+        let elapsed = Date().timeIntervalSince(lastFlushDate)
+        guard elapsed < flushInterval else {
+            flushLatest()
+            return
         }
+        scheduleFlush(after: flushInterval - elapsed)
+    }
 
-        private mutating func finish() -> String? {
-            didFinish = true
-            let finalText = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !finalText.isEmpty, finalText != lastEmittedText else { return nil }
-            lastEmittedText = finalText
-            return finalText
+    func finish() {
+        let finalText = accumulatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        flush(finalText)
+        cancelScheduledFlush()
+    }
+
+    func flushLatest() {
+        flush(accumulatedText)
+        cancelScheduledFlush()
+    }
+
+    private func scheduleFlush(after delay: TimeInterval) {
+        guard scheduledFlush == nil else { return }
+        scheduledFlush = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.nanoseconds(from: delay))
+            guard !Task.isCancelled else { return }
+            self?.flushScheduledText()
         }
+    }
+
+    private func flushScheduledText() {
+        scheduledFlush = nil
+        flush(accumulatedText)
+    }
+
+    private func flush(_ text: String) {
+        guard !text.isEmpty, text != lastFlushedText else { return }
+        lastFlushedText = text
+        lastFlushDate = Date()
+        emit(text)
+    }
+
+    private func cancelScheduledFlush() {
+        scheduledFlush?.cancel()
+        scheduledFlush = nil
+    }
+
+    private static func nanoseconds(from interval: TimeInterval) -> UInt64 {
+        UInt64((max(0, interval) * 1_000_000_000).rounded(.up))
     }
 }
