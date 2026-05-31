@@ -103,7 +103,7 @@ struct AgentSettingsSheet: View {
         .background(.thinMaterial)
         .background(Color.white.opacity(0.36))
         .task {
-            await model.load()
+            await model.loadIfNeeded()
         }
     }
 

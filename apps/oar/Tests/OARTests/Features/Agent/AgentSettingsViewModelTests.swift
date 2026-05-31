@@ -15,6 +15,37 @@ final class AgentSettingsViewModelTests: XCTestCase {
         XCTAssertFalse(model.isReadyForChat)
     }
 
+    func testLoadIfNeededDoesNotOverwriteLocalEditsAfterInitialLoad() async {
+        let provider = RecordingAgentSettingsProvider()
+        provider.nextSnapshot = Fixture.snapshot(
+            source: .user,
+            detectedProtocol: Fixture.openAIProtocol,
+            baseURL: Fixture.openAIBaseURL,
+            selectedModel: Fixture.gpt41.id,
+            apiKeyStatus: .saved,
+            canConfigure: true
+        )
+        let model = AgentSettingsViewModel(provider: provider)
+
+        await model.loadIfNeeded()
+        model.baseURL = Fixture.alternateOpenAIBaseURL
+        model.selectedModelID = Fixture.gpt4o.id
+        provider.nextSnapshot = Fixture.snapshot(
+            source: .env,
+            detectedProtocol: Fixture.anthropicProtocol,
+            baseURL: Fixture.anthropicBaseURL,
+            selectedModel: Fixture.claudeSonnet.id,
+            apiKeyStatus: .saved,
+            canConfigure: true
+        )
+
+        await model.loadIfNeeded()
+
+        XCTAssertEqual(provider.loadCount, 1)
+        XCTAssertEqual(model.baseURL, Fixture.alternateOpenAIBaseURL)
+        XCTAssertEqual(model.selectedModelID, Fixture.gpt4o.id)
+    }
+
     func testUnavailableProviderMarksChatUnavailable() async {
         let provider = RecordingAgentSettingsProvider()
         provider.isAvailable = false
