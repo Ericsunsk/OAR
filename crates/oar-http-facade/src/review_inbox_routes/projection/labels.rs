@@ -69,6 +69,9 @@ pub(super) fn evidence_source_kind(source: EvidenceSourceKind) -> &'static str {
         EvidenceSourceKind::OkrProgress => "okr_progress",
         EvidenceSourceKind::LarkMinutes => "lark_minutes",
         EvidenceSourceKind::LarkDoc => "lark_doc",
+        EvidenceSourceKind::LarkTask => "lark_task",
+        EvidenceSourceKind::LarkCalendar => "lark_calendar",
+        EvidenceSourceKind::LarkIm => "lark_im",
         EvidenceSourceKind::ManualReviewNote => "manual_review_note",
         EvidenceSourceKind::AuditEvent => "audit_event",
     }
@@ -94,6 +97,7 @@ pub(super) fn signal_type(value: &str) -> &'static str {
 pub(super) fn default_signal_type(source: EvidenceSourceKind) -> &'static str {
     match source {
         EvidenceSourceKind::OkrProgress => "progress",
+        EvidenceSourceKind::LarkTask => "blocker",
         _ => "cadence",
     }
 }

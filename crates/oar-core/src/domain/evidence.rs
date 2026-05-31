@@ -8,6 +8,9 @@ pub enum EvidenceSourceKind {
     OkrProgress,
     LarkMinutes,
     LarkDoc,
+    LarkTask,
+    LarkCalendar,
+    LarkIm,
     ManualReviewNote,
     AuditEvent,
 }

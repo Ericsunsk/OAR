@@ -90,6 +90,9 @@ fn all_enum_variants_are_constructible() {
         EvidenceSourceKind::OkrProgress,
         EvidenceSourceKind::LarkMinutes,
         EvidenceSourceKind::LarkDoc,
+        EvidenceSourceKind::LarkTask,
+        EvidenceSourceKind::LarkCalendar,
+        EvidenceSourceKind::LarkIm,
         EvidenceSourceKind::ManualReviewNote,
         EvidenceSourceKind::AuditEvent,
     ];

@@ -94,6 +94,69 @@ final class ReviewInboxAPIContractTests: XCTestCase {
         XCTAssertEqual(display.ledgerEvents.first?.idempotencyKey, "tenant:t_1:pa:pa_1:v2:confirm")
     }
 
+    func testExtendedLarkEvidenceSourcesMapToDisplaySources() throws {
+        let json = """
+        {
+          "contract_version": 1,
+          "generated_at": "2026-05-28T10:00:00Z",
+          "items": [],
+          "proposed_actions": [],
+          "evidence": [
+            {
+              "id": "ev_task",
+              "review_item_id": "ri_1",
+              "source_kind": "lark_task",
+              "source_id": "task://task_1",
+              "locator": null,
+              "observed_at_display": "5 月 28 日",
+              "summary": "任务摘要。",
+              "signal_type": "blocker",
+              "trust_score": 0.88,
+              "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "visibility": "team"
+            },
+            {
+              "id": "ev_calendar",
+              "review_item_id": "ri_1",
+              "source_kind": "lark_calendar",
+              "source_id": "calendar://cal_1/events/customer-review",
+              "locator": null,
+              "observed_at_display": "5 月 28 日",
+              "summary": "日历摘要。",
+              "signal_type": "cadence",
+              "trust_score": 0.77,
+              "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "visibility": "team"
+            },
+            {
+              "id": "ev_im",
+              "review_item_id": "ri_1",
+              "source_kind": "lark_im",
+              "source_id": "im://chat_1/msg_1",
+              "locator": null,
+              "observed_at_display": "5 月 28 日",
+              "summary": "消息摘要。",
+              "signal_type": "dependency",
+              "trust_score": 0.66,
+              "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "visibility": "team"
+            }
+          ],
+          "ledger_events": []
+        }
+        """
+
+        let snapshot = try JSONDecoder().decode(ReviewInboxAPISnapshot.self, from: Data(json.utf8))
+        let display = snapshot.toDisplaySnapshot()
+
+        XCTAssertEqual(display.evidence.map(\.sourceType), [.task, .calendar, .im])
+        XCTAssertEqual(display.evidence.map(\.sourceRef), [
+            "task://task_1",
+            "calendar://cal_1/events/customer-review",
+            "im://chat_1/msg_1"
+        ])
+    }
+
     func testDecisionlessDraftSupersededAndWithdrawnActionsDoNotMapToRejectedOrPending() throws {
         let json = """
         {

@@ -10,6 +10,12 @@ fn review_inbox_domain_schema_stores_evidence_without_raw_content() {
     );
     assert!(sql.contains("summary text not null"));
     assert!(sql.contains("source_kind text not null"));
+    for source_kind in ["lark_task", "lark_calendar", "lark_im"] {
+        assert!(
+            sql.contains(source_kind),
+            "expected expanded evidence source kind {source_kind}"
+        );
+    }
     assert!(sql.contains("source_id text not null"));
     assert!(sql.contains("content_hash text not null"));
     assert!(sql.contains("visibility_scope text not null"));

@@ -213,6 +213,44 @@ fn mapper_uses_evidence_summary_without_raw_content() {
 }
 
 #[test]
+fn mapper_projects_extended_lark_evidence_source_kinds() {
+    let observed = UNIX_EPOCH + Duration::from_secs(86_400);
+    let snapshot = StoredReviewInboxSnapshot {
+        items: Vec::new(),
+        actions: Vec::new(),
+        evidence: vec![
+            evidence_with_source(
+                "ev_task",
+                EvidenceSourceKind::LarkTask,
+                "task://task_1",
+                observed,
+            ),
+            evidence_with_source(
+                "ev_calendar",
+                EvidenceSourceKind::LarkCalendar,
+                "calendar://cal_1/events/customer-review",
+                observed,
+            ),
+            evidence_with_source(
+                "ev_im",
+                EvidenceSourceKind::LarkIm,
+                "im://chat_1/msg_1",
+                observed,
+            ),
+        ],
+        ledger_events: Vec::new(),
+    };
+
+    let body = snapshot_response_body(&snapshot, UNIX_EPOCH);
+
+    assert_eq!(body["evidence"][0]["source_kind"], "lark_task");
+    assert_eq!(body["evidence"][0]["signal_type"], "blocker");
+    assert_eq!(body["evidence"][1]["source_kind"], "lark_calendar");
+    assert_eq!(body["evidence"][1]["signal_type"], "cadence");
+    assert_eq!(body["evidence"][2]["source_kind"], "lark_im");
+}
+
+#[test]
 fn mapper_projects_safe_ledger_events() {
     let snapshot = StoredReviewInboxSnapshot {
         items: Vec::new(),
@@ -268,6 +306,30 @@ fn mapper_projects_safe_ledger_events() {
     assert_eq!(body["ledger_events"][1]["idempotency_key"], "redacted");
     assert!(!serialized.contains("access_token"));
     assert!(!serialized.contains("bearer abc"));
+}
+
+fn evidence_with_source(
+    id: &str,
+    source_kind: EvidenceSourceKind,
+    source_id: &str,
+    observed_at: std::time::SystemTime,
+) -> StoredReviewInboxEvidence {
+    StoredReviewInboxEvidence {
+        review_item_id: "ri_1".to_string(),
+        item: StoredEvidenceItem {
+            id: id.to_string(),
+            tenant_id: "tenant_1".to_string(),
+            summary: format!("Evidence summary for {id}."),
+            source_kind,
+            source_id: source_id.to_string(),
+            locator: Some(source_id.to_string()),
+            content_hash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_string(),
+            visibility_scope: EvidenceVisibilityScope::Tenant,
+            observed_at,
+            recorded_at: observed_at,
+        },
+    }
 }
 
 #[test]
