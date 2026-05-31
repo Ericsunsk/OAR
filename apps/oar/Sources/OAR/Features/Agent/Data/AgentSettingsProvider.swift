@@ -18,13 +18,13 @@ struct AgentModelSettingsSnapshot: Equatable {
     let canConfigure: Bool
 }
 
-enum AgentModelSettingsSource: String, Equatable {
+enum AgentModelSettingsSource: String, Decodable, Equatable {
     case user
     case env
     case none
 }
 
-enum AgentAPIKeyStatus: String, Equatable {
+enum AgentAPIKeyStatus: String, Decodable, Equatable {
     case saved
     case missing
 }
@@ -112,7 +112,7 @@ struct RemoteAgentSettingsProvider: AgentSettingsProviding {
     func loadSettings() async throws -> AgentModelSettingsSnapshot {
         let endpoint = baseURL.appendingPathComponent("agent/settings")
         let data = try await performRequest(URLRequest(url: endpoint))
-        return try decoder.decode(AgentModelSettingsSnapshotDTO.self, from: data).toDomain()
+        return try decodeResponse(AgentModelSettingsSnapshotDTO.self, from: data).toDomain()
     }
 
     func detectModels(baseURL: String, apiKey: String?) async throws -> AgentModelCatalog {
@@ -123,7 +123,7 @@ struct RemoteAgentSettingsProvider: AgentSettingsProviding {
         request.httpBody = try encoder.encode(AgentModelCatalogRequestDTO(baseURL: baseURL, apiKey: apiKey))
 
         let data = try await performRequest(request)
-        return try decoder.decode(AgentModelCatalogDTO.self, from: data).toDomain()
+        return try decodeResponse(AgentModelCatalogDTO.self, from: data).toDomain()
     }
 
     func saveSettings(baseURL: String, apiKey: String?, selectedModel: String) async throws -> AgentModelSettingsSnapshot {
@@ -140,7 +140,7 @@ struct RemoteAgentSettingsProvider: AgentSettingsProviding {
         )
 
         let data = try await performRequest(request)
-        return try decoder.decode(AgentModelSettingsSnapshotDTO.self, from: data).toDomain()
+        return try decodeResponse(AgentModelSettingsSnapshotDTO.self, from: data).toDomain()
     }
 
     func clearSettings() async throws -> AgentModelSettingsSnapshot {
@@ -149,7 +149,15 @@ struct RemoteAgentSettingsProvider: AgentSettingsProviding {
         request.httpMethod = "DELETE"
 
         let data = try await performRequest(request)
-        return try decoder.decode(AgentModelSettingsSnapshotDTO.self, from: data).toDomain()
+        return try decodeResponse(AgentModelSettingsSnapshotDTO.self, from: data).toDomain()
+    }
+
+    private func decodeResponse<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        do {
+            return try decoder.decode(type, from: data)
+        } catch {
+            throw AgentSettingsProviderError.invalidResponse
+        }
     }
 
     private func performRequest(_ request: URLRequest) async throws -> Data {

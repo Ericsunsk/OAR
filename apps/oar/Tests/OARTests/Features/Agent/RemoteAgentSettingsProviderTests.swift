@@ -87,6 +87,42 @@ final class RemoteAgentSettingsProviderTests: XCTestCase {
         XCTAssertEqual(snapshot.apiKeyStatus, .saved)
     }
 
+    func testLoadSettingsRejectsUnknownSnapshotEnumValues() async throws {
+        AgentSettingsTestURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            return (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(
+                    """
+                    {
+                      "source": "workspace",
+                      "detected_protocol": "anthropic",
+                      "base_url": "https://api.anthropic.com/v1",
+                      "selected_model": "claude-sonnet-4-5",
+                      "api_key_status": "available",
+                      "can_configure": true
+                    }
+                    """.utf8
+                )
+            )
+        }
+
+        let provider = Self.provider()
+
+        do {
+            _ = try await provider.loadSettings()
+            XCTFail("Expected invalid response error")
+        } catch AgentSettingsProviderError.invalidResponse {
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testSaveSettingsCanReuseSavedAPIKeyWithoutSendingPlaintext() async throws {
         AgentSettingsTestURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "PUT")

@@ -25,11 +25,11 @@ struct AgentSettingsErrorDTO: Decodable {
 }
 
 struct AgentModelSettingsSnapshotDTO: Decodable {
-    let source: String
+    let source: AgentModelSettingsSource
     let detectedProtocol: String?
     let baseURL: String?
     let selectedModel: String?
-    let apiKeyStatus: String
+    let apiKeyStatus: AgentAPIKeyStatus
     let canConfigure: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -43,11 +43,11 @@ struct AgentModelSettingsSnapshotDTO: Decodable {
 
     func toDomain() -> AgentModelSettingsSnapshot {
         AgentModelSettingsSnapshot(
-            source: AgentModelSettingsSource(rawValue: source) ?? .none,
+            source: source,
             detectedProtocol: detectedProtocol,
             baseURL: baseURL,
             selectedModel: selectedModel,
-            apiKeyStatus: AgentAPIKeyStatus(rawValue: apiKeyStatus) ?? .missing,
+            apiKeyStatus: apiKeyStatus,
             canConfigure: canConfigure
         )
     }

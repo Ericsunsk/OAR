@@ -193,11 +193,44 @@ final class AgentSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(model.selectedModelID, Fixture.gpt4o.id)
         XCTAssertTrue(model.canSave)
     }
+
+    func testClearPreservesBackendEnvFallbackSnapshot() async {
+        let provider = RecordingAgentSettingsProvider()
+        provider.nextSnapshot = Fixture.snapshot(
+            source: .user,
+            detectedProtocol: Fixture.openAIProtocol,
+            baseURL: Fixture.openAIBaseURL,
+            selectedModel: Fixture.gpt41.id,
+            apiKeyStatus: .saved,
+            canConfigure: true
+        )
+        provider.nextClearSnapshot = Fixture.snapshot(
+            source: .env,
+            detectedProtocol: Fixture.anthropicProtocol,
+            baseURL: Fixture.anthropicBaseURL,
+            selectedModel: Fixture.claudeSonnet.id,
+            apiKeyStatus: .saved,
+            canConfigure: true
+        )
+        let model = AgentSettingsViewModel(provider: provider)
+
+        await model.load()
+        await model.clear()
+
+        XCTAssertEqual(model.configurationState, .ready)
+        XCTAssertEqual(model.source, .env)
+        XCTAssertEqual(model.baseURL, Fixture.anthropicBaseURL)
+        XCTAssertEqual(model.detectedProtocol, Fixture.anthropicProtocol)
+        XCTAssertEqual(model.selectedModelID, Fixture.claudeSonnet.id)
+        XCTAssertEqual(model.models.map(\.id), [Fixture.claudeSonnet.id])
+        XCTAssertEqual(model.apiKey, "")
+    }
 }
 
 private final class RecordingAgentSettingsProvider: AgentSettingsProviding {
     var isAvailable: Bool = true
     var nextSnapshot = Fixture.snapshot()
+    var nextClearSnapshot = Fixture.snapshot()
     var nextCatalog = Fixture.catalog()
     private(set) var loadCount = 0
     private(set) var detectRequests: [DetectRequest] = []
@@ -232,7 +265,7 @@ private final class RecordingAgentSettingsProvider: AgentSettingsProviding {
     }
 
     func clearSettings() async throws -> AgentModelSettingsSnapshot {
-        Fixture.snapshot()
+        nextClearSnapshot
     }
 }
 

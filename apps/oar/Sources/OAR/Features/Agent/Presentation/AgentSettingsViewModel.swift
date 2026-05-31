@@ -172,7 +172,7 @@ final class AgentSettingsViewModel {
                 selectedModel: requestModel
             )
             apply(snapshot: snapshot)
-            clearAPIKeyAfterSaving()
+            clearAPIKeyPreservingCatalog()
             statusMessage = "已保存"
         } catch {
             errorMessage = localizedMessage(error)
@@ -189,8 +189,7 @@ final class AgentSettingsViewModel {
         do {
             let snapshot = try await provider.clearSettings()
             apply(snapshot: snapshot)
-            apiKey = ""
-            resetDetectedCatalog()
+            clearAPIKeyPreservingCatalog()
             statusMessage = "已清除"
         } catch {
             errorMessage = localizedMessage(error)
@@ -237,7 +236,7 @@ final class AgentSettingsViewModel {
         statusMessage = nil
     }
 
-    private func clearAPIKeyAfterSaving() {
+    private func clearAPIKeyPreservingCatalog() {
         isApplyingSnapshot = true
         apiKey = ""
         isApplyingSnapshot = false
