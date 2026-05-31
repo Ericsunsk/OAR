@@ -7,7 +7,9 @@ use oar_runtime::{
     RuntimeTickReport,
 };
 
-use crate::tenant_maintenance_daemon_failure::classify_failure_code;
+use crate::tenant_maintenance_daemon_failure::{
+    classify_failure_code, TenantMaintenanceDaemonFailureCode,
+};
 use crate::tenant_maintenance_daemon_stage_status::{
     TenantMaintenanceDaemonStagesInner, TenantMaintenanceDaemonStagesSnapshot,
 };
@@ -96,8 +98,8 @@ struct TenantMaintenanceDaemonStatusInner {
     last_round_status: Option<TenantMaintenanceRoundStatus>,
     last_round_tenant_count: usize,
     last_round_failed_tenant_count: usize,
-    last_failure_code: Option<&'static str>,
-    last_daemon_failure_code: Option<&'static str>,
+    last_failure_code: Option<TenantMaintenanceDaemonFailureCode>,
+    last_daemon_failure_code: Option<TenantMaintenanceDaemonFailureCode>,
     stages: TenantMaintenanceDaemonStagesInner,
 }
 
@@ -159,8 +161,12 @@ impl TenantMaintenanceDaemonStatusHandle {
                 .map(TenantMaintenanceRoundStatus::as_str),
             last_round_tenant_count: inner.last_round_tenant_count,
             last_round_failed_tenant_count: inner.last_round_failed_tenant_count,
-            last_failure_code: inner.last_failure_code,
-            last_daemon_failure_code: inner.last_daemon_failure_code,
+            last_failure_code: inner
+                .last_failure_code
+                .map(TenantMaintenanceDaemonFailureCode::as_str),
+            last_daemon_failure_code: inner
+                .last_daemon_failure_code
+                .map(TenantMaintenanceDaemonFailureCode::as_str),
             stages: inner.stages.snapshot(),
         }
     }
@@ -222,11 +228,11 @@ impl TenantMaintenanceDaemonStatusHandle {
         });
     }
 
-    pub(crate) fn mark_daemon_failed(&self, safe_error: impl AsRef<str>) {
+    pub(crate) fn mark_daemon_failed(&self, code: TenantMaintenanceDaemonFailureCode) {
         self.update_inner(|inner| {
             inner.state = TenantMaintenanceDaemonState::Failed;
             inner.daemon_failures = inner.daemon_failures.saturating_add(1);
-            inner.last_daemon_failure_code = Some(classify_failure_code(safe_error));
+            inner.last_daemon_failure_code = Some(code);
         });
     }
 
@@ -291,7 +297,7 @@ fn registry_report_last_failed_tenant_count(
 
 fn registry_report_first_last_tick_failure_code(
     report: &RuntimeRegistryRunReport<PostgresTenantMaintenanceReport>,
-) -> Option<&'static str> {
+) -> Option<TenantMaintenanceDaemonFailureCode> {
     report.tenant_reports.iter().find_map(|tenant| {
         if let Some(RuntimeTickReport::Failed(failure)) = &tenant.last_tick {
             Some(classify_failure_code(&failure.safe_error))
@@ -372,7 +378,9 @@ mod tests {
     fn daemon_status_redacts_suspicious_failure_code() {
         let status = TenantMaintenanceDaemonStatusHandle::for_enabled(true);
 
-        status.mark_daemon_failed("refresh_token webhook-secret authorization fingerprint");
+        status.mark_daemon_failed(classify_failure_code(
+            "refresh_token webhook-secret authorization fingerprint",
+        ));
         let snapshot = status.snapshot();
 
         assert_eq!(

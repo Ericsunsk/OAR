@@ -27,6 +27,7 @@ use crate::tenant_maintenance::{
     TenantMaintenanceAuditOutboxSinkSettings, TenantMaintenanceSettingsError,
     TenantMaintenanceWorkerSettings,
 };
+use crate::tenant_maintenance_daemon_failure::TenantMaintenanceDaemonFailureCode;
 use crate::tenant_maintenance_daemon_status::TenantMaintenanceDaemonStatusHandle;
 
 const DAEMON_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -59,26 +60,34 @@ impl fmt::Debug for TenantMaintenanceDaemonStartError {
 
 impl fmt::Display for TenantMaintenanceDaemonStartError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MissingPersistence => write!(f, "tenant_maintenance_daemon_missing_persistence"),
-            Self::MissingFeishuAuth => write!(f, "tenant_maintenance_daemon_missing_feishu_auth"),
-            Self::InvalidRuntimeConfig => {
-                write!(f, "tenant_maintenance_daemon_runtime_config_invalid")
-            }
-            Self::InvalidWorkerConfig => {
-                write!(f, "tenant_maintenance_daemon_worker_config_invalid")
-            }
-            Self::RefreshAdapterBuildFailed => {
-                write!(f, "tenant_maintenance_daemon_refresh_adapter_build_failed")
-            }
-            Self::WebhookSinkBuildFailed => {
-                write!(f, "tenant_maintenance_daemon_webhook_sink_build_failed")
-            }
-        }
+        f.write_str(self.failure_code().as_str())
     }
 }
 
 impl Error for TenantMaintenanceDaemonStartError {}
+
+impl TenantMaintenanceDaemonStartError {
+    fn failure_code(&self) -> TenantMaintenanceDaemonFailureCode {
+        match self {
+            Self::MissingPersistence => {
+                TenantMaintenanceDaemonFailureCode::DaemonMissingPersistence
+            }
+            Self::MissingFeishuAuth => TenantMaintenanceDaemonFailureCode::DaemonMissingFeishuAuth,
+            Self::InvalidRuntimeConfig => {
+                TenantMaintenanceDaemonFailureCode::DaemonRuntimeConfigInvalid
+            }
+            Self::InvalidWorkerConfig => {
+                TenantMaintenanceDaemonFailureCode::DaemonWorkerConfigInvalid
+            }
+            Self::RefreshAdapterBuildFailed => {
+                TenantMaintenanceDaemonFailureCode::DaemonRefreshAdapterBuildFailed
+            }
+            Self::WebhookSinkBuildFailed => {
+                TenantMaintenanceDaemonFailureCode::DaemonWebhookSinkBuildFailed
+            }
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 struct TenantMaintenanceTickError {
@@ -361,9 +370,8 @@ fn worker_settings_error(
 
 fn tick_repository_error(error: PostgresRepositoryError) -> TenantMaintenanceTickError {
     TenantMaintenanceTickError {
-        safe_error: format!(
-            "tenant_maintenance_runtime_tick_failed: {}",
-            postgres_repository_safe_error_reason(&error)
+        safe_error: TenantMaintenanceDaemonFailureCode::runtime_tick_safe_error(
+            postgres_repository_safe_error_reason(&error),
         ),
     }
 }
@@ -372,12 +380,11 @@ fn report_stage_safe_error(report: &PostgresTenantMaintenanceReport) -> Option<S
     report
         .scheduled_sweep
         .failed()
-        .map(|_| "tenant_maintenance_runtime_stage_failed: scheduled_sweep".to_string())
+        .map(|_| TenantMaintenanceDaemonFailureCode::runtime_stage_safe_error("scheduled_sweep"))
         .or_else(|| {
-            report
-                .outbox_drain
-                .failed()
-                .map(|_| "tenant_maintenance_runtime_stage_failed: outbox_drain".to_string())
+            report.outbox_drain.failed().map(|_| {
+                TenantMaintenanceDaemonFailureCode::runtime_stage_safe_error("outbox_drain")
+            })
         })
 }
 

@@ -5,7 +5,9 @@ use oar_core::storage::postgres::{
     TokenRefreshScheduledSweepReport,
 };
 
-use crate::tenant_maintenance_daemon_failure::classify_failure_code;
+use crate::tenant_maintenance_daemon_failure::{
+    classify_failure_code, TenantMaintenanceDaemonFailureCode,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TenantMaintenanceDaemonStagesSnapshot {
@@ -116,7 +118,7 @@ struct TenantMaintenanceStageAggregateInner {
     degraded_runs: usize,
     failed_runs: usize,
     last_status: Option<TenantMaintenanceStageHealth>,
-    last_failure_code: Option<&'static str>,
+    last_failure_code: Option<TenantMaintenanceDaemonFailureCode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,7 +183,10 @@ impl TenantMaintenanceScheduledSweepStageInner {
             last_candidate_count: self.last_candidate_count,
             last_attempted_count: self.last_attempted_count,
             last_has_more: self.last_has_more,
-            last_failure_code: self.aggregate.last_failure_code,
+            last_failure_code: self
+                .aggregate
+                .last_failure_code
+                .map(TenantMaintenanceDaemonFailureCode::as_str),
         }
     }
 }
@@ -214,7 +219,10 @@ impl TenantMaintenanceOutboxDrainStageInner {
             last_failed: self.last_failed,
             last_exhausted: self.last_exhausted,
             last_stale: self.last_stale,
-            last_failure_code: self.aggregate.last_failure_code,
+            last_failure_code: self
+                .aggregate
+                .last_failure_code
+                .map(TenantMaintenanceDaemonFailureCode::as_str),
         }
     }
 }
@@ -230,7 +238,11 @@ impl TenantMaintenanceStageAggregateInner {
         }
     }
 
-    fn record(&mut self, health: TenantMaintenanceStageHealth, failure_code: Option<&'static str>) {
+    fn record(
+        &mut self,
+        health: TenantMaintenanceStageHealth,
+        failure_code: Option<TenantMaintenanceDaemonFailureCode>,
+    ) {
         match health {
             TenantMaintenanceStageHealth::Succeeded => {
                 self.successful_runs = self.successful_runs.saturating_add(1)
@@ -311,14 +323,17 @@ fn record_outbox_drain_status(
 
 fn scheduled_sweep_health(
     report: &TokenRefreshScheduledSweepReport,
-) -> (TenantMaintenanceStageHealth, Option<&'static str>) {
+) -> (
+    TenantMaintenanceStageHealth,
+    Option<TenantMaintenanceDaemonFailureCode>,
+) {
     match report.attempt.outcome {
         SchedulerJobOutcome::Succeeded
         | SchedulerJobOutcome::Noop
         | SchedulerJobOutcome::SkippedNotDue => (TenantMaintenanceStageHealth::Succeeded, None),
         SchedulerJobOutcome::SkippedBusy => (
             TenantMaintenanceStageHealth::Degraded,
-            Some("tenant_maintenance_scheduled_sweep_busy"),
+            Some(TenantMaintenanceDaemonFailureCode::ScheduledSweepBusy),
         ),
         SchedulerJobOutcome::FailedSafe => (
             TenantMaintenanceStageHealth::Failed,
@@ -328,26 +343,29 @@ fn scheduled_sweep_health(
                     .safe_error_code
                     .as_deref()
                     .map(classify_failure_code)
-                    .unwrap_or("tenant_maintenance_scheduled_sweep_failed"),
+                    .unwrap_or(TenantMaintenanceDaemonFailureCode::ScheduledSweepFailed),
             ),
         ),
         SchedulerJobOutcome::LeaseLost => (
             TenantMaintenanceStageHealth::Failed,
-            Some("tenant_maintenance_scheduled_sweep_lease_lost"),
+            Some(TenantMaintenanceDaemonFailureCode::ScheduledSweepLeaseLost),
         ),
     }
 }
 
 fn outbox_drain_health(
     report: &AuditOutboxDrainReport,
-) -> (TenantMaintenanceStageHealth, Option<&'static str>) {
+) -> (
+    TenantMaintenanceStageHealth,
+    Option<TenantMaintenanceDaemonFailureCode>,
+) {
     if report.failed > 0 || report.exhausted > 0 {
         return (
             TenantMaintenanceStageHealth::Failed,
             Some(if report.exhausted > 0 {
-                "tenant_maintenance_outbox_exhausted"
+                TenantMaintenanceDaemonFailureCode::OutboxExhausted
             } else {
-                "tenant_maintenance_outbox_failed"
+                TenantMaintenanceDaemonFailureCode::OutboxFailed
             }),
         );
     }
@@ -355,9 +373,9 @@ fn outbox_drain_health(
         return (
             TenantMaintenanceStageHealth::Degraded,
             Some(if report.stale > 0 {
-                "tenant_maintenance_outbox_stale"
+                TenantMaintenanceDaemonFailureCode::OutboxStale
             } else {
-                "tenant_maintenance_outbox_retryable"
+                TenantMaintenanceDaemonFailureCode::OutboxRetryable
             }),
         );
     }

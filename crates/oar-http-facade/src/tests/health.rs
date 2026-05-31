@@ -3,6 +3,9 @@ use std::sync::Arc;
 use hyper::http::{Method, StatusCode};
 use serde_json::Value;
 
+use crate::tenant_maintenance_daemon_failure::{
+    classify_failure_code, TenantMaintenanceDaemonFailureCode,
+};
 use crate::tenant_maintenance_daemon_status::TenantMaintenanceDaemonStatusHandle;
 use crate::{dispatch_request, dispatch_request_with_runtime, OarHttpFacadeRuntime};
 
@@ -56,9 +59,9 @@ async fn healthz_with_runtime_reports_safe_tenant_maintenance_status() {
 #[tokio::test]
 async fn healthz_does_not_echo_unclassified_failure_details() {
     let status = TenantMaintenanceDaemonStatusHandle::for_enabled(true);
-    status.mark_daemon_failed(
+    status.mark_daemon_failed(classify_failure_code(
         "https://tenant.example.test/callback?code=auth-code Bearer X-Api-Key tenant_secret_id",
-    );
+    ));
     let runtime = OarHttpFacadeRuntime {
         tenant_maintenance_daemon_status: status,
         ..OarHttpFacadeRuntime::disabled()
@@ -103,7 +106,7 @@ fn readyz_reports_ok_for_disabled_tenant_maintenance() {
 #[tokio::test]
 async fn readyz_reports_unavailable_for_failed_tenant_maintenance_daemon() {
     let status = TenantMaintenanceDaemonStatusHandle::for_enabled(true);
-    status.mark_daemon_failed("tenant_maintenance_daemon_task_failed");
+    status.mark_daemon_failed(TenantMaintenanceDaemonFailureCode::DaemonTaskFailed);
     let runtime = OarHttpFacadeRuntime {
         tenant_maintenance_daemon_status: status,
         ..OarHttpFacadeRuntime::disabled()
