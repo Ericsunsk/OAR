@@ -128,6 +128,7 @@ fn postgres_repository_async_methods_are_type_checked() {
         fn() -> u64,
     >::run_once;
     let _scheduler_upsert = PostgresSchedulerJobRepository::upsert_job;
+    let _scheduler_insert_if_missing = PostgresSchedulerJobRepository::insert_job_if_missing;
     let _scheduler_get = PostgresSchedulerJobRepository::get_job;
     let _scheduler_try_acquire = PostgresSchedulerJobRepository::try_acquire;
     let _scheduler_complete = PostgresSchedulerJobRepository::complete_for_lease;

@@ -53,7 +53,7 @@ use crate::storage::postgres::review_inbox_sql::{
 };
 use crate::storage::postgres::scheduler_sql::{
     CLAIM_SCHEDULER_JOB, COMPLETE_SCHEDULER_JOB_FOR_LEASE, FAIL_SCHEDULER_JOB_FOR_LEASE,
-    GET_SCHEDULER_JOB, UPSERT_SCHEDULER_JOB,
+    GET_SCHEDULER_JOB, INSERT_SCHEDULER_JOB_IF_MISSING, UPSERT_SCHEDULER_JOB,
 };
 use crate::storage::postgres::token_grant_sql::{
     GET_TOKEN_GRANT_BY_ID, LIST_TOKEN_REFRESH_CANDIDATE_SNAPSHOTS,

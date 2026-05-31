@@ -56,6 +56,38 @@ WHERE tenant_id = $2
 LIMIT 1
 "#;
 
+pub const INSERT_SCHEDULER_JOB_IF_MISSING: &str = r#"
+INSERT INTO scheduler_jobs (
+    id,
+    tenant_id,
+    job_kind,
+    status,
+    next_run_at,
+    attempt_count
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    'pending',
+    to_timestamp($4::double precision / 1000.0),
+    0
+)
+ON CONFLICT (tenant_id, job_kind) DO NOTHING
+RETURNING
+id,
+tenant_id,
+job_kind,
+status,
+floor(extract(epoch from next_run_at) * 1000)::bigint AS next_run_at_ms,
+lease_id,
+floor(extract(epoch from lease_until) * 1000)::bigint AS lease_until_ms,
+attempt_count,
+floor(extract(epoch from last_started_at) * 1000)::bigint AS last_started_at_ms,
+floor(extract(epoch from last_finished_at) * 1000)::bigint AS last_finished_at_ms,
+last_safe_error_code
+"#;
+
 pub const GET_SCHEDULER_JOB: &str = r#"
 SELECT
 id,

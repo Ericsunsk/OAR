@@ -1,6 +1,6 @@
 use oar_core::storage::postgres::scheduler_sql::{
     CLAIM_SCHEDULER_JOB, COMPLETE_SCHEDULER_JOB_FOR_LEASE, FAIL_SCHEDULER_JOB_FOR_LEASE,
-    GET_SCHEDULER_JOB, UPSERT_SCHEDULER_JOB,
+    GET_SCHEDULER_JOB, INSERT_SCHEDULER_JOB_IF_MISSING, UPSERT_SCHEDULER_JOB,
 };
 
 use crate::compact;
@@ -18,6 +18,18 @@ fn scheduler_job_upsert_is_tenant_kind_scoped_and_avoids_running_overwrite() {
     assert!(sql.contains("where scheduler_jobs.status <> 'running'"));
     assert!(sql.contains("not exists (select 1 from upserted)"));
     assert!(sql.contains("returning"));
+}
+
+#[test]
+fn scheduler_job_insert_if_missing_never_resets_existing_schedule() {
+    let sql = compact(INSERT_SCHEDULER_JOB_IF_MISSING);
+
+    assert!(sql.contains("insert into scheduler_jobs"));
+    assert!(sql.contains("on conflict (tenant_id, job_kind) do nothing"));
+    assert!(sql.contains("returning"));
+    assert!(!sql.contains("do update"));
+    assert!(!sql.contains("set id ="));
+    assert!(!sql.contains("next_run_at = excluded.next_run_at"));
 }
 
 #[test]

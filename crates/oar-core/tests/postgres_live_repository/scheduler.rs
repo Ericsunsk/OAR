@@ -1,5 +1,7 @@
 use super::harness::*;
 
+#[path = "scheduler/bootstrap.rs"]
+mod bootstrap;
 #[path = "scheduler/claiming.rs"]
 mod claiming;
 #[path = "scheduler/retry_guards.rs"]

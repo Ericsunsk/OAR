@@ -26,6 +26,28 @@ impl PostgresSchedulerJobRepository {
         stored_scheduler_job_from_row(&row)
     }
 
+    pub async fn insert_job_if_missing(
+        &self,
+        id: &str,
+        tenant_id: &str,
+        job_kind: SchedulerJobKind,
+        next_run_at_ms: u64,
+    ) -> PgRepositoryResult<StoredSchedulerJob> {
+        let inserted = sqlx::query(INSERT_SCHEDULER_JOB_IF_MISSING)
+            .bind(id)
+            .bind(tenant_id)
+            .bind(scheduler_job_kind_to_db(&job_kind))
+            .bind(next_run_at_ms as i64)
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some(row) = inserted {
+            return stored_scheduler_job_from_row(&row);
+        }
+        self.get_job(tenant_id, job_kind)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound.into())
+    }
+
     pub async fn get_job(
         &self,
         tenant_id: &str,
