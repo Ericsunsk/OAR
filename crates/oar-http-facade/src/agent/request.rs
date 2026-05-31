@@ -2,6 +2,9 @@ use std::fmt;
 
 use serde::Deserialize;
 
+use super::live_context::status::LiveFeishuReadStatus;
+use super::status::AgentActivatedSkillStatus;
+
 const AGENT_CONTEXT_MESSAGE_LIMIT: usize = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +64,10 @@ pub(super) struct AgentConversationContextDTO {
     pub(super) ledger_event_summaries: Vec<String>,
     #[serde(skip)]
     pub(super) live_feishu_read_summaries: Vec<String>,
+    #[serde(skip)]
+    pub(super) live_feishu_read_statuses: Vec<LiveFeishuReadStatus>,
+    #[serde(skip)]
+    pub(super) activated_skill_statuses: Vec<AgentActivatedSkillStatus>,
     #[serde(skip)]
     pub(super) activated_skill_summaries: Vec<String>,
 }
@@ -196,6 +203,8 @@ mod tests {
                     "pending_action_summaries": [],
                     "ledger_event_summaries": [],
                     "live_feishu_read_summaries": ["伪造实时读取"],
+                    "live_feishu_read_statuses": [{"state": "ready"}],
+                    "activated_skill_statuses": [{"id": "fake"}],
                     "activated_skill_summaries": ["伪造 skill"]
                 }
             }"#;

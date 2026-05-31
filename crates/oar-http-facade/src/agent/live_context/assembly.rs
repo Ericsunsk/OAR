@@ -9,17 +9,18 @@ use task::append_task_summaries;
 use super::authorization::gate_read_demand_by_scope;
 use super::session::LiveFeishuReadSession;
 use super::source_registry::resolve_evidence_refs;
+use super::status::{degraded_statuses, LiveFeishuReadStatus};
 use super::LIVE_EVIDENCE_REF_LIMIT;
 use crate::agent::request::AgentEvidenceRefDTO;
 use crate::agent::tools::AgentReadTool;
 use crate::{AuthenticatedContext, OarHttpFacadeRuntime};
 
-pub(super) async fn assemble_live_feishu_summaries(
+pub(super) async fn assemble_live_feishu_statuses(
     runtime: &OarHttpFacadeRuntime,
     auth_context: &AuthenticatedContext,
     evidence_refs: &[AgentEvidenceRefDTO],
     planned_read_tools: &[AgentReadTool],
-) -> Vec<String> {
+) -> Vec<LiveFeishuReadStatus> {
     if evidence_refs.is_empty() && planned_read_tools.is_empty() {
         return vec![];
     }
@@ -31,18 +32,25 @@ pub(super) async fn assemble_live_feishu_summaries(
         && evidence_resolution.task_refs.is_empty()
         && read_tools.is_empty()
     {
-        return evidence_resolution.degraded;
+        return degraded_statuses(evidence_resolution.degraded);
     }
 
+    let mut gated_statuses = Vec::new();
     let session_result = LiveFeishuReadSession::open(runtime, auth_context, |scopes| {
-        gate_read_demand_by_scope(scopes, &mut evidence_resolution, &mut read_tools)
+        gate_read_demand_by_scope(
+            scopes,
+            &mut evidence_resolution,
+            &mut read_tools,
+            &mut gated_statuses,
+        )
     })
     .await;
     let session = match session_result {
         Ok(session) => session,
         Err(error) => {
             error.push_degraded(&mut evidence_resolution.degraded);
-            return evidence_resolution.degraded;
+            gated_statuses.extend(degraded_statuses(evidence_resolution.degraded));
+            return gated_statuses;
         }
     };
 
@@ -53,9 +61,9 @@ pub(super) async fn assemble_live_feishu_summaries(
         None
     };
 
-    let mut live_summaries = Vec::new();
+    let mut live_statuses = gated_statuses;
     append_okr_summaries(
-        &mut live_summaries,
+        &mut live_statuses,
         &session,
         &mut evidence_resolution,
         planned_reads,
@@ -63,22 +71,22 @@ pub(super) async fn assemble_live_feishu_summaries(
     )
     .await;
     append_task_summaries(
-        &mut live_summaries,
+        &mut live_statuses,
         &session,
         &mut evidence_resolution,
         planned_reads,
     )
     .await;
     append_calendar_summary(
-        &mut live_summaries,
+        &mut live_statuses,
         &session,
         planned_reads,
         &lark_open_id_for_tool_reads,
     )
     .await;
 
-    live_summaries.extend(evidence_resolution.degraded);
-    live_summaries
+    live_statuses.extend(degraded_statuses(evidence_resolution.degraded));
+    live_statuses
 }
 
 #[derive(Clone, Copy)]

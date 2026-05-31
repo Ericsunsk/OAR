@@ -9,15 +9,15 @@ use super::super::okr_summary::build_my_okr_summary_from_topology;
 use super::super::okr_topology::{read_my_okr_topology, OkrTopologyReadOptions};
 use super::super::session::LiveFeishuReadSession;
 use super::super::source_registry::LiveEvidenceResolution;
+use super::super::status::LiveFeishuReadStatus;
 use super::super::summary::{
     build_live_summary, evidence_unavailable_summary, okr_read_error_reason,
-    tool_live_degraded_summary,
 };
 use super::PlannedLiveReads;
 use crate::agent::tools::AgentReadTool;
 
 pub(super) async fn append_okr_summaries(
-    live_summaries: &mut Vec<String>,
+    live_statuses: &mut Vec<LiveFeishuReadStatus>,
     session: &LiveFeishuReadSession,
     evidence_resolution: &mut LiveEvidenceResolution<'_>,
     planned_reads: PlannedLiveReads,
@@ -47,7 +47,10 @@ pub(super) async fn append_okr_summaries(
                 match topology_result {
                     Ok(topology) => {
                         if planned_reads.okr_summary {
-                            live_summaries.push(build_my_okr_summary_from_topology(&topology));
+                            live_statuses.push(LiveFeishuReadStatus::ready_for_tool(
+                                AgentReadTool::OkrSummary,
+                                build_my_okr_summary_from_topology(&topology),
+                            ));
                         }
                         if planned_reads.okr_progress {
                             match read_my_okr_progress_summary_from_topology(
@@ -57,17 +60,24 @@ pub(super) async fn append_okr_summaries(
                             )
                             .await
                             {
-                                Ok(summary) => live_summaries.push(summary),
-                                Err(error) => live_summaries.push(tool_live_degraded_summary(
-                                    AgentReadTool::OkrProgress,
-                                    okr_read_error_reason(error),
-                                )),
+                                Ok(summary) => {
+                                    live_statuses.push(LiveFeishuReadStatus::ready_for_tool(
+                                        AgentReadTool::OkrProgress,
+                                        summary,
+                                    ))
+                                }
+                                Err(error) => {
+                                    live_statuses.push(LiveFeishuReadStatus::degraded_for_tool(
+                                        AgentReadTool::OkrProgress,
+                                        okr_read_error_reason(error),
+                                    ))
+                                }
                             }
                         }
                     }
                     Err(error) => {
                         push_okr_tool_degraded_summaries(
-                            live_summaries,
+                            live_statuses,
                             planned_reads.okr_summary,
                             planned_reads.okr_progress,
                             okr_read_error_reason(error),
@@ -77,7 +87,7 @@ pub(super) async fn append_okr_summaries(
             }
             Some(Err(reason)) => {
                 push_okr_tool_degraded_summaries(
-                    live_summaries,
+                    live_statuses,
                     planned_reads.okr_summary,
                     planned_reads.okr_progress,
                     reason,
@@ -85,7 +95,7 @@ pub(super) async fn append_okr_summaries(
             }
             None => {
                 push_okr_tool_degraded_summaries(
-                    live_summaries,
+                    live_statuses,
                     planned_reads.okr_summary,
                     planned_reads.okr_progress,
                     "用户身份未解析",
@@ -118,33 +128,41 @@ pub(super) async fn append_okr_summaries(
         Ok(response) => {
             if let Some(data) = response.data {
                 let snapshot = OkrReadSnapshot::from_batch_get_data(&data);
-                live_summaries.extend(okr_refs.into_iter().map(|(evidence_ref, parsed)| {
-                    build_live_summary(evidence_ref, &parsed, &snapshot)
+                live_statuses.extend(okr_refs.into_iter().map(|(evidence_ref, parsed)| {
+                    LiveFeishuReadStatus::ready(build_live_summary(
+                        evidence_ref,
+                        &parsed,
+                        &snapshot,
+                    ))
                 }));
             } else {
-                live_summaries.push(evidence_unavailable_summary("Feishu 返回空数据"));
+                live_statuses.push(LiveFeishuReadStatus::degraded(
+                    evidence_unavailable_summary("Feishu 返回空数据"),
+                ));
             }
         }
         Err(error) => {
-            live_summaries.push(evidence_unavailable_summary(okr_read_error_reason(error)));
+            live_statuses.push(LiveFeishuReadStatus::degraded(
+                evidence_unavailable_summary(okr_read_error_reason(error)),
+            ));
         }
     }
 }
 
 fn push_okr_tool_degraded_summaries(
-    live_summaries: &mut Vec<String>,
+    live_statuses: &mut Vec<LiveFeishuReadStatus>,
     include_summary: bool,
     include_progress: bool,
     reason: &str,
 ) {
     if include_summary {
-        live_summaries.push(tool_live_degraded_summary(
+        live_statuses.push(LiveFeishuReadStatus::degraded_for_tool(
             AgentReadTool::OkrSummary,
             reason,
         ));
     }
     if include_progress {
-        live_summaries.push(tool_live_degraded_summary(
+        live_statuses.push(LiveFeishuReadStatus::degraded_for_tool(
             AgentReadTool::OkrProgress,
             reason,
         ));

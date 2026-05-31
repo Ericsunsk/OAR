@@ -47,6 +47,8 @@ fn prompt_builder_uses_backend_boundary_and_limits_evidence() {
             "实时 4".to_string(),
             "实时 5".to_string(),
         ],
+        live_feishu_read_statuses: vec![],
+        activated_skill_statuses: vec![],
         activated_skill_summaries: vec!["feishu.okr｜Feishu OKR｜用途：读取 OKR".to_string()],
     });
 
@@ -118,6 +120,8 @@ fn prompt_builder_redacts_sensitive_client_context_before_prompting() {
         pending_action_summaries: vec!["credential should not enter prompt".to_string()],
         ledger_event_summaries: vec!["raw_payload sk-secret token leaked".to_string()],
         live_feishu_read_summaries: vec!["refresh_token rt_live_fake".to_string()],
+        live_feishu_read_statuses: vec![],
+        activated_skill_statuses: vec![],
         activated_skill_summaries: vec!["feishu.okr｜Feishu OKR｜用途：读取 OKR".to_string()],
     });
 
@@ -159,6 +163,8 @@ fn prompt_builder_compacts_and_truncates_client_context_items() {
         pending_action_summaries: vec![],
         ledger_event_summaries: vec![],
         live_feishu_read_summaries: vec![],
+        live_feishu_read_statuses: vec![],
+        activated_skill_statuses: vec![],
         activated_skill_summaries: vec![],
     });
 
@@ -187,6 +193,8 @@ fn prompt_builder_deduplicates_context_sections_after_sanitizing() {
         pending_action_summaries: vec![],
         ledger_event_summaries: vec![],
         live_feishu_read_summaries: vec![],
+        live_feishu_read_statuses: vec![],
+        activated_skill_statuses: vec![],
         activated_skill_summaries: vec![],
     });
 
@@ -213,6 +221,8 @@ fn prompt_builder_includes_backend_tool_result_summary() {
             "工具 feishu.okr.summarize_my_okr｜实时：我的 OKR 当前有 2 条目标；仅返回安全摘要。"
                 .to_string(),
         ],
+        live_feishu_read_statuses: vec![],
+        activated_skill_statuses: vec![],
         activated_skill_summaries: vec![
             "feishu.okr｜Feishu OKR｜可用后端工具：feishu.okr.summarize_my_okr".to_string(),
         ],
@@ -242,6 +252,8 @@ fn prompt_builder_distinguishes_calendar_free_busy_and_events_summary_boundaries
             "工具 feishu.calendar.summarize_my_events｜实时：未来 7 天读取到 1 条日程实例；示例：今天 10:00-11:00，「例会」。"
                 .to_string(),
         ],
+        live_feishu_read_statuses: vec![],
+        activated_skill_statuses: vec![],
         activated_skill_summaries: vec![
             "feishu.calendar｜Feishu Calendar｜可用后端工具：feishu.calendar.summarize_my_free_busy；feishu.calendar.summarize_my_events"
                 .to_string(),

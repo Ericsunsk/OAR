@@ -3,6 +3,7 @@ use super::skills::{
     select_feishu_calendar_read_intents, select_feishu_okr_read_intents,
     select_feishu_task_summary_requested, AgentSkill,
 };
+use super::status::AgentActivatedSkillStatus;
 use super::tools::{plan_read_tools_for_activation, AgentReadTool};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +17,14 @@ impl AgentSkillActivationPlan {
         self.activated_skills
             .iter()
             .map(|skill| skill.prompt_summary())
+            .collect()
+    }
+
+    pub(in crate::agent) fn activated_skill_statuses(&self) -> Vec<AgentActivatedSkillStatus> {
+        self.activated_skills
+            .iter()
+            .copied()
+            .map(AgentActivatedSkillStatus::from_skill)
             .collect()
     }
 
@@ -69,6 +78,7 @@ mod tests {
         );
         assert_eq!(plan.activated_skill_summaries().len(), 1);
         assert!(plan.activated_skill_summaries()[0].contains("feishu.okr"));
+        assert_eq!(plan.activated_skill_statuses()[0].id, "feishu.okr");
     }
 
     #[test]
@@ -80,6 +90,7 @@ mod tests {
         assert_eq!(plan.activated_skills, vec![AgentSkill::Calendar]);
         assert_eq!(plan.read_tools(), &[AgentReadTool::CalendarEvents]);
         assert!(plan.activated_skill_summaries()[0].contains("feishu.calendar.summarize_my_events"));
+        assert_eq!(plan.activated_skill_statuses()[0].id, "feishu.calendar");
     }
 
     #[test]
@@ -110,6 +121,8 @@ mod tests {
                 pending_action_summaries: vec![],
                 ledger_event_summaries: vec![],
                 live_feishu_read_summaries: vec![],
+                live_feishu_read_statuses: vec![],
+                activated_skill_statuses: vec![],
                 activated_skill_summaries: vec![],
             },
         }

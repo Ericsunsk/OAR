@@ -1,4 +1,5 @@
 use super::gate_read_tools_by_scope;
+use crate::agent::live_context::status::LiveFeishuReadState;
 use crate::agent::tools::AgentReadTool;
 use oar_core::action::capability::FeishuScope;
 
@@ -16,13 +17,20 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
 
     assert!(tools.is_empty());
     assert_eq!(degraded.len(), 4);
-    assert!(degraded[0].contains("okr:okr.period:readonly"));
-    assert!(degraded[0].contains("okr:okr.content:readonly"));
-    assert!(degraded[1].contains("okr:okr.period:readonly"));
-    assert!(degraded[1].contains("okr:okr.progress:readonly"));
-    assert!(degraded[2].contains("calendar:calendar:read"));
-    assert!(degraded[2].contains("calendar:calendar.event:read"));
-    assert!(degraded[3].contains("calendar:calendar.free_busy:read"));
+    assert_eq!(degraded[0].tool, Some(AgentReadTool::OkrSummary));
+    assert_eq!(degraded[0].state, LiveFeishuReadState::Degraded);
+    assert!(degraded[0].summary.contains("okr:okr.period:readonly"));
+    assert!(degraded[0].summary.contains("okr:okr.content:readonly"));
+    assert_eq!(degraded[1].tool, Some(AgentReadTool::OkrProgress));
+    assert!(degraded[1].summary.contains("okr:okr.period:readonly"));
+    assert!(degraded[1].summary.contains("okr:okr.progress:readonly"));
+    assert_eq!(degraded[2].tool, Some(AgentReadTool::CalendarEvents));
+    assert!(degraded[2].summary.contains("calendar:calendar:read"));
+    assert!(degraded[2].summary.contains("calendar:calendar.event:read"));
+    assert_eq!(degraded[3].tool, Some(AgentReadTool::CalendarFreeBusy));
+    assert!(degraded[3]
+        .summary
+        .contains("calendar:calendar.free_busy:read"));
 
     let mut tools = vec![AgentReadTool::OkrSummary, AgentReadTool::OkrProgress];
     let mut degraded = Vec::new();
@@ -38,8 +46,11 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
 
     assert_eq!(tools, vec![AgentReadTool::OkrSummary]);
     assert_eq!(degraded.len(), 1);
-    assert!(degraded[0].contains("feishu.okr.summarize_my_progress"));
-    assert!(degraded[0].contains("okr:okr.progress:readonly"));
+    assert_eq!(degraded[0].tool, Some(AgentReadTool::OkrProgress));
+    assert!(degraded[0]
+        .summary
+        .contains("feishu.okr.summarize_my_progress"));
+    assert!(degraded[0].summary.contains("okr:okr.progress:readonly"));
 
     let mut tools = vec![
         AgentReadTool::OkrSummary,
@@ -91,14 +102,14 @@ fn read_tool_scope_gate_deduplicates_tools_before_scope_checks() {
     assert_eq!(
         degraded
             .iter()
-            .filter(|summary| summary.contains("feishu.okr.summarize_my_okr"))
+            .filter(|status| status.summary.contains("feishu.okr.summarize_my_okr"))
             .count(),
         1
     );
     assert_eq!(
         degraded
             .iter()
-            .filter(|summary| summary.contains("feishu.okr.summarize_my_progress"))
+            .filter(|status| status.summary.contains("feishu.okr.summarize_my_progress"))
             .count(),
         1
     );

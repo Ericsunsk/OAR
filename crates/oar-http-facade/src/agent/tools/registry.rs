@@ -44,6 +44,7 @@ const FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES: &[CapabilityActionTyp
     &[CapabilityActionType::CalendarFreeBusyRead];
 
 impl AgentReadTool {
+    #[cfg(test)]
     pub(in crate::agent) fn from_name(name: &str) -> Option<Self> {
         match name {
             "feishu.calendar.summarize_my_events" => Some(Self::CalendarEvents),

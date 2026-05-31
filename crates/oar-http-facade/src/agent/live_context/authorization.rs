@@ -3,16 +3,17 @@ use std::collections::HashSet;
 use oar_core::action::capability::FeishuScope;
 
 use super::source_registry::LiveEvidenceResolution;
-use super::summary::tool_live_degraded_summary;
+use super::status::LiveFeishuReadStatus;
 use crate::agent::tools::AgentReadTool;
 
 pub(super) fn gate_read_demand_by_scope(
     scopes: &[String],
     evidence_resolution: &mut LiveEvidenceResolution<'_>,
     read_tools: &mut Vec<AgentReadTool>,
+    degraded_read_statuses: &mut Vec<LiveFeishuReadStatus>,
 ) -> bool {
     gate_evidence_refs_by_scope(scopes, evidence_resolution);
-    gate_read_tools_by_scope(scopes, read_tools, &mut evidence_resolution.degraded);
+    gate_read_tools_by_scope(scopes, read_tools, degraded_read_statuses);
     !(evidence_resolution.okr_refs.is_empty()
         && evidence_resolution.task_refs.is_empty()
         && read_tools.is_empty())
@@ -21,7 +22,7 @@ pub(super) fn gate_read_demand_by_scope(
 pub(super) fn gate_read_tools_by_scope(
     scopes: &[String],
     read_tools: &mut Vec<AgentReadTool>,
-    degraded: &mut Vec<String>,
+    degraded: &mut Vec<LiveFeishuReadStatus>,
 ) {
     dedupe_read_tools(read_tools);
     read_tools.retain(|tool| {
@@ -30,7 +31,7 @@ pub(super) fn gate_read_tools_by_scope(
             Ok(scopes) => scopes,
             Err(error) => {
                 let reason = error.safe_reason();
-                degraded.push(tool_live_degraded_summary(*tool, &reason));
+                degraded.push(LiveFeishuReadStatus::degraded_for_tool(*tool, &reason));
                 return false;
             }
         };
@@ -38,7 +39,7 @@ pub(super) fn gate_read_tools_by_scope(
         if missing.is_empty() {
             return true;
         }
-        degraded.push(tool_live_degraded_summary(
+        degraded.push(LiveFeishuReadStatus::degraded_for_tool(
             *tool,
             &format!("授权缺少 {}", missing.join("、")),
         ));

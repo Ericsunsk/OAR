@@ -34,6 +34,8 @@ pub(super) fn live_context_request(
             pending_action_summaries: vec![],
             ledger_event_summaries: vec![],
             live_feishu_read_summaries: vec![],
+            live_feishu_read_statuses: vec![],
+            activated_skill_statuses: vec![],
             activated_skill_summaries: vec![],
         },
     }

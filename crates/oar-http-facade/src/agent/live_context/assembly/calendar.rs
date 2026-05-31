@@ -2,19 +2,20 @@ use super::super::calendar_summary::{
     read_my_calendar_events_summary, read_my_calendar_free_busy_summary,
 };
 use super::super::session::LiveFeishuReadSession;
-use super::super::summary::{calendar_read_error_reason, tool_live_degraded_summary};
+use super::super::status::LiveFeishuReadStatus;
+use super::super::summary::calendar_read_error_reason;
 use super::PlannedLiveReads;
 use crate::agent::tools::AgentReadTool;
 
 pub(super) async fn append_calendar_summary(
-    live_summaries: &mut Vec<String>,
+    live_statuses: &mut Vec<LiveFeishuReadStatus>,
     session: &LiveFeishuReadSession,
     planned_reads: PlannedLiveReads,
     lark_open_id_for_tool_reads: &Option<Result<String, &'static str>>,
 ) {
     if !planned_reads.calendar_free_busy {
         if planned_reads.calendar_events {
-            append_calendar_events_summary(live_summaries, session).await;
+            append_calendar_events_summary(live_statuses, session).await;
         }
         return;
     }
@@ -30,30 +31,33 @@ pub(super) async fn append_calendar_summary(
             )
             .await
             {
-                Ok(summary) => live_summaries.push(summary),
-                Err(error) => live_summaries.push(tool_live_degraded_summary(
+                Ok(summary) => live_statuses.push(LiveFeishuReadStatus::ready_for_tool(
+                    AgentReadTool::CalendarFreeBusy,
+                    summary,
+                )),
+                Err(error) => live_statuses.push(LiveFeishuReadStatus::degraded_for_tool(
                     AgentReadTool::CalendarFreeBusy,
                     calendar_read_error_reason(error),
                 )),
             }
         }
-        Some(Err(reason)) => live_summaries.push(tool_live_degraded_summary(
+        Some(Err(reason)) => live_statuses.push(LiveFeishuReadStatus::degraded_for_tool(
             AgentReadTool::CalendarFreeBusy,
             reason,
         )),
-        None => live_summaries.push(tool_live_degraded_summary(
+        None => live_statuses.push(LiveFeishuReadStatus::degraded_for_tool(
             AgentReadTool::CalendarFreeBusy,
             "用户身份未解析",
         )),
     }
 
     if planned_reads.calendar_events {
-        append_calendar_events_summary(live_summaries, session).await;
+        append_calendar_events_summary(live_statuses, session).await;
     }
 }
 
 async fn append_calendar_events_summary(
-    live_summaries: &mut Vec<String>,
+    live_statuses: &mut Vec<LiveFeishuReadStatus>,
     session: &LiveFeishuReadSession,
 ) {
     let mut calendar_client = session.calendar_client();
@@ -64,8 +68,11 @@ async fn append_calendar_events_summary(
     )
     .await
     {
-        Ok(summary) => live_summaries.push(summary),
-        Err(error) => live_summaries.push(tool_live_degraded_summary(
+        Ok(summary) => live_statuses.push(LiveFeishuReadStatus::ready_for_tool(
+            AgentReadTool::CalendarEvents,
+            summary,
+        )),
+        Err(error) => live_statuses.push(LiveFeishuReadStatus::degraded_for_tool(
             AgentReadTool::CalendarEvents,
             calendar_read_error_reason(error),
         )),

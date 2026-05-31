@@ -103,6 +103,8 @@ fn anthropic_messages_drop_leading_assistant_and_merge_adjacent_roles() {
             pending_action_summaries: vec![],
             ledger_event_summaries: vec![],
             live_feishu_read_summaries: vec![],
+            live_feishu_read_statuses: vec![],
+            activated_skill_statuses: vec![],
             activated_skill_summaries: vec![],
         },
     };
