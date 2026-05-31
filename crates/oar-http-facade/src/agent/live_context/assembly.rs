@@ -93,7 +93,14 @@ pub(super) async fn assemble_live_feishu_statuses(
     )
     .await;
     append_doc_summaries(&mut live_statuses, &session, &mut evidence_resolution).await;
-    append_minutes_summaries(&mut live_statuses, &session, &mut evidence_resolution).await;
+    append_minutes_summaries(
+        &mut live_statuses,
+        &session,
+        &mut evidence_resolution,
+        planned_reads,
+        &lark_open_id_for_tool_reads,
+    )
+    .await;
 
     live_statuses.extend(degraded_statuses(evidence_resolution.degraded));
     live_statuses
@@ -106,6 +113,7 @@ pub(super) struct PlannedLiveReads {
     pub(super) task_summary: bool,
     pub(super) calendar_events: bool,
     pub(super) calendar_free_busy: bool,
+    pub(super) minutes_summary: bool,
 }
 
 impl PlannedLiveReads {
@@ -116,10 +124,11 @@ impl PlannedLiveReads {
             task_summary: read_tools.contains(&AgentReadTool::TaskSummary),
             calendar_events: read_tools.contains(&AgentReadTool::CalendarEvents),
             calendar_free_busy: read_tools.contains(&AgentReadTool::CalendarFreeBusy),
+            minutes_summary: read_tools.contains(&AgentReadTool::MinutesSummary),
         }
     }
 
     fn needs_lark_open_id(self) -> bool {
-        self.okr_summary || self.okr_progress || self.calendar_free_busy
+        self.okr_summary || self.okr_progress || self.calendar_free_busy || self.minutes_summary
     }
 }

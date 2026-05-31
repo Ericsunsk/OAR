@@ -16,6 +16,7 @@ pub enum FeishuScope {
     DocxDocumentRead,
     WikiNodeRead,
     MinutesBasicRead,
+    MinutesSearchRead,
     ImMessageSendAsBot,
 }
 
@@ -36,6 +37,7 @@ impl FeishuScope {
             Self::DocxDocumentRead => "docx:document:readonly",
             Self::WikiNodeRead => "wiki:node:read",
             Self::MinutesBasicRead => "minutes:minutes.basic:read",
+            Self::MinutesSearchRead => "minutes:minutes.search:read",
             Self::ImMessageSendAsBot => "im:message:send_as_bot",
         }
     }
@@ -57,6 +59,7 @@ pub const TASK_WRITE_SCOPES: &[FeishuScope] = &[FeishuScope::TaskWrite];
 pub const DOCX_DOCUMENT_READ_SCOPES: &[FeishuScope] = &[FeishuScope::DocxDocumentRead];
 pub const WIKI_NODE_READ_SCOPES: &[FeishuScope] = &[FeishuScope::WikiNodeRead];
 pub const MINUTES_BASIC_READ_SCOPES: &[FeishuScope] = &[FeishuScope::MinutesBasicRead];
+pub const MINUTES_SEARCH_READ_SCOPES: &[FeishuScope] = &[FeishuScope::MinutesSearchRead];
 pub const IM_MESSAGE_SEND_AS_BOT_SCOPES: &[FeishuScope] = &[FeishuScope::ImMessageSendAsBot];
 
 pub const DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES: &[CapabilityActionType] = &[
@@ -75,6 +78,7 @@ pub const DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES: &[CapabilityActionType] = &[
     CapabilityActionType::DocxDocumentRead,
     CapabilityActionType::WikiNodeRead,
     CapabilityActionType::MinutesBasicRead,
+    CapabilityActionType::MinutesSearchRead,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

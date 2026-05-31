@@ -1,9 +1,10 @@
-use super::builtin::{feishu_calendar, feishu_okr, feishu_task};
+use super::builtin::{feishu_calendar, feishu_minutes, feishu_okr, feishu_task};
 use crate::agent::tools::AgentReadTool;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum AgentSkill {
     Calendar,
+    Minutes,
     Okr,
     Task,
 }
@@ -28,6 +29,14 @@ impl AgentSkill {
                 tools: feishu_calendar::TOOLS,
                 safety: feishu_calendar::SAFETY,
                 manifest_markdown: feishu_calendar::MANIFEST_MARKDOWN,
+            },
+            Self::Minutes => AgentSkillSpec {
+                id: feishu_minutes::ID,
+                display_name: feishu_minutes::DISPLAY_NAME,
+                purpose: feishu_minutes::PURPOSE,
+                tools: feishu_minutes::TOOLS,
+                safety: feishu_minutes::SAFETY,
+                manifest_markdown: feishu_minutes::MANIFEST_MARKDOWN,
             },
             Self::Okr => AgentSkillSpec {
                 id: feishu_okr::ID,
@@ -75,6 +84,7 @@ mod tests {
         assert_feishu_okr_spec(AgentSkill::Okr.spec());
         assert_feishu_task_spec(AgentSkill::Task.spec());
         assert_feishu_calendar_spec(AgentSkill::Calendar.spec());
+        assert_feishu_minutes_spec(AgentSkill::Minutes.spec());
     }
 
     fn assert_feishu_okr_spec(spec: AgentSkillSpec) {
@@ -119,6 +129,20 @@ mod tests {
         assert!(spec
             .manifest_markdown
             .contains("feishu.calendar.summarize_my_events"));
+    }
+
+    fn assert_feishu_minutes_spec(spec: AgentSkillSpec) {
+        assert_eq!(spec.id, "feishu.minutes");
+        assert_eq!(spec.display_name, "Feishu Minutes");
+        assert!(spec.purpose.contains("妙记"));
+        assert_eq!(spec.tools.len(), 1);
+        assert_skill_tools_registered(spec);
+        assert_eq!(spec.tools[0], AgentReadTool::MinutesSummary);
+        assert!(spec.tools[0].spec().description.contains("只读汇总"));
+        assert!(spec.manifest_markdown.contains("# Feishu Minutes"));
+        assert!(spec
+            .manifest_markdown
+            .contains("feishu.minutes.summarize_my_minutes"));
     }
 
     fn assert_skill_tools_registered(spec: AgentSkillSpec) {

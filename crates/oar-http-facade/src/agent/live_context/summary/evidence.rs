@@ -179,7 +179,7 @@ pub(in crate::agent::live_context) fn build_minutes_live_summary(
         .duration_ms
         .as_deref()
         .and_then(|value| value.parse::<u64>().ok())
-        .map(format_duration_ms)
+        .map(format_minutes_duration_ms)
         .map(|value| format!("，时长 {value}"))
         .unwrap_or_default();
     let create_time = minute
@@ -197,7 +197,7 @@ pub(in crate::agent::live_context) fn build_minutes_live_summary(
     ))
 }
 
-fn format_duration_ms(duration_ms: u64) -> String {
+pub(in crate::agent::live_context) fn format_minutes_duration_ms(duration_ms: u64) -> String {
     let total_seconds = (duration_ms + 500) / 1000;
     let minutes = total_seconds / 60;
     let seconds = total_seconds % 60;

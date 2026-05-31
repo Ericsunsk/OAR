@@ -73,8 +73,9 @@ pub use material::{
     FeishuStoredRefreshMaterialProviderError, StoredFeishuGrantMaterial,
 };
 pub use minutes::{
-    build_get_minute_request, parse_minutes_source_ref, AsyncFeishuMinutesRead,
-    FeishuMinuteReadRequest, FeishuMinutesReadClient, FeishuMinutesReadError, MinuteReadSummary,
+    build_get_minute_request, build_search_minutes_request, parse_minutes_source_ref,
+    AsyncFeishuMinutesRead, FeishuMinuteReadRequest, FeishuMinuteSearchRequest,
+    FeishuMinutesReadClient, FeishuMinutesReadError, MinuteReadSummary, MinuteSearchPage,
     MinutesSourceRef,
 };
 pub use oauth::{

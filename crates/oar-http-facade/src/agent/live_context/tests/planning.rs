@@ -121,6 +121,30 @@ async fn live_context_plans_read_only_tool_when_calendar_intent_has_no_evidence_
 }
 
 #[tokio::test]
+async fn live_context_plans_read_only_tool_when_minutes_intent_has_no_evidence_refs() {
+    let mut request = live_context_request(
+        "查下我的飞书妙记",
+        "妙记查询",
+        "用户请求实时读取",
+        "无",
+        vec![],
+        vec![],
+    );
+    let runtime = OarHttpFacadeRuntime::disabled();
+    let auth_context = test_auth_context();
+
+    inject_live_feishu_context(&runtime, &auth_context, &mut request).await;
+
+    assert_eq!(request.context.activated_skill_summaries.len(), 1);
+    assert!(request.context.activated_skill_summaries[0].contains("feishu.minutes"));
+    assert!(request.context.activated_skill_summaries[0]
+        .contains("feishu.minutes.summarize_my_minutes"));
+    assert_eq!(request.context.live_feishu_read_summaries.len(), 1);
+    let summary = &request.context.live_feishu_read_summaries[0];
+    assert!(summary.contains("后端未配置 Feishu 授权存储"));
+}
+
+#[tokio::test]
 async fn live_context_plans_calendar_events_tool_when_agenda_intent_has_no_evidence_refs() {
     let mut request = live_context_request(
         "查下我的飞书日历今天有什么会",

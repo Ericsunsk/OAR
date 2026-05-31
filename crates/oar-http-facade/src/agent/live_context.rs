@@ -6,6 +6,7 @@ mod assembly;
 mod authorization;
 mod calendar_summary;
 mod grant;
+mod minutes_summary;
 mod okr_progress_summary;
 mod okr_summary;
 mod okr_topology;

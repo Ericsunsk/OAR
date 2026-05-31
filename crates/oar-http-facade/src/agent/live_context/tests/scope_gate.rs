@@ -10,13 +10,14 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
         AgentReadTool::OkrProgress,
         AgentReadTool::CalendarEvents,
         AgentReadTool::CalendarFreeBusy,
+        AgentReadTool::MinutesSummary,
     ];
     let mut degraded = Vec::new();
 
     gate_read_tools_by_scope(&["okr.content.read".to_string()], &mut tools, &mut degraded);
 
     assert!(tools.is_empty());
-    assert_eq!(degraded.len(), 4);
+    assert_eq!(degraded.len(), 5);
     assert_eq!(degraded[0].tool, Some(AgentReadTool::OkrSummary));
     assert_eq!(degraded[0].state, LiveFeishuReadState::Degraded);
     assert!(degraded[0].summary.contains("okr:okr.period:readonly"));
@@ -31,6 +32,8 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
     assert!(degraded[3]
         .summary
         .contains("calendar:calendar.free_busy:read"));
+    assert_eq!(degraded[4].tool, Some(AgentReadTool::MinutesSummary));
+    assert!(degraded[4].summary.contains("minutes:minutes.search:read"));
 
     let mut tools = vec![AgentReadTool::OkrSummary, AgentReadTool::OkrProgress];
     let mut degraded = Vec::new();
@@ -57,6 +60,7 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
         AgentReadTool::OkrProgress,
         AgentReadTool::CalendarEvents,
         AgentReadTool::CalendarFreeBusy,
+        AgentReadTool::MinutesSummary,
     ];
     let mut degraded = Vec::new();
 
@@ -68,6 +72,7 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
             FeishuScope::CalendarRead.as_str().to_string(),
             FeishuScope::CalendarEventRead.as_str().to_string(),
             FeishuScope::CalendarFreeBusyRead.as_str().to_string(),
+            FeishuScope::MinutesSearchRead.as_str().to_string(),
         ],
         &mut tools,
         &mut degraded,
@@ -79,7 +84,8 @@ fn read_tool_scope_gate_requires_real_feishu_oauth_scopes() {
             AgentReadTool::OkrSummary,
             AgentReadTool::OkrProgress,
             AgentReadTool::CalendarEvents,
-            AgentReadTool::CalendarFreeBusy
+            AgentReadTool::CalendarFreeBusy,
+            AgentReadTool::MinutesSummary
         ]
     );
     assert!(degraded.is_empty());

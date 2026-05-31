@@ -4,6 +4,7 @@ mod selector;
 
 pub(super) use catalog::AgentSkill;
 pub(super) use selector::{
-    select_feishu_calendar_read_intents, select_feishu_okr_read_intents,
-    select_feishu_task_summary_requested, FeishuCalendarReadIntent, FeishuOkrReadIntent,
+    select_feishu_calendar_read_intents, select_feishu_minutes_summary_requested,
+    select_feishu_okr_read_intents, select_feishu_task_summary_requested, FeishuCalendarReadIntent,
+    FeishuOkrReadIntent,
 };

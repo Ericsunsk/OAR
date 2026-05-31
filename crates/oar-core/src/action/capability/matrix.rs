@@ -3,9 +3,9 @@ use super::{
     CapabilitySafety, CapabilitySpec, OarRequiredScope, PlatformAdapter, RiskLevel,
     CALENDAR_EVENT_READ_SCOPES, CALENDAR_FREE_BUSY_READ_SCOPES, CALENDAR_READ_SCOPES,
     DOCX_DOCUMENT_READ_SCOPES, IM_MESSAGE_SEND_AS_BOT_SCOPES, MINUTES_BASIC_READ_SCOPES,
-    OKR_CONTENT_READ_SCOPES, OKR_PERIOD_READ_SCOPES, OKR_PROGRESS_READ_SCOPES,
-    OKR_PROGRESS_WRITE_SCOPES, OKR_REVIEW_READ_SCOPES, OKR_SETTING_READ_SCOPES, TASK_READ_SCOPES,
-    TASK_WRITE_SCOPES, WIKI_NODE_READ_SCOPES,
+    MINUTES_SEARCH_READ_SCOPES, OKR_CONTENT_READ_SCOPES, OKR_PERIOD_READ_SCOPES,
+    OKR_PROGRESS_READ_SCOPES, OKR_PROGRESS_WRITE_SCOPES, OKR_REVIEW_READ_SCOPES,
+    OKR_SETTING_READ_SCOPES, TASK_READ_SCOPES, TASK_WRITE_SCOPES, WIKI_NODE_READ_SCOPES,
 };
 
 pub const CAPABILITY_MATRIX: &[CapabilitySpec] = &[
@@ -169,6 +169,17 @@ pub const CAPABILITY_MATRIX: &[CapabilitySpec] = &[
         adapter: PlatformAdapter::Lark,
         required_scope: OarRequiredScope::MinutesBasicRead,
         feishu_scopes: MINUTES_BASIC_READ_SCOPES,
+        effect: CapabilityEffect::Read,
+        execution_mode: CapabilityExecutionMode::AutoRead,
+        risk: RiskLevel::Low,
+        safety: CapabilitySafety::READ_ONLY,
+    },
+    CapabilitySpec {
+        capability: AgentCapability::MinutesSearchRead,
+        action_type: CapabilityActionType::MinutesSearchRead,
+        adapter: PlatformAdapter::Lark,
+        required_scope: OarRequiredScope::MinutesSearchRead,
+        feishu_scopes: MINUTES_SEARCH_READ_SCOPES,
         effect: CapabilityEffect::Read,
         execution_mode: CapabilityExecutionMode::AutoRead,
         risk: RiskLevel::Low,

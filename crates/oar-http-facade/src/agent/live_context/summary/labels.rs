@@ -25,6 +25,7 @@ mod tests {
         for tool in [
             AgentReadTool::CalendarEvents,
             AgentReadTool::CalendarFreeBusy,
+            AgentReadTool::MinutesSummary,
             AgentReadTool::OkrSummary,
             AgentReadTool::OkrProgress,
             AgentReadTool::TaskSummary,

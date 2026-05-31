@@ -211,6 +211,39 @@ fn next_batch_capabilities_are_lookupable_with_non_executing_posture() {
         CapabilityActionType::MinutesBasicRead
     );
 
+    let minutes_search = find_by_action_type(CapabilityActionType::MinutesSearchRead)
+        .expect("minutes search read lookup");
+    assert_eq!(
+        minutes_search.capability,
+        AgentCapability::MinutesSearchRead
+    );
+    assert_eq!(
+        minutes_search.required_scope.as_str(),
+        "minutes.search.read"
+    );
+    assert_eq!(
+        minutes_search.feishu_scopes[0].as_str(),
+        "minutes:minutes.search:read"
+    );
+    assert_eq!(
+        minutes_search.execution_mode,
+        CapabilityExecutionMode::AutoRead
+    );
+    assert_eq!(
+        find_by_action_type_str("minutes.search.read"),
+        Some(minutes_search)
+    );
+    assert!(
+        !minutes_search.enters_execution_allowlist(),
+        "minutes search read must stay outside write execution allowlist"
+    );
+    assert_eq!(
+        "minutes.search.read"
+            .parse::<CapabilityActionType>()
+            .expect("minutes search action type parse"),
+        CapabilityActionType::MinutesSearchRead
+    );
+
     let message_send =
         find_by_action_type(CapabilityActionType::ImMessageSend).expect("message send lookup");
     assert_eq!(message_send.capability, AgentCapability::ImMessageSend);

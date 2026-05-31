@@ -5,6 +5,7 @@ use super::common::{
     asks_to_run_read_tool, contains_latin_token, is_self_scoped, latest_user_text, mentions_feishu,
     targets_non_self,
 };
+use super::minutes::mentions_minutes;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::agent) enum FeishuCalendarReadIntent {
@@ -59,6 +60,7 @@ fn latest_user_has_explicit_self_calendar_events_intent(text: &str) -> bool {
             && asks_calendar_event_listing(text)
             && is_self_scoped(text)
             && !targets_non_self(text)
+            && !mentions_minutes(text)
             && !asks_calendar_write(text))
 }
 

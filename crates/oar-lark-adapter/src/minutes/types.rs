@@ -19,6 +19,29 @@ impl fmt::Debug for FeishuMinuteReadRequest {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct FeishuMinuteSearchRequest {
+    pub user_access_token: SecretString,
+    pub page_size: Option<u16>,
+    pub page_token: Option<String>,
+    pub query: Option<String>,
+    pub owner_ids: Vec<String>,
+    pub participant_ids: Vec<String>,
+}
+
+impl fmt::Debug for FeishuMinuteSearchRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FeishuMinuteSearchRequest")
+            .field("user_access_token", &"[REDACTED]")
+            .field("page_size", &self.page_size)
+            .field("page_token", &"[REDACTED]")
+            .field("query", &"[REDACTED]")
+            .field("owner_ids", &"[REDACTED]")
+            .field("participant_ids", &"[REDACTED]")
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MinuteReadSummary {
     pub title: Option<String>,
@@ -34,6 +57,14 @@ impl MinuteReadSummary {
             duration_ms: digits_only(minute.duration),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MinuteSearchPage {
+    pub minutes: Vec<MinuteReadSummary>,
+    pub total: Option<u64>,
+    pub has_more: bool,
+    pub page_token: Option<String>,
 }
 
 pub(super) fn non_empty(value: Option<String>) -> Option<String> {

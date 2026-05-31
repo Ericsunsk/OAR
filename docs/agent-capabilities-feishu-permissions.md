@@ -1,6 +1,6 @@
 # Agent capabilities 与飞书权限矩阵
 
-更新日期：2026-05-30
+更新日期：2026-05-31
 
 本文定义 OAR 智能体能力、生产 adapter、`action_type`、飞书权限和执行门禁之间的对应关系。它是 `execution-audit.md` 的能力清单补充，不改变核心边界：
 
@@ -62,6 +62,7 @@ Core 能力矩阵的执行姿态合同：
 | 读取 task | `TaskAdapter.get_task` / `list_my_tasks` | `action_type = task.read`；`AutoRead` | `task:task:read` | R0 | 不适用 | 不需要 | 记录 task 引用、状态摘要、可见范围和同步游标 |
 | 读取 docx/wiki 文档证据 | `DocAdapter.get_doc_summary` | `action_type = docx.document.read`、`wiki.node.read`；`AutoRead` | `docx:document:readonly`、`wiki:node:read` | R0 | 不适用 | 不需要 | 只读取选中 evidence ref 指向的单文档受限摘要：标题、类型、字符数和截断预览；不保存 token、URL、owner、完整正文、评论、附件或原始 payload |
 | 读取 minutes 妙记证据 | `MinutesAdapter.get_minute_summary` | `action_type = minutes.basic.read`；`AutoRead` | `minutes:minutes.basic:read` | R0 | 不适用 | 不需要 | 只读取选中 evidence ref 指向的单条妙记基础信息：标题、创建时间、时长；不保存 token、URL、owner、封面、音视频、AI 产物、逐字稿或原始 payload |
+| 汇总本人 minutes 妙记列表 | `MinutesAdapter.search_minute_summaries` | `action_type = minutes.search.read`；`AutoRead` | `minutes:minutes.search:read` | R0 | 不适用 | 不需要 | 只搜索当前授权用户本人拥有的妙记，返回总数和最多少量安全示例：标题、创建时间、时长；不保存 token、URL、owner、封面、音视频、AI 产物、逐字稿、参会人或原始 payload |
 | 风险检测、周报、证据摘要 | `EvidenceAdapter` / risk engine | 无平台写入；内部可生成 `risk_detected` / `brief_generated` 审计事件 | 继承证据源读取 scope；不得扩大授权 | R1 | 不适用 | 不需要 | 记录输入 evidence refs、模型/规则版本、可见范围；不把模型输出当作证据本身 |
 | 起草 KR progress 创建 | `OkrAdapter.dry_run_create_progress` | `create_kr_progress` / 目标 `action_type = okr.progress.create`；生产策略可先复用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；展示目标 KR、payload 摘要、before/after 和影响范围 | 必须确认或编辑后确认 | 成功、失败、拒绝、stale dry-run 都写 `AuditEvent`；审计只存安全摘要 |
 | 起草 KR progress 更新 | `OkrAdapter.dry_run_update_progress` | `update_kr_progress` / `action_type = okr.progress.update`；当前 policy 测试使用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；执行前重新读取 live target 并校验 dry-run 指纹 | 必须确认或编辑后确认 | 记录 actor、scope、target、evidence、before/after 摘要、adapter operation id、结果 |
@@ -82,6 +83,7 @@ Agent tool manifest 与 core capability 的当前对齐：
 | `feishu.task.summarize_my_tasks` | `task.read` | `task:task:read` | Read | 只读汇总当前用户本人“我负责的”任务数量、状态和示例标题；不创建/更新/删除/指派任务，不生成 `ProposedAction` 或 `ConfirmedAction` |
 | `feishu.calendar.summarize_my_free_busy` | `calendar.free_busy.read` | `calendar:calendar.free_busy:read` | Read | 只读汇总当前用户本人未来 7 天主日历忙碌窗口数量和示例时间段；不返回日程标题、详情、参会人或会议内容，不生成 `ProposedAction` 或 `ConfirmedAction` |
 | `feishu.calendar.summarize_my_events` | `calendar.read`、`calendar.event.read` | `calendar:calendar:read`、`calendar:calendar.event:read` | Read | 只读汇总当前用户本人未来 7 天主日历日程实例数量和最多 5 条安全示例；不返回描述、会议链接、附件、完整参会人清单、原始 ID 或原始 payload，不生成 `ProposedAction` 或 `ConfirmedAction` |
+| `feishu.minutes.summarize_my_minutes` | `minutes.search.read` | `minutes:minutes.search:read` | Read | 只读汇总当前用户本人拥有的妙记数量和最多 5 条安全元信息示例；不返回 token、URL、owner、封面、音视频、AI 产物、逐字稿、参会人或原始 payload，不生成 `ProposedAction` 或 `ConfirmedAction` |
 
 ## 4. 生产执行规则
 
@@ -99,10 +101,10 @@ Agent tool manifest 与 core capability 的当前对齐：
 
 ## 5. Scope 与 allowlist 管理
 
-- 未配置 `OAR_FEISHU_AUTH_SCOPE` 时，OAR 默认扫码登录请求已声明用户级能力所需的 Feishu scopes：`offline_access`、OKR period/content/progress/review/setting 读取、OKR progress 写入、calendar free-busy 读取、calendar agenda/event instance 读取、task 读取、docx 文档读取、wiki 节点读取和 minutes 妙记基础信息读取；task create/write scope 仅用于 DraftOnly/补授权准备。
+- 未配置 `OAR_FEISHU_AUTH_SCOPE` 时，OAR 默认扫码登录请求已声明用户级能力所需的 Feishu scopes：`offline_access`、OKR period/content/progress/review/setting 读取、OKR progress 写入、calendar free-busy 读取、calendar agenda/event instance 读取、task 读取、docx 文档读取、wiki 节点读取、minutes 妙记基础信息读取和 minutes 妙记搜索读取；task create/write scope 仅用于 DraftOnly/补授权准备。
 - 默认 OAuth scope 由 core capability scope bundle 派生；OAuth grant 保存和校验飞书 scope 名称，执行策略使用 OAR `required_scope` / `action_type`。
 - OAuth grant scope 不等于生产写执行 allowlist。只读 Agent tool runtime 使用 Feishu scope gate；写执行仍必须满足 `ExecutionPolicy` allowlist、dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
-- OKR evidence ref 实时摘要会展示 KR progress/status，因此 scope gate 同时要求 `okr:okr.content:readonly` 和 `okr:okr.progress:readonly`；文档 evidence ref 只支持 `docx` 单文档摘要，wiki ref 会先用 `wiki:node:read` 解析到 `docx`，再用 `docx:document:readonly` 读取正文预览；妙记 evidence ref 只读取基础元信息，默认要求 `minutes:minutes.basic:read`，租户若只返回 `minutes:minutes:readonly` 则按兼容只读 scope 放行；OAR action key 不能替代真实 Feishu scope。
+- OKR evidence ref 实时摘要会展示 KR progress/status，因此 scope gate 同时要求 `okr:okr.content:readonly` 和 `okr:okr.progress:readonly`；文档 evidence ref 只支持 `docx` 单文档摘要，wiki ref 会先用 `wiki:node:read` 解析到 `docx`，再用 `docx:document:readonly` 读取正文预览；妙记 evidence ref 只读取基础元信息，默认要求 `minutes:minutes.basic:read`，租户若只返回 `minutes:minutes:readonly` 则按兼容只读 scope 放行；本人妙记列表汇总工具要求 `minutes:minutes.search:read`；OAR action key 不能替代真实 Feishu scope。
 - 飞书开发者后台开启或新增 scope 后，用户必须重新用 OAR 扫码授权；旧 `TokenGrant.scopes` 不会自动增加新 scope。
 - progress 创建/更新的 `okr:okr.progress:writeonly` 默认进入 OAuth grant，避免真实使用时反复补授权；生产执行仍只接受 `ConfirmedWrite` 能力、dry-run 和人工确认。
 - 新增 scope 只能先作为 `AutoRead`、`DraftOnly` 或明确的 `ConfirmedWrite` 合同进入 core 矩阵；`task.create` 和 `im.message.send` 当前不进入生产执行 allowlist。
@@ -133,8 +135,8 @@ Agent tool manifest 与 core capability 的当前对齐：
 当前 MVP 只允许：
 
 - 自动读取授权范围内的 OKR 周期、Objective、KR 和 progress。
-- Agent 已启用 `feishu.okr.summarize_my_okr`、`feishu.okr.summarize_my_progress`、`feishu.task.summarize_my_tasks`、`feishu.calendar.summarize_my_free_busy` 和 `feishu.calendar.summarize_my_events` 只读工具，用于当前用户本人 OKR、“我负责的”任务、未来 7 天主日历忙闲安全摘要和受限 agenda 摘要；边界见上方 manifest 对齐表。
-- 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy、calendar read/event read、task 摘要、docx 文档读取、wiki 节点读取和 minutes 妙记基础读取列为 `AutoRead`；calendar free-busy、calendar event read、task read、doc/wiki evidence read 与 minutes evidence read 已接入只读 adapter，这些读能力不进入写执行 allowlist。
+- Agent 已启用 `feishu.okr.summarize_my_okr`、`feishu.okr.summarize_my_progress`、`feishu.task.summarize_my_tasks`、`feishu.calendar.summarize_my_free_busy`、`feishu.calendar.summarize_my_events` 和 `feishu.minutes.summarize_my_minutes` 只读工具，用于当前用户本人 OKR、“我负责的”任务、未来 7 天主日历忙闲安全摘要、受限 agenda 摘要和本人妙记列表安全摘要；边界见上方 manifest 对齐表。
+- 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy、calendar read/event read、task 摘要、docx 文档读取、wiki 节点读取、minutes 妙记基础读取和 minutes 妙记搜索读取列为 `AutoRead`；calendar free-busy、calendar event read、task read、doc/wiki evidence read、minutes evidence read 与 minutes search read 已接入只读 adapter，这些读能力不进入写执行 allowlist。
 - 选中的 `doc` / `lark_doc` evidence ref 可触发后端实时读取单个 docx 或 wiki->docx 文档的受限摘要；只返回标题、类型、字符数和截断预览，不返回完整正文、评论、附件、owner、URL 或 token。
 - 选中的 `meeting` / `lark_minutes` evidence ref 可触发后端实时读取单条妙记基础元信息；只返回标题、创建时间和时长，不返回 owner、URL、封面、媒体、AI 产物、逐字稿或 token。
 - 自动生成风险、证据摘要、周报和建议动作。
@@ -154,5 +156,6 @@ Agent tool manifest 与 core capability 的当前对齐：
 
 - 飞书 API 权限列表：https://open.feishu.cn/document/server-docs/application-scope/scope-list
 - 飞书 OKR scope 列表页：https://open.feishu.cn/document/ukTMukTMukTM/uYTM5UjL2ETO14iNxkTN/scope-list?lang=zh-CN
+- 飞书搜索妙记 API：https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/minutes-v1/minute/search
 - 创建日程 API：https://open.feishu.cn/document/server-docs/calendar-v4/calendar-event/create?lang=zh-CN
 - 发送消息 API：https://open.feishu.cn/document/server-docs/im-v1/message/create?lang=zh-CN

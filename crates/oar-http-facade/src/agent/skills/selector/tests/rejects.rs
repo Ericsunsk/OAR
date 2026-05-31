@@ -1,5 +1,6 @@
 use super::{
-    select_feishu_okr_read_intents, select_skills, support::request_with_latest_user_text,
+    select_feishu_minutes_summary_requested, select_feishu_okr_read_intents, select_skills,
+    support::request_with_latest_user_text,
 };
 
 #[test]
@@ -70,6 +71,24 @@ fn does_not_select_feishu_calendar_for_writes_or_non_self_requests() {
 }
 
 #[test]
+fn does_not_select_feishu_minutes_for_writes_exports_or_non_self_requests() {
+    for text in [
+        "查团队妙记",
+        "看张三会议纪要",
+        "下载我的妙记",
+        "导出我的妙记逐字稿",
+        "删除我的会议记录",
+        "export my meeting notes transcript",
+        "share my Feishu minutes",
+    ] {
+        let request = request_with_latest_user_text(text);
+
+        assert!(!select_feishu_minutes_summary_requested(&request), "{text}");
+        assert!(select_skills(&request).is_empty(), "{text}");
+    }
+}
+
+#[test]
 fn does_not_select_feishu_okr_for_generic_goal_queries() {
     assert!(select_skills(&request_with_latest_user_text("查我的目标客户数量")).is_empty());
     assert!(select_skills(&request_with_latest_user_text("查我的飞书目标客户数量")).is_empty());
@@ -90,6 +109,10 @@ fn does_not_select_read_tool_id_mentions_without_run_or_retry_intent() {
     .is_empty());
     assert!(select_skills(&request_with_latest_user_text(
         "解释 feishu.task.summarize_my_tasks 的作用"
+    ))
+    .is_empty());
+    assert!(select_skills(&request_with_latest_user_text(
+        "feishu.minutes.summarize_my_minutes 是什么"
     ))
     .is_empty());
 }

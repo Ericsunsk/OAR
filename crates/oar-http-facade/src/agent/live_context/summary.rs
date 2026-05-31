@@ -10,6 +10,7 @@ pub(super) use errors::{
 pub(super) use evidence::{
     build_doc_live_summary, build_live_summary, build_minutes_live_summary,
     build_task_live_summary, degraded_summary, evidence_label, evidence_unavailable_summary,
+    format_minutes_duration_ms,
 };
 pub(super) use labels::{tool_live_degraded_summary, tool_live_label};
 pub(super) use text::{compact_text, examples_suffix, finalize_summary, truncate_chars};

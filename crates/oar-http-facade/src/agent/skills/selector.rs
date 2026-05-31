@@ -1,5 +1,6 @@
 mod calendar;
 mod common;
+mod minutes;
 mod okr;
 mod task;
 
@@ -23,6 +24,9 @@ pub(in crate::agent) fn select_skills(request: &AgentStreamRequest) -> Vec<Agent
     if select_feishu_task_summary_requested(request) {
         skills.push(AgentSkill::Task);
     }
+    if select_feishu_minutes_summary_requested(request) {
+        skills.push(AgentSkill::Minutes);
+    }
 
     skills
 }
@@ -41,6 +45,12 @@ pub(in crate::agent) fn select_feishu_okr_read_intents(
 
 pub(in crate::agent) fn select_feishu_task_summary_requested(request: &AgentStreamRequest) -> bool {
     task::latest_user_requests_feishu_task_summary(request)
+}
+
+pub(in crate::agent) fn select_feishu_minutes_summary_requested(
+    request: &AgentStreamRequest,
+) -> bool {
+    minutes::latest_user_requests_feishu_minutes_summary(request)
 }
 
 #[cfg(test)]

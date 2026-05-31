@@ -1,7 +1,7 @@
 use super::request::AgentStreamRequest;
 use super::skills::{
-    select_feishu_calendar_read_intents, select_feishu_okr_read_intents,
-    select_feishu_task_summary_requested, AgentSkill,
+    select_feishu_calendar_read_intents, select_feishu_minutes_summary_requested,
+    select_feishu_okr_read_intents, select_feishu_task_summary_requested, AgentSkill,
 };
 use super::status::AgentActivatedSkillStatus;
 use super::tools::{plan_read_tools_for_activation, AgentReadTool};
@@ -39,6 +39,7 @@ pub(in crate::agent) fn plan_agent_skill_activation(
     let calendar_intents = select_feishu_calendar_read_intents(request);
     let okr_intents = select_feishu_okr_read_intents(request);
     let task_summary_requested = select_feishu_task_summary_requested(request);
+    let minutes_summary_requested = select_feishu_minutes_summary_requested(request);
 
     let mut activated_skills = Vec::new();
     if !calendar_intents.is_empty() {
@@ -50,9 +51,16 @@ pub(in crate::agent) fn plan_agent_skill_activation(
     if task_summary_requested {
         activated_skills.push(AgentSkill::Task);
     }
+    if minutes_summary_requested {
+        activated_skills.push(AgentSkill::Minutes);
+    }
 
-    let read_tools =
-        plan_read_tools_for_activation(&calendar_intents, &okr_intents, task_summary_requested);
+    let read_tools = plan_read_tools_for_activation(
+        &calendar_intents,
+        &okr_intents,
+        task_summary_requested,
+        minutes_summary_requested,
+    );
 
     AgentSkillActivationPlan {
         activated_skills,
@@ -91,6 +99,18 @@ mod tests {
         assert_eq!(plan.read_tools(), &[AgentReadTool::CalendarEvents]);
         assert!(plan.activated_skill_summaries()[0].contains("feishu.calendar.summarize_my_events"));
         assert_eq!(plan.activated_skill_statuses()[0].id, "feishu.calendar");
+    }
+
+    #[test]
+    fn activation_plan_pairs_minutes_skill_summary_and_read_tool() {
+        let request = request_with_latest_user_text("查下我的飞书妙记");
+
+        let plan = plan_agent_skill_activation(&request);
+
+        assert_eq!(plan.activated_skills, vec![AgentSkill::Minutes]);
+        assert_eq!(plan.read_tools(), &[AgentReadTool::MinutesSummary]);
+        assert!(plan.activated_skill_summaries()[0].contains("feishu.minutes.summarize_my_minutes"));
+        assert_eq!(plan.activated_skill_statuses()[0].id, "feishu.minutes");
     }
 
     #[test]

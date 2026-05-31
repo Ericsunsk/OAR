@@ -7,7 +7,12 @@ mod source_ref;
 mod tests;
 mod types;
 
-pub use client::{build_get_minute_request, AsyncFeishuMinutesRead, FeishuMinutesReadClient};
+pub use client::{
+    build_get_minute_request, build_search_minutes_request, AsyncFeishuMinutesRead,
+    FeishuMinutesReadClient,
+};
 pub use error::FeishuMinutesReadError;
 pub use source_ref::{parse_minutes_source_ref, MinutesSourceRef};
-pub use types::{FeishuMinuteReadRequest, MinuteReadSummary};
+pub use types::{
+    FeishuMinuteReadRequest, FeishuMinuteSearchRequest, MinuteReadSummary, MinuteSearchPage,
+};

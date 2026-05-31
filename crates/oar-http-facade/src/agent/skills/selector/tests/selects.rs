@@ -1,7 +1,7 @@
 use super::{
-    calendar, select_feishu_calendar_read_intents, select_feishu_okr_read_intents, select_skills,
-    support::request_with_latest_user_text, task, AgentSkill, FeishuCalendarReadIntent,
-    FeishuOkrReadIntent,
+    calendar, select_feishu_calendar_read_intents, select_feishu_minutes_summary_requested,
+    select_feishu_okr_read_intents, select_skills, support::request_with_latest_user_text, task,
+    AgentSkill, FeishuCalendarReadIntent, FeishuOkrReadIntent,
 };
 
 #[test]
@@ -95,6 +95,33 @@ fn selects_feishu_task_for_todo_read_variants() {
 }
 
 #[test]
+fn selects_feishu_minutes_for_self_minutes_read_variants() {
+    for text in [
+        "查下我的飞书妙记",
+        "最近妙记有几条",
+        "show my meeting notes",
+        "read my Feishu minutes",
+    ] {
+        let request = request_with_latest_user_text(text);
+
+        assert!(select_feishu_minutes_summary_requested(&request), "{text}");
+        assert_eq!(select_skills(&request), vec![AgentSkill::Minutes], "{text}");
+    }
+}
+
+#[test]
+fn selects_minutes_instead_of_calendar_for_meeting_notes() {
+    let request = request_with_latest_user_text("看下我的会议纪要");
+
+    assert!(select_feishu_minutes_summary_requested(&request));
+    assert_eq!(
+        select_feishu_calendar_read_intents(&request),
+        Vec::<FeishuCalendarReadIntent>::new()
+    );
+    assert_eq!(select_skills(&request), vec![AgentSkill::Minutes]);
+}
+
+#[test]
 fn selects_feishu_okr_for_compact_self_okr_read() {
     assert_eq!(
         select_skills(&request_with_latest_user_text("查我 OKR 当前有几条")),
@@ -166,6 +193,10 @@ fn selects_feishu_read_tools_when_user_explicitly_retries_tool_ids() {
     let task = request_with_latest_user_text("重新读取 feishu.task.summarize_my_tasks");
     assert!(super::task::latest_user_requests_feishu_task_summary(&task));
     assert_eq!(select_skills(&task), vec![AgentSkill::Task]);
+
+    let minutes = request_with_latest_user_text("重新读取 feishu.minutes.summarize_my_minutes");
+    assert!(select_feishu_minutes_summary_requested(&minutes));
+    assert_eq!(select_skills(&minutes), vec![AgentSkill::Minutes]);
 
     let calendar = request_with_latest_user_text("run feishu.calendar.summarize_my_free_busy");
     assert!(super::calendar::latest_user_requests_feishu_calendar_free_busy(&calendar));

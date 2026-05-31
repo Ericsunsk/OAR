@@ -7,6 +7,7 @@ use oar_core::action::capability::{
 pub(in crate::agent) enum AgentReadTool {
     CalendarEvents,
     CalendarFreeBusy,
+    MinutesSummary,
     OkrSummary,
     OkrProgress,
     TaskSummary,
@@ -42,6 +43,8 @@ const FEISHU_CALENDAR_SUMMARIZE_MY_EVENTS_ACTION_TYPES: &[CapabilityActionType] 
 ];
 const FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES: &[CapabilityActionType] =
     &[CapabilityActionType::CalendarFreeBusyRead];
+const FEISHU_MINUTES_SUMMARIZE_MY_MINUTES_ACTION_TYPES: &[CapabilityActionType] =
+    &[CapabilityActionType::MinutesSearchRead];
 
 impl AgentReadTool {
     #[cfg(test)]
@@ -49,6 +52,7 @@ impl AgentReadTool {
         match name {
             "feishu.calendar.summarize_my_events" => Some(Self::CalendarEvents),
             "feishu.calendar.summarize_my_free_busy" => Some(Self::CalendarFreeBusy),
+            "feishu.minutes.summarize_my_minutes" => Some(Self::MinutesSummary),
             "feishu.okr.summarize_my_okr" => Some(Self::OkrSummary),
             "feishu.okr.summarize_my_progress" => Some(Self::OkrProgress),
             "feishu.task.summarize_my_tasks" => Some(Self::TaskSummary),
@@ -68,6 +72,12 @@ impl AgentReadTool {
                 name: "feishu.calendar.summarize_my_free_busy",
                 description: "只读汇总当前用户未来 7 天的 Feishu 主日历忙闲时段。",
                 required_action_types: FEISHU_CALENDAR_SUMMARIZE_MY_FREE_BUSY_ACTION_TYPES,
+                effect: AgentToolEffect::Read,
+            },
+            Self::MinutesSummary => AgentToolSpec {
+                name: "feishu.minutes.summarize_my_minutes",
+                description: "只读汇总当前用户的 Feishu 妙记/meeting notes 数量和安全元信息示例。",
+                required_action_types: FEISHU_MINUTES_SUMMARIZE_MY_MINUTES_ACTION_TYPES,
                 effect: AgentToolEffect::Read,
             },
             Self::OkrSummary => AgentToolSpec {
@@ -201,6 +211,16 @@ mod tests {
             spec.required_feishu_scopes().expect("scopes"),
             vec![FeishuScope::CalendarFreeBusyRead]
         );
+
+        let spec = AgentReadTool::MinutesSummary.spec();
+        assert_eq!(
+            spec.required_action_types,
+            &[CapabilityActionType::MinutesSearchRead]
+        );
+        assert_eq!(
+            spec.required_feishu_scopes().expect("scopes"),
+            vec![FeishuScope::MinutesSearchRead]
+        );
     }
 
     #[test]
@@ -208,6 +228,7 @@ mod tests {
         for tool in [
             AgentReadTool::CalendarEvents,
             AgentReadTool::CalendarFreeBusy,
+            AgentReadTool::MinutesSummary,
             AgentReadTool::OkrSummary,
             AgentReadTool::OkrProgress,
             AgentReadTool::TaskSummary,
