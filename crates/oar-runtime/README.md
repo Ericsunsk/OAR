@@ -6,11 +6,11 @@
 
 Runtime report 只保留成功/失败计数和最后一次 tick，避免常驻进程累积无界历史；错误日志只记录 safe error 分类。
 
-`TenantMaintenanceRuntimeRegistry` 提供多租户 runtime 前置边界：按 tick 周期顺序触发多个 named tenant tick，单租户失败不会阻断后续租户；registry report 只保存 completed round 计数、每租户成功/失败计数和 last tick。真实 adapter builder、tenant discovery、backoff 和生产监控仍在外层接入。
+`TenantMaintenanceRuntimeRegistry` 提供多租户 runtime 前置边界：按 tick 周期顺序触发多个 named tenant tick，单租户失败不会阻断后续租户；registry report 只保存 completed round 计数、每租户成功/失败计数和 last tick。真实 adapter builder、tenant discovery、backoff 和生产监控由 facade 等外层 runtime 装配。
 
-`DiscoveringTenantMaintenanceRuntime` 用于后续生产 daemon 接入：每轮 tick 重新执行 tenant discovery，再按当前 tenant id 构造 fresh tick 并运行一轮。这样不会缓存启动时租户列表，也不会把构造时的绝对时间窗口带进长跑进程。它仍然只接受 generic discovery/factory/tick，不读取 env、不连接 Feishu、不 drain outbox。
+`DiscoveringTenantMaintenanceRuntime` 用于生产 daemon 接入：每轮 tick 重新执行 tenant discovery，再按当前 tenant id 构造 fresh tick 并运行一轮。这样不会缓存启动时租户列表，也不会把构造时的绝对时间窗口带进长跑进程。它仍然只接受 generic discovery/factory/tick，不读取 env、不连接 Feishu、不直接选择 outbox sink。
 
-生产 facade 启动 daemon 前必须显式配置真实 audit outbox sink。`WebhookAuditOutboxSink` 位于 adapter 层，用于后续生产组装；`NoopAuditOutboxSink` 只能用于测试或本地 contract 验证，不能作为 tenant maintenance daemon 的默认装配。
+生产 facade 负责把 runtime discovery/factory 与 Rust auth adapter、Postgres pool、grant key 和真实 audit outbox sink 组装起来。`WebhookAuditOutboxSink` 位于 adapter 层；`NoopAuditOutboxSink` 只能用于测试或本地 contract 验证，不能作为 tenant maintenance daemon 的默认装配。
 
 新增 `TenantMaintenanceRuntimeRegistryBuilder` 作为可测试构建 API：
 

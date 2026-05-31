@@ -9,7 +9,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 
 use crate::agent_routes;
@@ -22,11 +22,16 @@ use crate::response::{not_found, ResponseBody};
 use crate::review_inbox_routes;
 use crate::routing::{accepts_event_stream, dispatch_request_with_runtime, event_stream_required};
 use crate::runtime::OarHttpFacadeRuntime;
+use crate::tenant_maintenance_daemon::{
+    spawn_tenant_maintenance_daemon, TenantMaintenanceDaemonHandle,
+};
 
 #[derive(Debug)]
 pub enum OarHttpFacadeError {
     Bind(std::io::Error),
     Accept(std::io::Error),
+    TenantMaintenanceStart,
+    TenantMaintenanceStopped,
 }
 
 impl fmt::Display for OarHttpFacadeError {
@@ -34,6 +39,10 @@ impl fmt::Display for OarHttpFacadeError {
         match self {
             Self::Bind(_) => write!(f, "oar_http_facade_bind_failed"),
             Self::Accept(_) => write!(f, "oar_http_facade_accept_failed"),
+            Self::TenantMaintenanceStart => write!(f, "oar_tenant_maintenance_daemon_start_failed"),
+            Self::TenantMaintenanceStopped => {
+                write!(f, "oar_tenant_maintenance_daemon_stopped")
+            }
         }
     }
 }
@@ -42,6 +51,7 @@ impl Error for OarHttpFacadeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Bind(error) | Self::Accept(error) => Some(error),
+            Self::TenantMaintenanceStart | Self::TenantMaintenanceStopped => None,
         }
     }
 }
@@ -58,29 +68,83 @@ pub async fn run_with_runtime(
         .await
         .map_err(OarHttpFacadeError::Bind)?;
     info!(bind_addr = %config.bind_addr, "oar http facade listening");
+    let tenant_maintenance_daemon = spawn_tenant_maintenance_daemon(&runtime).map_err(|error| {
+        error!(
+            safe_error = %error,
+            "tenant maintenance daemon failed to start"
+        );
+        OarHttpFacadeError::TenantMaintenanceStart
+    })?;
     let runtime = Arc::new(runtime);
 
+    accept_loop(listener, runtime, tenant_maintenance_daemon).await
+}
+
+async fn accept_loop(
+    listener: TcpListener,
+    runtime: Arc<OarHttpFacadeRuntime>,
+    mut tenant_maintenance_daemon: Option<TenantMaintenanceDaemonHandle>,
+) -> Result<(), OarHttpFacadeError> {
     loop {
-        let (stream, remote_addr) = listener
-            .accept()
-            .await
-            .map_err(OarHttpFacadeError::Accept)?;
-        let runtime = Arc::clone(&runtime);
-        tokio::spawn(async move {
-            let io = TokioIo::new(stream);
-            if let Err(error) = http1::Builder::new()
-                .serve_connection(
-                    io,
-                    service_fn(move |request| {
-                        handle_hyper_request_with_runtime(Arc::clone(&runtime), request)
-                    }),
-                )
-                .await
-            {
-                error!(?error, %remote_addr, "oar http facade connection failed");
+        if let Some(daemon) = tenant_maintenance_daemon.as_mut() {
+            tokio::select! {
+                accepted = listener.accept() => {
+                    let (stream, remote_addr) = match accepted {
+                        Ok(accepted) => accepted,
+                        Err(error) => {
+                            if let Some(daemon) = tenant_maintenance_daemon.take() {
+                                daemon.shutdown().await;
+                            }
+                            return Err(OarHttpFacadeError::Accept(error));
+                        }
+                    };
+                    spawn_connection_task(stream, remote_addr, Arc::clone(&runtime));
+                }
+                result = daemon.wait_finished() => {
+                    match result {
+                        Ok(()) => {
+                            error!("tenant maintenance daemon stopped unexpectedly");
+                        }
+                        Err(error) => {
+                            error!(
+                                panic = error.is_panic(),
+                                cancelled = error.is_cancelled(),
+                                "tenant maintenance daemon task failed"
+                            );
+                        }
+                    }
+                    return Err(OarHttpFacadeError::TenantMaintenanceStopped);
+                }
             }
-        });
+        } else {
+            let (stream, remote_addr) = listener
+                .accept()
+                .await
+                .map_err(OarHttpFacadeError::Accept)?;
+            spawn_connection_task(stream, remote_addr, Arc::clone(&runtime));
+        }
     }
+}
+
+fn spawn_connection_task(
+    stream: TcpStream,
+    remote_addr: std::net::SocketAddr,
+    runtime: Arc<OarHttpFacadeRuntime>,
+) {
+    tokio::spawn(async move {
+        let io = TokioIo::new(stream);
+        if let Err(error) = http1::Builder::new()
+            .serve_connection(
+                io,
+                service_fn(move |request| {
+                    handle_hyper_request_with_runtime(Arc::clone(&runtime), request)
+                }),
+            )
+            .await
+        {
+            error!(?error, %remote_addr, "oar http facade connection failed");
+        }
+    });
 }
 
 pub async fn handle_hyper_request(
