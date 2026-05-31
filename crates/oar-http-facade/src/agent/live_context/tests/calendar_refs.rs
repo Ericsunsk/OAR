@@ -78,7 +78,7 @@ async fn live_context_requires_source_type_to_match_calendar_ref() {
 
     assert_eq!(summaries.len(), 1);
     assert_eq!(statuses[0].state, LiveFeishuReadState::Degraded);
-    assert!(summaries[0].contains("source_type 暂不支持实时读取"));
+    assert!(summaries[0].contains("source_ref 不是可识别的文档引用"));
     assert!(!summaries[0].contains("sk-secret"));
     assert!(!summaries[0].contains("auth code"));
     assert!(!summaries[0].contains("raw transcript"));

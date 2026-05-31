@@ -2,9 +2,10 @@ use super::{
     AgentCapability, CapabilityActionType, CapabilityEffect, CapabilityExecutionMode,
     CapabilitySafety, CapabilitySpec, OarRequiredScope, PlatformAdapter, RiskLevel,
     CALENDAR_EVENT_READ_SCOPES, CALENDAR_FREE_BUSY_READ_SCOPES, CALENDAR_READ_SCOPES,
-    IM_MESSAGE_SEND_AS_BOT_SCOPES, OKR_CONTENT_READ_SCOPES, OKR_PERIOD_READ_SCOPES,
-    OKR_PROGRESS_READ_SCOPES, OKR_PROGRESS_WRITE_SCOPES, OKR_REVIEW_READ_SCOPES,
-    OKR_SETTING_READ_SCOPES, TASK_READ_SCOPES, TASK_WRITE_SCOPES,
+    DOCX_DOCUMENT_READ_SCOPES, IM_MESSAGE_SEND_AS_BOT_SCOPES, OKR_CONTENT_READ_SCOPES,
+    OKR_PERIOD_READ_SCOPES, OKR_PROGRESS_READ_SCOPES, OKR_PROGRESS_WRITE_SCOPES,
+    OKR_REVIEW_READ_SCOPES, OKR_SETTING_READ_SCOPES, TASK_READ_SCOPES, TASK_WRITE_SCOPES,
+    WIKI_NODE_READ_SCOPES,
 };
 
 pub const CAPABILITY_MATRIX: &[CapabilitySpec] = &[
@@ -139,6 +140,28 @@ pub const CAPABILITY_MATRIX: &[CapabilitySpec] = &[
         execution_mode: CapabilityExecutionMode::DraftOnly,
         risk: RiskLevel::High,
         safety: CapabilitySafety::DRAFT_ONLY,
+    },
+    CapabilitySpec {
+        capability: AgentCapability::DocxDocumentRead,
+        action_type: CapabilityActionType::DocxDocumentRead,
+        adapter: PlatformAdapter::Lark,
+        required_scope: OarRequiredScope::DocxDocumentRead,
+        feishu_scopes: DOCX_DOCUMENT_READ_SCOPES,
+        effect: CapabilityEffect::Read,
+        execution_mode: CapabilityExecutionMode::AutoRead,
+        risk: RiskLevel::Low,
+        safety: CapabilitySafety::READ_ONLY,
+    },
+    CapabilitySpec {
+        capability: AgentCapability::WikiNodeRead,
+        action_type: CapabilityActionType::WikiNodeRead,
+        adapter: PlatformAdapter::Lark,
+        required_scope: OarRequiredScope::WikiNodeRead,
+        feishu_scopes: WIKI_NODE_READ_SCOPES,
+        effect: CapabilityEffect::Read,
+        execution_mode: CapabilityExecutionMode::AutoRead,
+        risk: RiskLevel::Low,
+        safety: CapabilitySafety::READ_ONLY,
     },
     CapabilitySpec {
         capability: AgentCapability::ImMessageSend,

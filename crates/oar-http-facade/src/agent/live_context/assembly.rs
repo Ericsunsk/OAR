@@ -1,8 +1,10 @@
 mod calendar;
+mod docs;
 mod okr;
 mod task;
 
 use calendar::append_calendar_summary;
+use docs::append_doc_summaries;
 use okr::append_okr_summaries;
 use task::append_task_summaries;
 
@@ -31,6 +33,7 @@ pub(super) async fn assemble_live_feishu_statuses(
     if evidence_resolution.okr_refs.is_empty()
         && evidence_resolution.task_refs.is_empty()
         && evidence_resolution.calendar_refs.is_empty()
+        && evidence_resolution.doc_refs.is_empty()
         && read_tools.is_empty()
     {
         return degraded_statuses(evidence_resolution.degraded);
@@ -86,6 +89,7 @@ pub(super) async fn assemble_live_feishu_statuses(
         &lark_open_id_for_tool_reads,
     )
     .await;
+    append_doc_summaries(&mut live_statuses, &session, &mut evidence_resolution).await;
 
     live_statuses.extend(degraded_statuses(evidence_resolution.degraded));
     live_statuses

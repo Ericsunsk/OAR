@@ -13,6 +13,8 @@ pub enum FeishuScope {
     CalendarFreeBusyRead,
     TaskRead,
     TaskWrite,
+    DocxDocumentRead,
+    WikiNodeRead,
     ImMessageSendAsBot,
 }
 
@@ -30,6 +32,8 @@ impl FeishuScope {
             Self::CalendarFreeBusyRead => "calendar:calendar.free_busy:read",
             Self::TaskRead => "task:task:read",
             Self::TaskWrite => "task:task:writeonly",
+            Self::DocxDocumentRead => "docx:document:readonly",
+            Self::WikiNodeRead => "wiki:node:read",
             Self::ImMessageSendAsBot => "im:message:send_as_bot",
         }
     }
@@ -48,6 +52,8 @@ pub const CALENDAR_EVENT_READ_SCOPES: &[FeishuScope] = &[FeishuScope::CalendarEv
 pub const CALENDAR_FREE_BUSY_READ_SCOPES: &[FeishuScope] = &[FeishuScope::CalendarFreeBusyRead];
 pub const TASK_READ_SCOPES: &[FeishuScope] = &[FeishuScope::TaskRead];
 pub const TASK_WRITE_SCOPES: &[FeishuScope] = &[FeishuScope::TaskWrite];
+pub const DOCX_DOCUMENT_READ_SCOPES: &[FeishuScope] = &[FeishuScope::DocxDocumentRead];
+pub const WIKI_NODE_READ_SCOPES: &[FeishuScope] = &[FeishuScope::WikiNodeRead];
 pub const IM_MESSAGE_SEND_AS_BOT_SCOPES: &[FeishuScope] = &[FeishuScope::ImMessageSendAsBot];
 
 pub const DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES: &[CapabilityActionType] = &[
@@ -63,6 +69,8 @@ pub const DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES: &[CapabilityActionType] = &[
     CapabilityActionType::CalendarFreeBusyRead,
     CapabilityActionType::TaskRead,
     CapabilityActionType::TaskCreate,
+    CapabilityActionType::DocxDocumentRead,
+    CapabilityActionType::WikiNodeRead,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

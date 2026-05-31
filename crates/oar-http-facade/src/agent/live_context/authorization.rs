@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use oar_core::action::capability::FeishuScope;
+use oar_lark_adapter::DocSourceRefKind;
 
 use super::source_registry::LiveEvidenceResolution;
 use super::status::LiveFeishuReadStatus;
@@ -17,6 +18,7 @@ pub(super) fn gate_read_demand_by_scope(
     !(evidence_resolution.okr_refs.is_empty()
         && evidence_resolution.task_refs.is_empty()
         && evidence_resolution.calendar_refs.is_empty()
+        && evidence_resolution.doc_refs.is_empty()
         && read_tools.is_empty())
 }
 
@@ -71,6 +73,33 @@ fn gate_evidence_refs_by_scope(scopes: &[String], resolution: &mut LiveEvidenceR
             .degraded
             .push("未读取到实时 Feishu 日历证据：授权缺少日历或日程读取权限。".to_string());
         resolution.calendar_refs.clear();
+    }
+    if !resolution.doc_refs.is_empty() {
+        gate_doc_evidence_refs_by_scope(scopes, resolution);
+    }
+}
+
+fn gate_doc_evidence_refs_by_scope(scopes: &[String], resolution: &mut LiveEvidenceResolution<'_>) {
+    if !has_feishu_scope(scopes, FeishuScope::DocxDocumentRead) {
+        resolution
+            .degraded
+            .push("未读取到实时 Feishu 文档证据：授权缺少新版文档读取权限。".to_string());
+        resolution.doc_refs.clear();
+        return;
+    }
+
+    if has_feishu_scope(scopes, FeishuScope::WikiNodeRead) {
+        return;
+    }
+
+    let before = resolution.doc_refs.len();
+    resolution
+        .doc_refs
+        .retain(|(_, parsed)| !matches!(parsed.kind, DocSourceRefKind::Wiki { .. }));
+    if resolution.doc_refs.len() != before {
+        resolution
+            .degraded
+            .push("未读取到实时 Feishu 知识库文档证据：授权缺少知识库节点读取权限。".to_string());
     }
 }
 
@@ -248,6 +277,42 @@ mod tests {
         assert!(!has_calendar_evidence_read_scopes(&[
             FeishuScope::CalendarFreeBusyRead.as_str().to_string()
         ]));
+    }
+
+    #[test]
+    fn doc_evidence_scope_requires_docx_and_only_requires_wiki_for_wiki_refs() {
+        let refs = vec![
+            evidence_ref("doc", "docx://doxcni6mOy7jLRWbEylaKKabcef", "Doc evidence"),
+            evidence_ref("wiki", "wiki://wikcnKQ1k3p8Vabcef", "Wiki evidence"),
+        ];
+        let mut resolution = resolve_evidence_refs(&refs, 4);
+
+        gate_evidence_refs_by_scope(
+            &[FeishuScope::DocxDocumentRead.as_str().to_string()],
+            &mut resolution,
+        );
+
+        assert_eq!(resolution.doc_refs.len(), 1);
+        assert_eq!(
+            resolution.doc_refs[0].1.source_ref(),
+            "docx://doxcni6mOy7jLRWbEylaKKabcef"
+        );
+        assert!(resolution
+            .degraded
+            .iter()
+            .any(|summary| summary.contains("授权缺少知识库节点读取权限")));
+
+        let mut resolution = resolve_evidence_refs(&refs, 4);
+        gate_evidence_refs_by_scope(
+            &[
+                FeishuScope::DocxDocumentRead.as_str().to_string(),
+                FeishuScope::WikiNodeRead.as_str().to_string(),
+            ],
+            &mut resolution,
+        );
+
+        assert_eq!(resolution.doc_refs.len(), 2);
+        assert!(resolution.degraded.is_empty());
     }
 
     fn evidence_ref(source_type: &str, source_ref: &str, summary: &str) -> AgentEvidenceRefDTO {

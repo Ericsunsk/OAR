@@ -139,6 +139,51 @@ fn next_batch_capabilities_are_lookupable_with_non_executing_posture() {
         CapabilityExecutionMode::DraftOnly
     );
 
+    let docx_document = find_by_action_type(CapabilityActionType::DocxDocumentRead)
+        .expect("docx document read lookup");
+    assert_eq!(docx_document.capability, AgentCapability::DocxDocumentRead);
+    assert_eq!(docx_document.required_scope.as_str(), "docx.document.read");
+    assert_eq!(
+        docx_document.feishu_scopes[0].as_str(),
+        "docx:document:readonly"
+    );
+    assert_eq!(
+        docx_document.execution_mode,
+        CapabilityExecutionMode::AutoRead
+    );
+    assert_eq!(
+        find_by_action_type_str("docx.document.read"),
+        Some(docx_document)
+    );
+    assert!(
+        !docx_document.enters_execution_allowlist(),
+        "docx document read must stay outside write execution allowlist"
+    );
+    assert_eq!(
+        "docx.document.read"
+            .parse::<CapabilityActionType>()
+            .expect("docx document action type parse"),
+        CapabilityActionType::DocxDocumentRead
+    );
+
+    let wiki_node =
+        find_by_action_type(CapabilityActionType::WikiNodeRead).expect("wiki node read lookup");
+    assert_eq!(wiki_node.capability, AgentCapability::WikiNodeRead);
+    assert_eq!(wiki_node.required_scope.as_str(), "wiki.node.read");
+    assert_eq!(wiki_node.feishu_scopes[0].as_str(), "wiki:node:read");
+    assert_eq!(wiki_node.execution_mode, CapabilityExecutionMode::AutoRead);
+    assert_eq!(find_by_action_type_str("wiki.node.read"), Some(wiki_node));
+    assert!(
+        !wiki_node.enters_execution_allowlist(),
+        "wiki node read must stay outside write execution allowlist"
+    );
+    assert_eq!(
+        "wiki.node.read"
+            .parse::<CapabilityActionType>()
+            .expect("wiki node action type parse"),
+        CapabilityActionType::WikiNodeRead
+    );
+
     let message_send =
         find_by_action_type(CapabilityActionType::ImMessageSend).expect("message send lookup");
     assert_eq!(message_send.capability, AgentCapability::ImMessageSend);

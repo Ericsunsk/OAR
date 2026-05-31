@@ -9,10 +9,11 @@ pub use feishu::{
     try_feishu_scopes_for_action_types, CapabilityScopeDerivationError, FeishuScope,
     FeishuScopeBundle, CALENDAR_EVENT_READ_SCOPES, CALENDAR_FREE_BUSY_READ_SCOPES,
     CALENDAR_READ_SCOPES, DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES,
-    DEFAULT_AGENT_FEISHU_OAUTH_SCOPE_BUNDLE, FEISHU_OFFLINE_ACCESS_SCOPE,
-    IM_MESSAGE_SEND_AS_BOT_SCOPES, OKR_CONTENT_READ_SCOPES, OKR_PERIOD_READ_SCOPES,
-    OKR_PROGRESS_READ_SCOPES, OKR_PROGRESS_WRITE_SCOPES, OKR_REVIEW_READ_SCOPES,
-    OKR_SETTING_READ_SCOPES, TASK_READ_SCOPES, TASK_WRITE_SCOPES,
+    DEFAULT_AGENT_FEISHU_OAUTH_SCOPE_BUNDLE, DOCX_DOCUMENT_READ_SCOPES,
+    FEISHU_OFFLINE_ACCESS_SCOPE, IM_MESSAGE_SEND_AS_BOT_SCOPES, OKR_CONTENT_READ_SCOPES,
+    OKR_PERIOD_READ_SCOPES, OKR_PROGRESS_READ_SCOPES, OKR_PROGRESS_WRITE_SCOPES,
+    OKR_REVIEW_READ_SCOPES, OKR_SETTING_READ_SCOPES, TASK_READ_SCOPES, TASK_WRITE_SCOPES,
+    WIKI_NODE_READ_SCOPES,
 };
 pub use matrix::{
     all_capabilities, find_by_action_type, find_by_action_type_str, find_by_capability,
@@ -33,6 +34,8 @@ pub enum AgentCapability {
     CalendarFreeBusyRead,
     TaskRead,
     TaskCreate,
+    DocxDocumentRead,
+    WikiNodeRead,
     ImMessageSend,
 }
 
@@ -51,6 +54,8 @@ impl AgentCapability {
             Self::CalendarFreeBusyRead => "calendar_free_busy_read",
             Self::TaskRead => "task_read",
             Self::TaskCreate => "task_create",
+            Self::DocxDocumentRead => "docx_document_read",
+            Self::WikiNodeRead => "wiki_node_read",
             Self::ImMessageSend => "im_message_send",
         }
     }
@@ -70,6 +75,8 @@ pub enum CapabilityActionType {
     CalendarFreeBusyRead,
     TaskRead,
     TaskCreate,
+    DocxDocumentRead,
+    WikiNodeRead,
     ImMessageSend,
 }
 
@@ -88,6 +95,8 @@ impl CapabilityActionType {
             Self::CalendarFreeBusyRead => "calendar.free_busy.read",
             Self::TaskRead => "task.read",
             Self::TaskCreate => "task.create",
+            Self::DocxDocumentRead => "docx.document.read",
+            Self::WikiNodeRead => "wiki.node.read",
             Self::ImMessageSend => "im.message.send",
         }
     }
@@ -110,6 +119,8 @@ impl FromStr for CapabilityActionType {
             "calendar.free_busy.read" => Ok(Self::CalendarFreeBusyRead),
             "task.read" => Ok(Self::TaskRead),
             "task.create" => Ok(Self::TaskCreate),
+            "docx.document.read" => Ok(Self::DocxDocumentRead),
+            "wiki.node.read" => Ok(Self::WikiNodeRead),
             "im.message.send" => Ok(Self::ImMessageSend),
             other => Err(UnknownCapabilityActionType {
                 value: other.to_string(),
@@ -149,6 +160,8 @@ pub enum OarRequiredScope {
     CalendarFreeBusyRead,
     TaskRead,
     TaskWrite,
+    DocxDocumentRead,
+    WikiNodeRead,
     ImMessageSendAsBot,
 }
 
@@ -166,6 +179,8 @@ impl OarRequiredScope {
             Self::CalendarFreeBusyRead => "calendar.free_busy.read",
             Self::TaskRead => "task.read",
             Self::TaskWrite => "task.write",
+            Self::DocxDocumentRead => "docx.document.read",
+            Self::WikiNodeRead => "wiki.node.read",
             Self::ImMessageSendAsBot => "im.message.send_as_bot",
         }
     }

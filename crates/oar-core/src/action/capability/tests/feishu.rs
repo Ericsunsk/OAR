@@ -21,9 +21,14 @@ fn default_feishu_oauth_bundle_contains_expected_user_authorization_scopes() {
             FeishuScope::CalendarFreeBusyRead.as_str(),
             FeishuScope::TaskRead.as_str(),
             FeishuScope::TaskWrite.as_str(),
+            FeishuScope::DocxDocumentRead.as_str(),
+            FeishuScope::WikiNodeRead.as_str(),
         ]
     );
     assert!(!scopes.contains(&FeishuScope::ImMessageSendAsBot.as_str()));
+    assert!(!scopes.contains(&"docx:document"));
+    assert!(!scopes.contains(&"wiki:wiki"));
+    assert!(!scopes.contains(&"wiki:wiki:readonly"));
 }
 
 #[test]
@@ -65,6 +70,18 @@ fn feishu_oauth_bundle_keeps_authorization_metadata_separate() {
             .contains(&CapabilityActionType::TaskCreate),
         "default authorization should still request task write scope"
     );
+    assert!(
+        bundle
+            .action_types()
+            .contains(&CapabilityActionType::DocxDocumentRead),
+        "default authorization should request docx document read scope"
+    );
+    assert!(
+        bundle
+            .action_types()
+            .contains(&CapabilityActionType::WikiNodeRead),
+        "default authorization should request wiki node read scope"
+    );
     assert_eq!(
         bundle.feishu_scopes(),
         feishu_scopes_for_action_types(bundle.action_types())
@@ -81,6 +98,9 @@ fn capability_matrix_contains_no_coarse_or_delete_feishu_scopes() {
         "task:task:write",
         "calendar:calendar",
         "im:message",
+        "docx:document",
+        "wiki:wiki",
+        "wiki:wiki:readonly",
     ];
 
     for capability in all_capabilities() {

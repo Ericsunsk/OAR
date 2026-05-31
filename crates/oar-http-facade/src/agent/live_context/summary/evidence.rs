@@ -1,8 +1,9 @@
-use oar_lark_adapter::{OkrReadObjective, OkrReadSnapshot, TaskReadSummary};
+use oar_lark_adapter::{DocReadSummary, OkrReadObjective, OkrReadSnapshot, TaskReadSummary};
 
 use super::text::{compact_text, finalize_summary, truncate_chars};
 use crate::agent::live_context::refs::ParsedOkrEvidenceRef;
 use crate::agent::request::AgentEvidenceRefDTO;
+use oar_core::security::contains_sensitive_marker;
 
 pub(in crate::agent::live_context) fn build_live_summary(
     evidence_ref: &AgentEvidenceRefDTO,
@@ -122,6 +123,41 @@ pub(in crate::agent::live_context) fn build_task_live_summary(
         due,
         owners,
         updated_time
+    ))
+}
+
+pub(in crate::agent::live_context) fn build_doc_live_summary(
+    evidence_ref: &AgentEvidenceRefDTO,
+    doc: &DocReadSummary,
+) -> String {
+    let label = evidence_label(evidence_ref);
+    let title = doc
+        .title
+        .as_deref()
+        .map(compact_text)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "未命名文档".to_string());
+    let preview = compact_text(&doc.content_preview);
+    let preview = if preview.is_empty() {
+        String::new()
+    } else if contains_sensitive_marker(&preview) {
+        "，预览已隐藏".to_string()
+    } else {
+        format!("，预览「{}」", truncate_chars(&preview, 72))
+    };
+    let truncated = if doc.content_truncated {
+        "，内容已截断"
+    } else {
+        ""
+    };
+
+    finalize_summary(format!(
+        "{label}｜实时：文档「{}」类型 {}，正文 {} 字{}{}。",
+        truncate_chars(&title, 36),
+        doc.doc_type,
+        doc.content_char_count,
+        truncated,
+        preview
     ))
 }
 

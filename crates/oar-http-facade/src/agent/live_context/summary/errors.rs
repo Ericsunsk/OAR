@@ -1,4 +1,26 @@
-use oar_lark_adapter::{FeishuCalendarReadError, FeishuOkrReadError, FeishuTaskReadError};
+use oar_lark_adapter::{
+    FeishuCalendarReadError, FeishuDocReadError, FeishuOkrReadError, FeishuTaskReadError,
+};
+
+pub(in crate::agent::live_context) fn doc_read_error_reason(
+    error: FeishuDocReadError,
+) -> &'static str {
+    match error {
+        FeishuDocReadError::InvalidSourceRef => "文档引用无效",
+        FeishuDocReadError::UnsupportedDocumentType => "暂只支持新版文档 docx 实时读取",
+        FeishuDocReadError::InvalidRequest => "文档读取请求无效",
+        FeishuDocReadError::Unauthorized => "授权已失效，需要重新登录",
+        FeishuDocReadError::Forbidden => "授权缺少文档或知识库读取权限",
+        FeishuDocReadError::NotFound => "文档不存在或无权访问",
+        FeishuDocReadError::UpstreamClient => "文档读取请求被拒绝",
+        FeishuDocReadError::UpstreamTransient
+        | FeishuDocReadError::Transport
+        | FeishuDocReadError::ApiFailure => "文档实时读取暂不可用",
+        FeishuDocReadError::OversizedResponse | FeishuDocReadError::InvalidJson => {
+            "文档实时读取返回不可用"
+        }
+    }
+}
 
 pub(in crate::agent::live_context) fn task_read_error_reason(
     error: FeishuTaskReadError,

@@ -6,6 +6,7 @@ pub mod calendar;
 pub mod config;
 pub mod credentials;
 pub mod crypto;
+pub mod docs;
 pub mod error;
 pub mod factory;
 mod http_headers;
@@ -43,6 +44,11 @@ pub use credentials::{
 };
 pub use crypto::{
     AesGcmGrantEncryptor, AesGcmGrantEncryptorError, GrantTimeSource, SystemGrantClock,
+};
+pub use docs::{
+    build_docx_metadata_request, build_docx_raw_content_request, build_wiki_node_request,
+    parse_doc_source_ref, AsyncFeishuDocRead, DocReadSummary, DocSourceRef, DocSourceRefKind,
+    FeishuDocReadClient, FeishuDocReadError, FeishuDocReadRequest,
 };
 pub use error::{
     classify_feishu_refresh_failure, safe_error_for_failure_class, FeishuRefreshFailureClass,

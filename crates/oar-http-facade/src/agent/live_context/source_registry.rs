@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
 use super::refs::{
-    parse_calendar_evidence_ref, parse_okr_evidence_ref, parse_task_evidence_ref,
-    ParsedCalendarEvidenceRef, ParsedOkrEvidenceRef, ParsedTaskEvidenceRef,
+    parse_calendar_evidence_ref, parse_doc_evidence_ref, parse_okr_evidence_ref,
+    parse_task_evidence_ref, ParsedCalendarEvidenceRef, ParsedDocEvidenceRef, ParsedOkrEvidenceRef,
+    ParsedTaskEvidenceRef,
 };
 use super::summary::degraded_summary;
 use crate::agent::request::AgentEvidenceRefDTO;
@@ -12,6 +13,7 @@ pub(super) struct LiveEvidenceResolution<'a> {
     pub(super) okr_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedOkrEvidenceRef)>,
     pub(super) task_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedTaskEvidenceRef)>,
     pub(super) calendar_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedCalendarEvidenceRef)>,
+    pub(super) doc_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedDocEvidenceRef)>,
     pub(super) degraded: Vec<String>,
 }
 
@@ -69,6 +71,17 @@ pub(super) fn resolve_evidence_refs<'a>(
             continue;
         }
 
+        if is_doc_source_type(&evidence_ref.source_type) {
+            match parse_doc_evidence_ref(&evidence_ref.source_ref) {
+                Some(parsed) => resolution.doc_refs.push((evidence_ref, parsed)),
+                None => resolution.degraded.push(degraded_summary(
+                    evidence_ref,
+                    "source_ref 不是可识别的文档引用",
+                )),
+            }
+            continue;
+        }
+
         resolution.degraded.push(degraded_summary(
             evidence_ref,
             "source_type 暂不支持实时读取",
@@ -103,6 +116,9 @@ enum EvidenceRefKey {
     Calendar {
         source_ref: String,
     },
+    Doc {
+        source_ref: String,
+    },
     Raw {
         source_type: String,
         source_ref: String,
@@ -134,6 +150,13 @@ fn evidence_ref_key(evidence_ref: &AgentEvidenceRefDTO) -> EvidenceRefKey {
             };
         }
     }
+    if is_doc_source_type(&source_type) {
+        if let Some(parsed) = parse_doc_evidence_ref(&evidence_ref.source_ref) {
+            return EvidenceRefKey::Doc {
+                source_ref: parsed.source_ref(),
+            };
+        }
+    }
     EvidenceRefKey::Raw {
         source_type,
         source_ref: evidence_ref.source_ref.trim().to_string(),
@@ -153,6 +176,18 @@ fn is_task_source_type(source_type: &str) -> bool {
 fn is_calendar_source_type(source_type: &str) -> bool {
     let source_type = source_type.trim().to_ascii_lowercase();
     source_type == "calendar" || source_type == "feishu_calendar" || source_type == "lark_calendar"
+}
+
+fn is_doc_source_type(source_type: &str) -> bool {
+    let source_type = source_type.trim().to_ascii_lowercase();
+    source_type == "doc"
+        || source_type == "docx"
+        || source_type == "wiki"
+        || source_type == "feishu_doc"
+        || source_type == "feishu_docx"
+        || source_type == "feishu_wiki"
+        || source_type == "lark_doc"
+        || source_type == "lark_wiki"
 }
 
 #[cfg(test)]
@@ -193,11 +228,12 @@ mod tests {
             resolution.calendar_refs[0].1.source_ref(),
             "calendar://cal_1/events/evt_1"
         );
+        assert!(resolution.doc_refs.is_empty());
         assert_eq!(resolution.degraded.len(), 3);
         assert!(resolution
             .degraded
             .iter()
-            .any(|summary| summary.contains("source_type 暂不支持实时读取")));
+            .any(|summary| summary.contains("source_ref 不是可识别的文档引用")));
         assert!(resolution
             .degraded
             .iter()
@@ -257,6 +293,34 @@ mod tests {
         assert!(!resolution.degraded[0].contains("sk-secret"));
         assert!(!resolution.degraded[0].contains("task_123"));
         assert!(!resolution.degraded[0].contains("okr_demo"));
+    }
+
+    #[test]
+    fn resolves_doc_refs_and_deduplicates_canonical_doc_forms() {
+        let refs = vec![
+            evidence_ref("doc", "doc://doxcni6mOy7jLRWbEylaKKabcef", "Doc evidence"),
+            evidence_ref(
+                "lark_doc",
+                "docx://doxcni6mOy7jLRWbEylaKKabcef",
+                "Doc duplicate",
+            ),
+            evidence_ref("wiki", "wiki://wikcnKQ1k3p8Vabcef", "Wiki evidence"),
+        ];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert_eq!(resolution.doc_refs.len(), 2);
+        assert_eq!(
+            resolution.doc_refs[0].1.source_ref(),
+            "docx://doxcni6mOy7jLRWbEylaKKabcef"
+        );
+        assert_eq!(
+            resolution.doc_refs[1].1.source_ref(),
+            "wiki://wikcnKQ1k3p8Vabcef"
+        );
+        assert_eq!(resolution.degraded.len(), 1);
+        assert!(resolution.degraded[0].contains("已合并 1 条重复 evidence refs"));
+        assert!(!resolution.degraded[0].contains("doxcni"));
     }
 
     #[test]
@@ -364,7 +428,7 @@ mod tests {
         assert!(resolution
             .degraded
             .iter()
-            .any(|summary| summary.contains("source_type 暂不支持实时读取")));
+            .any(|summary| summary.contains("source_ref 不是可识别的文档引用")));
         assert!(resolution
             .degraded
             .iter()

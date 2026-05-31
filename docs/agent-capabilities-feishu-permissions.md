@@ -60,6 +60,7 @@ Core 能力矩阵的执行姿态合同：
 | 查询 calendar free-busy | `CalendarAdapter.batch_free_busy` | `action_type = calendar.free_busy.read`；`AutoRead` | 首选 `calendar:calendar.free_busy:read`；若官方或租户返回 `calendar:calendar:readonly` 兼容能力，需用 fixture 记录后映射 | R0 | 不适用 | 不需要 | 记录查询时间窗、参与者安全摘要、来源 scope 和 safe error；不保存日程标题、参会人清单、会议内容或原始 payload |
 | 读取 calendar agenda / event instances | `CalendarAdapter.primary_calendar` / `CalendarAdapter.event_instance_view` | `action_type = calendar.read`、`calendar.event.read`；`AutoRead` | `calendar:calendar:read`、`calendar:calendar.event:read` | R0 | 不适用 | 不需要 | 仅限当前用户主日历未来 7 天受限摘要：数量和最多 5 条示例；不保存描述、会议链接、附件、完整参会人清单、原始 ID 或原始 payload |
 | 读取 task | `TaskAdapter.get_task` / `list_my_tasks` | `action_type = task.read`；`AutoRead` | `task:task:read` | R0 | 不适用 | 不需要 | 记录 task 引用、状态摘要、可见范围和同步游标 |
+| 读取 docx/wiki 文档证据 | `DocAdapter.get_doc_summary` | `action_type = docx.document.read`、`wiki.node.read`；`AutoRead` | `docx:document:readonly`、`wiki:node:read` | R0 | 不适用 | 不需要 | 只读取选中 evidence ref 指向的单文档受限摘要：标题、类型、字符数和截断预览；不保存 token、URL、owner、完整正文、评论、附件或原始 payload |
 | 风险检测、周报、证据摘要 | `EvidenceAdapter` / risk engine | 无平台写入；内部可生成 `risk_detected` / `brief_generated` 审计事件 | 继承证据源读取 scope；不得扩大授权 | R1 | 不适用 | 不需要 | 记录输入 evidence refs、模型/规则版本、可见范围；不把模型输出当作证据本身 |
 | 起草 KR progress 创建 | `OkrAdapter.dry_run_create_progress` | `create_kr_progress` / 目标 `action_type = okr.progress.create`；生产策略可先复用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；展示目标 KR、payload 摘要、before/after 和影响范围 | 必须确认或编辑后确认 | 成功、失败、拒绝、stale dry-run 都写 `AuditEvent`；审计只存安全摘要 |
 | 起草 KR progress 更新 | `OkrAdapter.dry_run_update_progress` | `update_kr_progress` / `action_type = okr.progress.update`；当前 policy 测试使用 `required_scope = okr.progress.write` | 飞书官方最小 scope：`okr:okr.progress:writeonly` | R2 | 必须；执行前重新读取 live target 并校验 dry-run 指纹 | 必须确认或编辑后确认 | 记录 actor、scope、target、evidence、before/after 摘要、adapter operation id、结果 |
@@ -97,14 +98,14 @@ Agent tool manifest 与 core capability 的当前对齐：
 
 ## 5. Scope 与 allowlist 管理
 
-- 未配置 `OAR_FEISHU_AUTH_SCOPE` 时，OAR 默认扫码登录请求已声明用户级能力所需的 Feishu scopes：`offline_access`、OKR period/content/progress/review/setting 读取、OKR progress 写入、calendar free-busy 读取、calendar agenda/event instance 读取和 task 读取；task create/write scope 仅用于 DraftOnly/补授权准备。
+- 未配置 `OAR_FEISHU_AUTH_SCOPE` 时，OAR 默认扫码登录请求已声明用户级能力所需的 Feishu scopes：`offline_access`、OKR period/content/progress/review/setting 读取、OKR progress 写入、calendar free-busy 读取、calendar agenda/event instance 读取、task 读取、docx 文档读取和 wiki 节点读取；task create/write scope 仅用于 DraftOnly/补授权准备。
 - 默认 OAuth scope 由 core capability scope bundle 派生；OAuth grant 保存和校验飞书 scope 名称，执行策略使用 OAR `required_scope` / `action_type`。
 - OAuth grant scope 不等于生产写执行 allowlist。只读 Agent tool runtime 使用 Feishu scope gate；写执行仍必须满足 `ExecutionPolicy` allowlist、dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
-- OKR evidence ref 实时摘要会展示 KR progress/status，因此 scope gate 同时要求 `okr:okr.content:readonly` 和 `okr:okr.progress:readonly`；OAR action key 不能替代真实 Feishu scope。
+- OKR evidence ref 实时摘要会展示 KR progress/status，因此 scope gate 同时要求 `okr:okr.content:readonly` 和 `okr:okr.progress:readonly`；文档 evidence ref 只支持 `docx` 单文档摘要，wiki ref 会先用 `wiki:node:read` 解析到 `docx`，再用 `docx:document:readonly` 读取正文预览；OAR action key 不能替代真实 Feishu scope。
 - 飞书开发者后台开启或新增 scope 后，用户必须重新用 OAR 扫码授权；旧 `TokenGrant.scopes` 不会自动增加新 scope。
 - progress 创建/更新的 `okr:okr.progress:writeonly` 默认进入 OAuth grant，避免真实使用时反复补授权；生产执行仍只接受 `ConfirmedWrite` 能力、dry-run 和人工确认。
 - 新增 scope 只能先作为 `AutoRead`、`DraftOnly` 或明确的 `ConfirmedWrite` 合同进入 core 矩阵；`task.create` 和 `im.message.send` 当前不进入生产执行 allowlist。
-- `okr:okr.content:writeonly`、`okr:okr.period:writeonly`、`okr:okr`、`task:task:write`、`calendar:calendar`、`im:message` 等高权限或粗粒度 scope 不应因为“未来可能用到”提前进入生产 allowlist。
+- `okr:okr.content:writeonly`、`okr:okr.period:writeonly`、`okr:okr`、`task:task:write`、`calendar:calendar`、`docx:document`、`wiki:wiki`、`im:message` 等高权限或粗粒度 scope 不应因为“未来可能用到”提前进入生产 allowlist。
 - OAR 内部 `required_scope` 必须有明确映射表。例如 `okr.progress.write` 映射到飞书 `okr:okr.progress:writeonly`，不能模糊映射到 `okr:okr`。
 - 外部写执行 allowlist 只接受 `ConfirmedWrite` 能力。新增 scope、读能力或草稿能力时，必须显式确认 execution mode，避免 write scope 自动变成生产写权限。
 - 新增 scope 前必须记录：目标 API、最小权限、actor kind、数据范围、风险等级、dry-run 展示内容、审计字段和回归 fixture。
@@ -132,7 +133,8 @@ Agent tool manifest 与 core capability 的当前对齐：
 
 - 自动读取授权范围内的 OKR 周期、Objective、KR 和 progress。
 - Agent 已启用 `feishu.okr.summarize_my_okr`、`feishu.okr.summarize_my_progress`、`feishu.task.summarize_my_tasks`、`feishu.calendar.summarize_my_free_busy` 和 `feishu.calendar.summarize_my_events` 只读工具，用于当前用户本人 OKR、“我负责的”任务、未来 7 天主日历忙闲安全摘要和受限 agenda 摘要；边界见上方 manifest 对齐表。
-- 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy、calendar read/event read 和 task 摘要列为 `AutoRead`；calendar free-busy、calendar event read 与 task read 已接入只读 adapter，这些读能力不进入写执行 allowlist。
+- 在 core capability 合同中将 OKR review、OKR setting、calendar free-busy、calendar read/event read、task 摘要、docx 文档读取和 wiki 节点读取列为 `AutoRead`；calendar free-busy、calendar event read、task read 与 doc/wiki evidence read 已接入只读 adapter，这些读能力不进入写执行 allowlist。
+- 选中的 `doc` / `lark_doc` evidence ref 可触发后端实时读取单个 docx 或 wiki->docx 文档的受限摘要；只返回标题、类型、字符数和截断预览，不返回完整正文、评论、附件、owner、URL 或 token。
 - 自动生成风险、证据摘要、周报和建议动作。
 - 将 task 创建和 bot 消息发送登记为 `DraftOnly`；当前只允许生成草稿或待评审项合同，不进入生产写执行 allowlist。
 - 对 KR progress 创建 / 更新进入受控写回验证路径。

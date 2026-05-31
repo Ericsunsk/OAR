@@ -1,10 +1,11 @@
 use oar_lark_adapter::{
-    parse_calendar_event_source_ref, parse_okr_kr_source_ref, parse_task_source_ref,
-    CalendarEventSourceRef, OkrKrSourceRef,
+    parse_calendar_event_source_ref, parse_doc_source_ref, parse_okr_kr_source_ref,
+    parse_task_source_ref, CalendarEventSourceRef, DocSourceRef, OkrKrSourceRef,
 };
 
 pub(super) type ParsedOkrEvidenceRef = OkrKrSourceRef;
 pub(super) type ParsedCalendarEvidenceRef = CalendarEventSourceRef;
+pub(super) type ParsedDocEvidenceRef = DocSourceRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ParsedTaskEvidenceRef {
@@ -35,6 +36,10 @@ pub(super) fn parse_task_evidence_ref(source_ref: &str) -> Option<ParsedTaskEvid
 
 pub(super) fn parse_calendar_evidence_ref(source_ref: &str) -> Option<ParsedCalendarEvidenceRef> {
     parse_calendar_event_source_ref(source_ref)
+}
+
+pub(super) fn parse_doc_evidence_ref(source_ref: &str) -> Option<ParsedDocEvidenceRef> {
+    parse_doc_source_ref(source_ref).ok()
 }
 
 #[cfg(test)]
@@ -127,5 +132,27 @@ mod tests {
         assert!(parse_calendar_evidence_ref("calendar://customer-cadence").is_none());
         assert!(parse_calendar_evidence_ref("calendar://cal_1/event/evt_1").is_none());
         assert!(parse_calendar_evidence_ref("calendar://cal_1/events/evt?1").is_none());
+    }
+
+    #[test]
+    fn parse_doc_ref_supports_docx_wiki_and_urls() {
+        let doc = parse_doc_evidence_ref("docx://doxcni6mOy7jLRWbEylaKKabcef").expect("doc");
+        assert_eq!(doc.source_ref(), "docx://doxcni6mOy7jLRWbEylaKKabcef");
+
+        let wiki = parse_doc_evidence_ref("feishu://wiki/wikcnKQ1k3p8Vabcef").expect("wiki");
+        assert_eq!(wiki.source_ref(), "wiki://wikcnKQ1k3p8Vabcef");
+
+        let url = parse_doc_evidence_ref(
+            "https://sample.feishu.cn/docx/doxcni6mOy7jLRWbEylaKKabcef?from=copy",
+        )
+        .expect("doc url");
+        assert_eq!(url.source_ref(), "docx://doxcni6mOy7jLRWbEylaKKabcef");
+    }
+
+    #[test]
+    fn parse_doc_ref_rejects_task_calendar_and_unsafe_refs() {
+        assert!(parse_doc_evidence_ref("task://task_123").is_none());
+        assert!(parse_doc_evidence_ref("calendar://cal_1/events/evt_1").is_none());
+        assert!(parse_doc_evidence_ref("docx://doc?secret=true").is_none());
     }
 }
