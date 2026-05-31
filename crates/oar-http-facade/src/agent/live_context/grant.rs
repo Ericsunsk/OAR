@@ -18,9 +18,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{feishu_auth, persistence::FacadePersistenceRuntime, AuthenticatedContext};
 
-mod lookup;
-
-pub(super) use lookup::{resolve_grant_id_for_user, resolve_lark_open_id_for_grant};
+pub(super) use feishu_auth::{resolve_grant_id_for_user, resolve_lark_open_id_for_grant};
 
 pub(super) const TOKEN_REFRESH_SKEW_MS: u64 = 5 * 60 * 1000;
 

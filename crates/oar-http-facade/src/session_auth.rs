@@ -5,6 +5,7 @@ use oar_core::domain::device_sync::SessionState;
 use oar_core::storage::postgres::{PostgresDeviceSessionRepository, StoredDeviceSession};
 use serde_json::json;
 
+use crate::feishu_auth::revoke_logout_session_and_last_device_grant;
 use crate::response::{
     invalid_oar_session, json_facade_response, service_unavailable, unauthorized, FacadeResponse,
 };
@@ -80,14 +81,16 @@ pub(crate) async fn logout_oar_session(
         Ok(LogoutSessionState::SignedOut) => return signed_out_response(),
         Err(error) => return oar_session_auth_error_response(error),
     };
-    if repository
-        .revoke(
-            &auth_context.tenant_id,
-            &auth_context.session_id,
-            SystemTime::now(),
-        )
-        .await
-        .is_err()
+    let Some(persistence) = runtime.persistence() else {
+        return oar_session_auth_error_response(OarSessionAuthError::StoreUnavailable);
+    };
+    if revoke_logout_session_and_last_device_grant(
+        persistence.pool(),
+        &auth_context,
+        SystemTime::now(),
+    )
+    .await
+    .is_err()
     {
         return service_unavailable(
             "oar_session_logout_unavailable",

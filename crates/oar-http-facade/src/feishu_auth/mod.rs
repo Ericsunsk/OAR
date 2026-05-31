@@ -6,6 +6,7 @@ use oar_core::action::capability::default_agent_feishu_oauth_scope_strings;
 use oar_lark_adapter::{FeishuOAuthLoginConfig, FeishuOpenApiConfig, ReqwestAsyncHttpClient};
 
 mod events;
+mod grants;
 mod handlers;
 mod persistence;
 mod routes;
@@ -13,6 +14,10 @@ mod session;
 mod util;
 
 pub(crate) use events::{feishu_login_session_event, feishu_login_session_event_stream_response};
+pub(crate) use grants::{
+    resolve_grant_id_for_user, resolve_lark_open_id_for_grant,
+    revoke_logout_session_and_last_device_grant,
+};
 #[cfg(test)]
 pub(crate) use handlers::authorize_test_session;
 pub(crate) use handlers::{
