@@ -12,6 +12,7 @@ use super::grant::{
     refresh_grant_before_live_read, resolve_grant_id_for_user, resolve_lark_open_id_for_grant,
     system_time_to_ms,
 };
+use super::summary::evidence_unavailable_summary;
 use crate::{AuthenticatedContext, OarHttpFacadeRuntime};
 
 pub(super) struct LiveFeishuReadSession {
@@ -141,7 +142,8 @@ pub(super) enum LiveFeishuReadSessionError {
 
 impl LiveFeishuReadSessionError {
     fn evidence_degraded(reason: impl Into<String>) -> Self {
-        Self::Degraded(format!("未读取到实时 Feishu 证据：{}。", reason.into()))
+        let reason = reason.into();
+        Self::Degraded(evidence_unavailable_summary(&reason))
     }
 
     pub(super) fn push_degraded(self, degraded: &mut Vec<String>) {

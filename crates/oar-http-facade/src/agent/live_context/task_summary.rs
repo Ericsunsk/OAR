@@ -5,7 +5,9 @@ use oar_lark_adapter::{
     SecretString, TaskListType, TaskReadSummary, TaskUserIdType,
 };
 
-use super::summary::{compact_text, finalize_summary, tool_live_label, truncate_chars};
+use super::summary::{
+    compact_text, examples_suffix, finalize_summary, tool_live_label, truncate_chars,
+};
 use crate::agent::tools::AgentReadTool;
 
 const MY_TASK_PAGE_SIZE: u16 = 100;
@@ -66,11 +68,7 @@ pub(super) async fn read_my_task_summary(
         .filter_map(task_title)
         .take(MY_TASK_TITLE_LIMIT)
         .collect::<Vec<_>>();
-    let examples_suffix = if examples.is_empty() {
-        String::new()
-    } else {
-        format!("；示例：{}", examples.join(" / "))
-    };
+    let examples_text = examples_suffix(&examples);
     let more_suffix = if has_more {
         format!("；已按上限读取前 {} 页，仍可能有更多", MY_TASK_PAGE_LIMIT)
     } else {
@@ -81,7 +79,7 @@ pub(super) async fn read_my_task_summary(
         "{tool_label}｜实时：读取到 {} 条我负责的任务；状态：{}{}{}。",
         tasks.len(),
         status_summary,
-        examples_suffix,
+        examples_text,
         more_suffix
     )))
 }

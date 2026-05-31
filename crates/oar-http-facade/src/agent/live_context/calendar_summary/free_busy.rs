@@ -5,8 +5,10 @@ use oar_lark_adapter::{
     CalendarUserIdType, FeishuCalendarReadClient, ReqwestAsyncHttpClient, SecretString,
 };
 
-use super::super::summary::{compact_text, finalize_summary, tool_live_label, truncate_chars};
-use super::{examples_suffix, lookahead_window_text, CALENDAR_LOOKAHEAD_DAYS};
+use super::super::summary::{
+    compact_text, examples_suffix, finalize_summary, tool_live_label, truncate_chars,
+};
+use super::{lookahead_window_text, CALENDAR_LOOKAHEAD_DAYS};
 use crate::agent::tools::AgentReadTool;
 use crate::feishu_auth::iso8601_utc;
 
@@ -101,6 +103,8 @@ mod tests {
         let summary = summarize_free_busy_page(&page);
 
         assert!(summary.contains("未来 7 天读取到 1 段忙碌时段"));
+        assert!(summary.contains("；示例：2026-05-29T10:00"));
+        assert!(summary.contains("-2026-05-29T11:00"));
         assert!(!summary.contains("accepted"));
         assert!(!summary.contains("ou_sensitive"));
     }

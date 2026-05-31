@@ -10,7 +10,8 @@ use super::super::okr_topology::{read_my_okr_topology, OkrTopologyReadOptions};
 use super::super::session::LiveFeishuReadSession;
 use super::super::source_registry::LiveEvidenceResolution;
 use super::super::summary::{
-    build_live_summary, okr_read_error_reason, tool_live_degraded_summary,
+    build_live_summary, evidence_unavailable_summary, okr_read_error_reason,
+    tool_live_degraded_summary,
 };
 use super::PlannedLiveReads;
 use crate::agent::tools::AgentReadTool;
@@ -121,14 +122,11 @@ pub(super) async fn append_okr_summaries(
                     build_live_summary(evidence_ref, &parsed, &snapshot)
                 }));
             } else {
-                live_summaries.push("未读取到实时 Feishu 证据：Feishu 返回空数据。".to_string());
+                live_summaries.push(evidence_unavailable_summary("Feishu 返回空数据"));
             }
         }
         Err(error) => {
-            live_summaries.push(format!(
-                "未读取到实时 Feishu 证据：{}。",
-                okr_read_error_reason(error)
-            ));
+            live_summaries.push(evidence_unavailable_summary(okr_read_error_reason(error)));
         }
     }
 }

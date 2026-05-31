@@ -8,6 +8,14 @@ pub(in crate::agent::live_context) fn compact_text(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+pub(in crate::agent::live_context) fn examples_suffix(examples: &[String]) -> String {
+    if examples.is_empty() {
+        String::new()
+    } else {
+        format!("；示例：{}", examples.join(" / "))
+    }
+}
+
 pub(in crate::agent::live_context) fn truncate_chars(value: &str, limit: usize) -> String {
     let char_count = value.chars().count();
     if char_count <= limit {
@@ -35,6 +43,15 @@ mod tests {
     fn truncate_chars_preserves_multibyte_boundary() {
         assert_eq!(truncate_chars("你好世界", 3), "你好…");
         assert_eq!(truncate_chars("你好", 3), "你好");
+    }
+
+    #[test]
+    fn examples_suffix_formats_shared_summary_examples() {
+        assert_eq!(examples_suffix(&[]), "");
+        assert_eq!(
+            examples_suffix(&["任务 A".to_string(), "任务 B".to_string()]),
+            "；示例：任务 A / 任务 B"
+        );
     }
 
     #[test]

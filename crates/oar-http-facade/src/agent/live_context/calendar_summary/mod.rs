@@ -9,11 +9,3 @@ const CALENDAR_LOOKAHEAD_DAYS: u64 = 7;
 fn lookahead_window_text() -> String {
     format!("未来 {CALENDAR_LOOKAHEAD_DAYS} 天")
 }
-
-fn examples_suffix(examples: &[String]) -> String {
-    if examples.is_empty() {
-        String::new()
-    } else {
-        format!("；示例：{}", examples.join(" / "))
-    }
-}

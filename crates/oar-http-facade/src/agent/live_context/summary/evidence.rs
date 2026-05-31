@@ -132,6 +132,10 @@ pub(in crate::agent::live_context) fn degraded_summary(
     finalize_summary(format!("证据｜实时读取降级：{}。", reason))
 }
 
+pub(in crate::agent::live_context) fn evidence_unavailable_summary(reason: &str) -> String {
+    finalize_summary(format!("未读取到实时 Feishu 证据：{}。", reason))
+}
+
 fn summary_label(evidence_ref: &AgentEvidenceRefDTO) -> String {
     let summary = compact_text(&evidence_ref.summary);
     if summary.is_empty() {
@@ -167,5 +171,13 @@ mod tests {
         assert!(!summary.contains("sk-secret"));
         assert!(!summary.contains("auth code"));
         assert!(!summary.contains("raw transcript"));
+    }
+
+    #[test]
+    fn evidence_unavailable_summary_uses_global_limit() {
+        let summary = evidence_unavailable_summary(&"Feishu 返回空数据".repeat(30));
+
+        assert_eq!(summary.chars().count(), 200);
+        assert!(summary.ends_with('…'));
     }
 }
