@@ -90,6 +90,7 @@ mod tests {
             (&Method::POST, "/agent/settings"),
             (&Method::GET, "/agent/model-catalog/preview"),
             (&Method::GET, "/healthz"),
+            (&Method::GET, "/readyz"),
         ] {
             assert!(!is_route(method, path), "{method} {path}");
         }

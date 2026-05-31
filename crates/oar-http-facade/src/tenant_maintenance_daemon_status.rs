@@ -7,6 +7,11 @@ use oar_runtime::{
     RuntimeTickReport,
 };
 
+use crate::tenant_maintenance_daemon_failure::classify_failure_code;
+use crate::tenant_maintenance_daemon_stage_status::{
+    TenantMaintenanceDaemonStagesInner, TenantMaintenanceDaemonStagesSnapshot,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TenantMaintenanceDaemonState {
     Disabled,
@@ -52,10 +57,13 @@ pub(crate) struct TenantMaintenanceDaemonStatusSnapshot {
     pub(crate) successful_rounds: usize,
     pub(crate) failed_rounds: usize,
     pub(crate) failed_tenant_ticks: usize,
+    pub(crate) daemon_failures: usize,
     pub(crate) last_round_status: Option<&'static str>,
     pub(crate) last_round_tenant_count: usize,
     pub(crate) last_round_failed_tenant_count: usize,
     pub(crate) last_failure_code: Option<&'static str>,
+    pub(crate) last_daemon_failure_code: Option<&'static str>,
+    pub(crate) stages: TenantMaintenanceDaemonStagesSnapshot,
 }
 
 impl TenantMaintenanceDaemonStatusSnapshot {
@@ -66,10 +74,13 @@ impl TenantMaintenanceDaemonStatusSnapshot {
             successful_rounds: 0,
             failed_rounds: 0,
             failed_tenant_ticks: 0,
+            daemon_failures: 0,
             last_round_status: None,
             last_round_tenant_count: 0,
             last_round_failed_tenant_count: 0,
             last_failure_code: None,
+            last_daemon_failure_code: None,
+            stages: TenantMaintenanceDaemonStagesSnapshot::empty(),
         }
     }
 }
@@ -81,10 +92,13 @@ struct TenantMaintenanceDaemonStatusInner {
     successful_rounds: usize,
     failed_rounds: usize,
     failed_tenant_ticks: usize,
+    daemon_failures: usize,
     last_round_status: Option<TenantMaintenanceRoundStatus>,
     last_round_tenant_count: usize,
     last_round_failed_tenant_count: usize,
     last_failure_code: Option<&'static str>,
+    last_daemon_failure_code: Option<&'static str>,
+    stages: TenantMaintenanceDaemonStagesInner,
 }
 
 #[derive(Clone)]
@@ -120,10 +134,13 @@ impl TenantMaintenanceDaemonStatusHandle {
                 successful_rounds: 0,
                 failed_rounds: 0,
                 failed_tenant_ticks: 0,
+                daemon_failures: 0,
                 last_round_status: None,
                 last_round_tenant_count: 0,
                 last_round_failed_tenant_count: 0,
                 last_failure_code: None,
+                last_daemon_failure_code: None,
+                stages: TenantMaintenanceDaemonStagesInner::empty(),
             })),
         }
     }
@@ -136,12 +153,15 @@ impl TenantMaintenanceDaemonStatusHandle {
             successful_rounds: inner.successful_rounds,
             failed_rounds: inner.failed_rounds,
             failed_tenant_ticks: inner.failed_tenant_ticks,
+            daemon_failures: inner.daemon_failures,
             last_round_status: inner
                 .last_round_status
                 .map(TenantMaintenanceRoundStatus::as_str),
             last_round_tenant_count: inner.last_round_tenant_count,
             last_round_failed_tenant_count: inner.last_round_failed_tenant_count,
             last_failure_code: inner.last_failure_code,
+            last_daemon_failure_code: inner.last_daemon_failure_code,
+            stages: inner.stages.snapshot(),
         }
     }
 
@@ -149,6 +169,7 @@ impl TenantMaintenanceDaemonStatusHandle {
         self.update_inner(|inner| {
             inner.state = TenantMaintenanceDaemonState::Running;
             inner.last_failure_code = None;
+            inner.last_daemon_failure_code = None;
         });
     }
 
@@ -174,6 +195,12 @@ impl TenantMaintenanceDaemonStatusHandle {
         });
     }
 
+    pub(crate) fn record_tenant_report(&self, report: &PostgresTenantMaintenanceReport) {
+        self.update_inner(|inner| {
+            inner.stages.record_report(report);
+        });
+    }
+
     pub(crate) fn mark_stopped(
         &self,
         report: &DiscoveringRuntimeRunReport<PostgresTenantMaintenanceReport>,
@@ -195,11 +222,11 @@ impl TenantMaintenanceDaemonStatusHandle {
         });
     }
 
-    pub(crate) fn mark_failed(&self, safe_error: impl AsRef<str>) {
+    pub(crate) fn mark_daemon_failed(&self, safe_error: impl AsRef<str>) {
         self.update_inner(|inner| {
             inner.state = TenantMaintenanceDaemonState::Failed;
-            inner.failed_rounds = inner.failed_rounds.saturating_add(1);
-            apply_failed_round(inner, safe_error);
+            inner.daemon_failures = inner.daemon_failures.saturating_add(1);
+            inner.last_daemon_failure_code = Some(classify_failure_code(safe_error));
         });
     }
 
@@ -274,67 +301,6 @@ fn registry_report_first_last_tick_failure_code(
     })
 }
 
-fn classify_failure_code(value: impl AsRef<str>) -> &'static str {
-    let value = value.as_ref().trim();
-    let public_code = match value {
-        "tenant_maintenance_daemon_stopped_unexpectedly" => {
-            Some("tenant_maintenance_daemon_stopped_unexpectedly")
-        }
-        "tenant_maintenance_daemon_task_failed" => Some("tenant_maintenance_daemon_task_failed"),
-        "tenant_maintenance_daemon_missing_persistence" => {
-            Some("tenant_maintenance_daemon_missing_persistence")
-        }
-        "tenant_maintenance_daemon_missing_feishu_auth" => {
-            Some("tenant_maintenance_daemon_missing_feishu_auth")
-        }
-        "tenant_maintenance_daemon_runtime_config_invalid" => {
-            Some("tenant_maintenance_daemon_runtime_config_invalid")
-        }
-        "tenant_maintenance_daemon_worker_config_invalid" => {
-            Some("tenant_maintenance_daemon_worker_config_invalid")
-        }
-        "tenant_maintenance_daemon_refresh_adapter_build_failed" => {
-            Some("tenant_maintenance_daemon_refresh_adapter_build_failed")
-        }
-        "tenant_maintenance_daemon_webhook_sink_build_failed" => {
-            Some("tenant_maintenance_daemon_webhook_sink_build_failed")
-        }
-        "tenant_maintenance_discovery_invalid: empty_registry" => {
-            Some("tenant_maintenance_discovery_invalid_empty_registry")
-        }
-        "tenant_maintenance_discovery_invalid: empty_tenant_id" => {
-            Some("tenant_maintenance_discovery_invalid_empty_tenant_id")
-        }
-        "tenant_maintenance_discovery_invalid: duplicate_tenant_id" => {
-            Some("tenant_maintenance_discovery_invalid_duplicate_tenant_id")
-        }
-        "tenant_maintenance_registry_invalid: empty_registry" => {
-            Some("tenant_maintenance_registry_invalid_empty_registry")
-        }
-        "tenant_maintenance_registry_invalid: empty_tenant_id" => {
-            Some("tenant_maintenance_registry_invalid_empty_tenant_id")
-        }
-        "tenant_maintenance_registry_invalid: duplicate_tenant_id" => {
-            Some("tenant_maintenance_registry_invalid_duplicate_tenant_id")
-        }
-        _ => None,
-    };
-    if let Some(code) = public_code {
-        return code;
-    }
-
-    if value.starts_with("tenant_maintenance_runtime_tick_failed:") {
-        return "tenant_maintenance_runtime_tick_failed";
-    }
-    if value.starts_with("tenant_maintenance_runtime_stage_failed:") {
-        return "tenant_maintenance_runtime_stage_failed";
-    }
-    if value.starts_with("tenant_maintenance_registry_build_failed:") {
-        return "tenant_maintenance_registry_build_failed";
-    }
-    "tenant_maintenance_failure"
-}
-
 #[cfg(test)]
 mod tests {
     use oar_runtime::{
@@ -406,13 +372,15 @@ mod tests {
     fn daemon_status_redacts_suspicious_failure_code() {
         let status = TenantMaintenanceDaemonStatusHandle::for_enabled(true);
 
-        status.mark_failed("refresh_token webhook-secret authorization fingerprint");
+        status.mark_daemon_failed("refresh_token webhook-secret authorization fingerprint");
         let snapshot = status.snapshot();
 
         assert_eq!(
-            snapshot.last_failure_code,
+            snapshot.last_daemon_failure_code,
             Some("tenant_maintenance_failure")
         );
+        assert_eq!(snapshot.failed_rounds, 0);
+        assert_eq!(snapshot.daemon_failures, 1);
         assert!(!format!("{snapshot:?}").contains("refresh_token"));
         assert!(!format!("{snapshot:?}").contains("webhook-secret"));
     }

@@ -27,6 +27,7 @@ use crate::tenant_maintenance::{
     TenantMaintenanceAuditOutboxSinkSettings, TenantMaintenanceSettingsError,
     TenantMaintenanceWorkerSettings,
 };
+use crate::tenant_maintenance_daemon_status::TenantMaintenanceDaemonStatusHandle;
 
 const DAEMON_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -102,6 +103,7 @@ impl Error for TenantMaintenanceTickError {}
 
 struct FacadeTenantMaintenanceTick {
     worker: FacadeTenantMaintenanceCoreWorker,
+    status: TenantMaintenanceDaemonStatusHandle,
 }
 
 impl RuntimeTick for FacadeTenantMaintenanceTick {
@@ -115,6 +117,7 @@ impl RuntimeTick for FacadeTenantMaintenanceTick {
                 .run_once()
                 .await
                 .map_err(tick_repository_error)?;
+            self.status.record_tenant_report(&report);
             if let Some(safe_error) = report_stage_safe_error(&report) {
                 return Err(TenantMaintenanceTickError { safe_error });
             }
@@ -202,19 +205,20 @@ pub(crate) fn spawn_tenant_maintenance_daemon(
     let pool = persistence.pool();
     let discovery =
         PostgresRuntimeTenantDiscovery::new(PostgresTenantRepository::new(pool.clone()));
+    let status = runtime.tenant_maintenance_daemon_status().clone();
     let factory = FacadeTenantMaintenanceTickFactory {
         pool,
         worker_settings: settings.worker.clone(),
         audit_outbox_sink: settings.audit_outbox_sink.clone(),
         feishu_login,
         persistence,
+        status: status.clone(),
     };
     let mut daemon =
         DiscoveringTenantMaintenanceRuntime::try_new(settings.runtime, discovery, factory)
             .map_err(daemon_runtime_config_error)?;
     let cancellation = CancellationToken::new();
     let daemon_cancellation = cancellation.clone();
-    let status = runtime.tenant_maintenance_daemon_status().clone();
     status.mark_running();
     let task_status = status.clone();
     let task = tokio::spawn(async move {
@@ -243,6 +247,7 @@ struct FacadeTenantMaintenanceTickFactory {
     audit_outbox_sink: TenantMaintenanceAuditOutboxSinkSettings,
     feishu_login: std::sync::Arc<crate::feishu_auth::FeishuLoginRuntime>,
     persistence: crate::persistence::FacadePersistenceRuntime,
+    status: TenantMaintenanceDaemonStatusHandle,
 }
 
 impl RuntimeTenantTickFactory<FacadeTenantMaintenanceTick> for FacadeTenantMaintenanceTickFactory {
@@ -258,6 +263,7 @@ impl RuntimeTenantTickFactory<FacadeTenantMaintenanceTick> for FacadeTenantMaint
         let audit_outbox_sink = self.audit_outbox_sink.clone();
         let feishu_login = self.feishu_login.clone();
         let persistence = self.persistence.clone();
+        let status = self.status.clone();
         Box::pin(async move {
             build_tenant_maintenance_worker(
                 pool,
@@ -265,6 +271,7 @@ impl RuntimeTenantTickFactory<FacadeTenantMaintenanceTick> for FacadeTenantMaint
                 audit_outbox_sink,
                 feishu_login,
                 persistence,
+                status,
                 &tenant_id,
             )
         })
@@ -281,6 +288,7 @@ fn build_tenant_maintenance_worker(
     audit_outbox_sink: TenantMaintenanceAuditOutboxSinkSettings,
     feishu_login: std::sync::Arc<crate::feishu_auth::FeishuLoginRuntime>,
     persistence: crate::persistence::FacadePersistenceRuntime,
+    status: TenantMaintenanceDaemonStatusHandle,
     tenant_id: &str,
 ) -> Result<FacadeTenantMaintenanceTick, TenantMaintenanceDaemonStartError> {
     let open_api_config = feishu_login.open_api_config();
@@ -311,7 +319,7 @@ fn build_tenant_maintenance_worker(
         worker_config,
     )
     .map_err(worker_config_error)?;
-    Ok(FacadeTenantMaintenanceTick { worker })
+    Ok(FacadeTenantMaintenanceTick { worker, status })
 }
 
 fn system_time_ms() -> u64 {
@@ -364,19 +372,12 @@ fn report_stage_safe_error(report: &PostgresTenantMaintenanceReport) -> Option<S
     report
         .scheduled_sweep
         .failed()
-        .map(|failure| {
-            format!(
-                "tenant_maintenance_runtime_stage_failed: {}",
-                failure.safe_error
-            )
-        })
+        .map(|_| "tenant_maintenance_runtime_stage_failed: scheduled_sweep".to_string())
         .or_else(|| {
-            report.outbox_drain.failed().map(|failure| {
-                format!(
-                    "tenant_maintenance_runtime_stage_failed: {}",
-                    failure.safe_error
-                )
-            })
+            report
+                .outbox_drain
+                .failed()
+                .map(|_| "tenant_maintenance_runtime_stage_failed: outbox_drain".to_string())
         })
 }
 
@@ -438,7 +439,7 @@ mod tests {
 
         assert_eq!(
             report_stage_safe_error(&report).as_deref(),
-            Some("tenant_maintenance_runtime_stage_failed: scheduled_safe_error")
+            Some("tenant_maintenance_runtime_stage_failed: scheduled_sweep")
         );
     }
 
@@ -463,6 +464,7 @@ mod tests {
             audit_outbox_sink: settings.audit_outbox_sink,
             feishu_login: std::sync::Arc::new(feishu_login),
             persistence,
+            status: TenantMaintenanceDaemonStatusHandle::for_enabled(true),
         };
         let worker = factory.build_tick("tenant_factory_test").await;
 
@@ -509,6 +511,7 @@ mod tests {
                 .field("audit_outbox_sink", &"[REDACTED]")
                 .field("feishu_login", &"[REDACTED]")
                 .field("persistence", &"[REDACTED]")
+                .field("status", &self.status.snapshot().state)
                 .finish()
         }
     }

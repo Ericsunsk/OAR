@@ -9,7 +9,7 @@ use crate::feishu_auth::{
     create_feishu_login_session, feishu_login_session_event, feishu_login_session_status,
     is_auth_session_events_route, is_auth_session_status_route,
 };
-use crate::health::healthz_response;
+use crate::health::{healthz_response, readyz_response};
 use crate::response::{json_facade_response, not_found, service_unavailable, FacadeResponse};
 use crate::review_inbox_routes;
 use crate::runtime::OarHttpFacadeRuntime;
@@ -41,6 +41,9 @@ pub async fn dispatch_request_with_runtime(
         }
         (&Method::GET, "/healthz") => {
             return healthz_response(Some(runtime.as_ref()));
+        }
+        (&Method::GET, "/readyz") => {
+            return readyz_response(Some(runtime.as_ref()));
         }
         _ if is_auth_session_status_route(method, path) => {
             let Some(session_id) = auth_session_status_id(path) else {
@@ -87,6 +90,7 @@ pub fn dispatch_request(
 ) -> FacadeResponse {
     match (method, path) {
         (&Method::GET, "/healthz") => healthz_response(None),
+        (&Method::GET, "/readyz") => readyz_response(None),
         (&Method::POST, "/auth/feishu/qr-sessions") => service_unavailable(
             "feishu_auth_not_configured",
             "Feishu QR login is not configured in this backend facade.",

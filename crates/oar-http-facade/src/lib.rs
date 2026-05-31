@@ -14,6 +14,8 @@ mod server;
 mod session_auth;
 mod tenant_maintenance;
 mod tenant_maintenance_daemon;
+mod tenant_maintenance_daemon_failure;
+mod tenant_maintenance_daemon_stage_status;
 mod tenant_maintenance_daemon_status;
 mod util;
 
