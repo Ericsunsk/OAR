@@ -24,7 +24,7 @@ extension ReviewInboxMockData {
             id: "ev-003",
             reviewItemId: "review-001",
             sourceType: .meeting,
-            sourceRef: "minutes://enterprise-weekly-sync",
+            sourceRef: "minutes://obcnq3b9jl72l83w4f14xxxx",
             capturedAt: "5 月 24 日 15:00",
             summary: "会议纪要显示两个试点需要周五前决策。",
             signalType: .dependency,

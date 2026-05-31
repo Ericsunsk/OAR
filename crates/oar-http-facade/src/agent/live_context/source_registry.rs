@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use super::refs::{
-    parse_calendar_evidence_ref, parse_doc_evidence_ref, parse_okr_evidence_ref,
-    parse_task_evidence_ref, ParsedCalendarEvidenceRef, ParsedDocEvidenceRef, ParsedOkrEvidenceRef,
-    ParsedTaskEvidenceRef,
+    parse_calendar_evidence_ref, parse_doc_evidence_ref, parse_minutes_evidence_ref,
+    parse_okr_evidence_ref, parse_task_evidence_ref, ParsedCalendarEvidenceRef,
+    ParsedDocEvidenceRef, ParsedMinutesEvidenceRef, ParsedOkrEvidenceRef, ParsedTaskEvidenceRef,
 };
 use super::summary::degraded_summary;
 use crate::agent::request::AgentEvidenceRefDTO;
@@ -14,6 +14,7 @@ pub(super) struct LiveEvidenceResolution<'a> {
     pub(super) task_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedTaskEvidenceRef)>,
     pub(super) calendar_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedCalendarEvidenceRef)>,
     pub(super) doc_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedDocEvidenceRef)>,
+    pub(super) minutes_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedMinutesEvidenceRef)>,
     pub(super) degraded: Vec<String>,
 }
 
@@ -82,6 +83,17 @@ pub(super) fn resolve_evidence_refs<'a>(
             continue;
         }
 
+        if is_minutes_source_type(&evidence_ref.source_type) {
+            match parse_minutes_evidence_ref(&evidence_ref.source_ref) {
+                Some(parsed) => resolution.minutes_refs.push((evidence_ref, parsed)),
+                None => resolution.degraded.push(degraded_summary(
+                    evidence_ref,
+                    "source_ref 不是可识别的妙记引用",
+                )),
+            }
+            continue;
+        }
+
         resolution.degraded.push(degraded_summary(
             evidence_ref,
             "source_type 暂不支持实时读取",
@@ -117,6 +129,9 @@ enum EvidenceRefKey {
         source_ref: String,
     },
     Doc {
+        source_ref: String,
+    },
+    Minutes {
         source_ref: String,
     },
     Raw {
@@ -157,6 +172,13 @@ fn evidence_ref_key(evidence_ref: &AgentEvidenceRefDTO) -> EvidenceRefKey {
             };
         }
     }
+    if is_minutes_source_type(&source_type) {
+        if let Some(parsed) = parse_minutes_evidence_ref(&evidence_ref.source_ref) {
+            return EvidenceRefKey::Minutes {
+                source_ref: parsed.source_ref(),
+            };
+        }
+    }
     EvidenceRefKey::Raw {
         source_type,
         source_ref: evidence_ref.source_ref.trim().to_string(),
@@ -188,6 +210,14 @@ fn is_doc_source_type(source_type: &str) -> bool {
         || source_type == "feishu_wiki"
         || source_type == "lark_doc"
         || source_type == "lark_wiki"
+}
+
+fn is_minutes_source_type(source_type: &str) -> bool {
+    let source_type = source_type.trim().to_ascii_lowercase();
+    source_type == "meeting"
+        || source_type == "minutes"
+        || source_type == "feishu_minutes"
+        || source_type == "lark_minutes"
 }
 
 #[cfg(test)]
@@ -229,6 +259,7 @@ mod tests {
             "calendar://cal_1/events/evt_1"
         );
         assert!(resolution.doc_refs.is_empty());
+        assert!(resolution.minutes_refs.is_empty());
         assert_eq!(resolution.degraded.len(), 3);
         assert!(resolution
             .degraded
@@ -321,6 +352,33 @@ mod tests {
         assert_eq!(resolution.degraded.len(), 1);
         assert!(resolution.degraded[0].contains("已合并 1 条重复 evidence refs"));
         assert!(!resolution.degraded[0].contains("doxcni"));
+    }
+
+    #[test]
+    fn resolves_minutes_refs_and_deduplicates_canonical_forms() {
+        let refs = vec![
+            evidence_ref(
+                "meeting",
+                "minutes://obcnq3b9jl72l83w4f14xxxx",
+                "Minutes evidence",
+            ),
+            evidence_ref(
+                "lark_minutes",
+                "https://sample.feishu.cn/minutes/obcnq3b9jl72l83w4f14xxxx",
+                "Minutes duplicate",
+            ),
+        ];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert_eq!(resolution.minutes_refs.len(), 1);
+        assert_eq!(
+            resolution.minutes_refs[0].1.source_ref(),
+            "minutes://obcnq3b9jl72l83w4f14xxxx"
+        );
+        assert_eq!(resolution.degraded.len(), 1);
+        assert!(resolution.degraded[0].contains("已合并 1 条重复 evidence refs"));
+        assert!(!resolution.degraded[0].contains("obcnq3b9"));
     }
 
     #[test]
@@ -437,6 +495,24 @@ mod tests {
             .degraded
             .iter()
             .any(|summary| summary.contains("sk-secret") || summary.contains("auth code")));
+    }
+
+    #[test]
+    fn invalid_minutes_refs_degrade_without_echoing_evidence_summary_or_ref() {
+        let refs = vec![evidence_ref(
+            "meeting",
+            "minutes://sk-secret-token",
+            "sk-secret auth code raw transcript",
+        )];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert!(resolution.minutes_refs.is_empty());
+        assert_eq!(resolution.degraded.len(), 1);
+        assert!(resolution.degraded[0].contains("source_ref 不是可识别的妙记引用"));
+        assert!(!resolution.degraded[0].contains("sk-secret"));
+        assert!(!resolution.degraded[0].contains("auth code"));
+        assert!(!resolution.degraded[0].contains("raw transcript"));
     }
 
     fn evidence_ref(source_type: &str, source_ref: &str, summary: &str) -> AgentEvidenceRefDTO {

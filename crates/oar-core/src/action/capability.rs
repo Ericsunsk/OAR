@@ -10,10 +10,10 @@ pub use feishu::{
     FeishuScopeBundle, CALENDAR_EVENT_READ_SCOPES, CALENDAR_FREE_BUSY_READ_SCOPES,
     CALENDAR_READ_SCOPES, DEFAULT_AGENT_FEISHU_OAUTH_ACTION_TYPES,
     DEFAULT_AGENT_FEISHU_OAUTH_SCOPE_BUNDLE, DOCX_DOCUMENT_READ_SCOPES,
-    FEISHU_OFFLINE_ACCESS_SCOPE, IM_MESSAGE_SEND_AS_BOT_SCOPES, OKR_CONTENT_READ_SCOPES,
-    OKR_PERIOD_READ_SCOPES, OKR_PROGRESS_READ_SCOPES, OKR_PROGRESS_WRITE_SCOPES,
-    OKR_REVIEW_READ_SCOPES, OKR_SETTING_READ_SCOPES, TASK_READ_SCOPES, TASK_WRITE_SCOPES,
-    WIKI_NODE_READ_SCOPES,
+    FEISHU_OFFLINE_ACCESS_SCOPE, IM_MESSAGE_SEND_AS_BOT_SCOPES, MINUTES_BASIC_READ_SCOPES,
+    OKR_CONTENT_READ_SCOPES, OKR_PERIOD_READ_SCOPES, OKR_PROGRESS_READ_SCOPES,
+    OKR_PROGRESS_WRITE_SCOPES, OKR_REVIEW_READ_SCOPES, OKR_SETTING_READ_SCOPES, TASK_READ_SCOPES,
+    TASK_WRITE_SCOPES, WIKI_NODE_READ_SCOPES,
 };
 pub use matrix::{
     all_capabilities, find_by_action_type, find_by_action_type_str, find_by_capability,
@@ -36,6 +36,7 @@ pub enum AgentCapability {
     TaskCreate,
     DocxDocumentRead,
     WikiNodeRead,
+    MinutesBasicRead,
     ImMessageSend,
 }
 
@@ -56,6 +57,7 @@ impl AgentCapability {
             Self::TaskCreate => "task_create",
             Self::DocxDocumentRead => "docx_document_read",
             Self::WikiNodeRead => "wiki_node_read",
+            Self::MinutesBasicRead => "minutes_basic_read",
             Self::ImMessageSend => "im_message_send",
         }
     }
@@ -77,6 +79,7 @@ pub enum CapabilityActionType {
     TaskCreate,
     DocxDocumentRead,
     WikiNodeRead,
+    MinutesBasicRead,
     ImMessageSend,
 }
 
@@ -97,6 +100,7 @@ impl CapabilityActionType {
             Self::TaskCreate => "task.create",
             Self::DocxDocumentRead => "docx.document.read",
             Self::WikiNodeRead => "wiki.node.read",
+            Self::MinutesBasicRead => "minutes.basic.read",
             Self::ImMessageSend => "im.message.send",
         }
     }
@@ -121,6 +125,7 @@ impl FromStr for CapabilityActionType {
             "task.create" => Ok(Self::TaskCreate),
             "docx.document.read" => Ok(Self::DocxDocumentRead),
             "wiki.node.read" => Ok(Self::WikiNodeRead),
+            "minutes.basic.read" => Ok(Self::MinutesBasicRead),
             "im.message.send" => Ok(Self::ImMessageSend),
             other => Err(UnknownCapabilityActionType {
                 value: other.to_string(),
@@ -162,6 +167,7 @@ pub enum OarRequiredScope {
     TaskWrite,
     DocxDocumentRead,
     WikiNodeRead,
+    MinutesBasicRead,
     ImMessageSendAsBot,
 }
 
@@ -181,6 +187,7 @@ impl OarRequiredScope {
             Self::TaskWrite => "task.write",
             Self::DocxDocumentRead => "docx.document.read",
             Self::WikiNodeRead => "wiki.node.read",
+            Self::MinutesBasicRead => "minutes.basic.read",
             Self::ImMessageSendAsBot => "im.message.send_as_bot",
         }
     }

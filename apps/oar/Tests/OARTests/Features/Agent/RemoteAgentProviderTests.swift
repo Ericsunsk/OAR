@@ -32,7 +32,7 @@ final class RemoteAgentProviderTests: XCTestCase {
             XCTAssertEqual(evidenceRefs[0]["source_ref"] as? String, "okr://cycle/2026q2/objective/ent-growth")
             XCTAssertEqual(evidenceRefs[0]["summary"] as? String, "连续两周延期")
             XCTAssertEqual(evidenceRefs[1]["source_type"] as? String, "meeting")
-            XCTAssertEqual(evidenceRefs[1]["source_ref"] as? String, "minutes://enterprise-weekly-sync")
+            XCTAssertEqual(evidenceRefs[1]["source_ref"] as? String, "minutes://obcnq3b9jl72l83w4f14xxxx")
             XCTAssertEqual(evidenceRefs[1]["summary"] as? String, "会议纪要显示两个试点需要周五前决策")
             XCTAssertEqual(context["workspace_summary"] as? String, "工作区摘要：共 2 个风险，严重/高 1 个。")
             XCTAssertEqual(context["workspace_signals"] as? [String], ["严重｜KR 风险｜owner：陈敏｜置信 91%"])
@@ -88,7 +88,7 @@ final class RemoteAgentProviderTests: XCTestCase {
                         ),
                         AgentEvidenceRef(
                             sourceType: "meeting",
-                            sourceRef: "minutes://enterprise-weekly-sync",
+                            sourceRef: "minutes://obcnq3b9jl72l83w4f14xxxx",
                             summary: "会议纪要显示两个试点需要周五前决策"
                         )
                     ],

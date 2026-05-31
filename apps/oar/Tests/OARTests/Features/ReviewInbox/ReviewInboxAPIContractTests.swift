@@ -129,6 +129,19 @@ final class ReviewInboxAPIContractTests: XCTestCase {
               "visibility": "team"
             },
             {
+              "id": "ev_minutes",
+              "review_item_id": "ri_1",
+              "source_kind": "lark_minutes",
+              "source_id": "minutes://obcnq3b9jl72l83w4f14xxxx",
+              "locator": null,
+              "observed_at_display": "5 月 28 日",
+              "summary": "妙记摘要。",
+              "signal_type": "progress",
+              "trust_score": 0.69,
+              "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "visibility": "team"
+            },
+            {
               "id": "ev_im",
               "review_item_id": "ri_1",
               "source_kind": "lark_im",
@@ -149,10 +162,11 @@ final class ReviewInboxAPIContractTests: XCTestCase {
         let snapshot = try JSONDecoder().decode(ReviewInboxAPISnapshot.self, from: Data(json.utf8))
         let display = snapshot.toDisplaySnapshot()
 
-        XCTAssertEqual(display.evidence.map(\.sourceType), [.task, .calendar, .im])
+        XCTAssertEqual(display.evidence.map(\.sourceType), [.task, .calendar, .meeting, .im])
         XCTAssertEqual(display.evidence.map(\.sourceRef), [
             "task://task_1",
             "calendar://cal_1/events/customer-review",
+            "minutes://obcnq3b9jl72l83w4f14xxxx",
             "im://chat_1/msg_1"
         ])
     }

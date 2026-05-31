@@ -23,6 +23,7 @@ fn default_feishu_oauth_bundle_contains_expected_user_authorization_scopes() {
             FeishuScope::TaskWrite.as_str(),
             FeishuScope::DocxDocumentRead.as_str(),
             FeishuScope::WikiNodeRead.as_str(),
+            FeishuScope::MinutesBasicRead.as_str(),
         ]
     );
     assert!(!scopes.contains(&FeishuScope::ImMessageSendAsBot.as_str()));
@@ -82,6 +83,12 @@ fn feishu_oauth_bundle_keeps_authorization_metadata_separate() {
             .contains(&CapabilityActionType::WikiNodeRead),
         "default authorization should request wiki node read scope"
     );
+    assert!(
+        bundle
+            .action_types()
+            .contains(&CapabilityActionType::MinutesBasicRead),
+        "default authorization should request minutes basic read scope"
+    );
     assert_eq!(
         bundle.feishu_scopes(),
         feishu_scopes_for_action_types(bundle.action_types())
@@ -101,6 +108,12 @@ fn capability_matrix_contains_no_coarse_or_delete_feishu_scopes() {
         "docx:document",
         "wiki:wiki",
         "wiki:wiki:readonly",
+        "minutes:minutes",
+        "minutes:minutes:readonly",
+        "minutes:minutes.artifacts:read",
+        "minutes:minutes.transcript:export",
+        "minutes:minutes.media:export",
+        "minutes:minutes.upload:write",
     ];
 
     for capability in all_capabilities() {

@@ -1,4 +1,6 @@
-use oar_lark_adapter::{DocReadSummary, OkrReadObjective, OkrReadSnapshot, TaskReadSummary};
+use oar_lark_adapter::{
+    DocReadSummary, MinuteReadSummary, OkrReadObjective, OkrReadSnapshot, TaskReadSummary,
+};
 
 use super::text::{compact_text, finalize_summary, truncate_chars};
 use crate::agent::live_context::refs::ParsedOkrEvidenceRef;
@@ -161,6 +163,51 @@ pub(in crate::agent::live_context) fn build_doc_live_summary(
     ))
 }
 
+pub(in crate::agent::live_context) fn build_minutes_live_summary(
+    evidence_ref: &AgentEvidenceRefDTO,
+    minute: &MinuteReadSummary,
+) -> String {
+    let label = evidence_label(evidence_ref);
+    let title = minute
+        .title
+        .as_deref()
+        .map(compact_text)
+        .filter(|value| !value.is_empty())
+        .filter(|value| !contains_sensitive_marker(value))
+        .unwrap_or_else(|| "未命名妙记".to_string());
+    let duration = minute
+        .duration_ms
+        .as_deref()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(format_duration_ms)
+        .map(|value| format!("，时长 {value}"))
+        .unwrap_or_default();
+    let create_time = minute
+        .create_time_ms
+        .as_deref()
+        .filter(|value| value.chars().all(|ch| ch.is_ascii_digit()))
+        .map(|value| format!("，创建时间戳 {value}"))
+        .unwrap_or_default();
+
+    finalize_summary(format!(
+        "{label}｜实时：妙记「{}」基础信息已读取{}{}。",
+        truncate_chars(&title, 36),
+        duration,
+        create_time
+    ))
+}
+
+fn format_duration_ms(duration_ms: u64) -> String {
+    let total_seconds = (duration_ms + 500) / 1000;
+    let minutes = total_seconds / 60;
+    let seconds = total_seconds % 60;
+    if minutes > 0 {
+        format!("{minutes}分{seconds:02}秒")
+    } else {
+        format!("{seconds}秒")
+    }
+}
+
 pub(in crate::agent::live_context) fn degraded_summary(
     _evidence_ref: &AgentEvidenceRefDTO,
     reason: &str,
@@ -176,9 +223,20 @@ pub(in crate::agent::live_context) fn evidence_label(evidence_ref: &AgentEvidenc
     let summary = compact_text(&evidence_ref.summary);
     if summary.is_empty() {
         "证据".to_string()
+    } else if should_hide_evidence_label(&summary) {
+        "证据".to_string()
     } else {
         truncate_chars(&summary, 36)
     }
+}
+
+fn should_hide_evidence_label(summary: &str) -> bool {
+    let lowered = summary.to_ascii_lowercase();
+    contains_sensitive_marker(summary)
+        || lowered.contains("://")
+        || lowered.contains("www.")
+        || lowered.contains("owner_id")
+        || lowered.contains("open_id")
 }
 
 fn latest_update_time(objective: &OkrReadObjective) -> Option<&str> {
@@ -215,5 +273,21 @@ mod tests {
 
         assert_eq!(summary.chars().count(), 200);
         assert!(summary.ends_with('…'));
+    }
+
+    #[test]
+    fn evidence_label_hides_sensitive_or_raw_locator_markers() {
+        let evidence_ref = AgentEvidenceRefDTO {
+            source_type: "meeting".to_string(),
+            source_ref: "minutes://obcnq3b9jl72l83w4f14xxxx".to_string(),
+            summary: "https://sample.feishu.cn/minutes/obcnq3b9jl72l83w4f14xxxx owner_id=ou_secret"
+                .to_string(),
+        };
+
+        let label = evidence_label(&evidence_ref);
+
+        assert_eq!(label, "证据");
+        assert!(!label.contains("obcnq3b9"));
+        assert!(!label.contains("ou_secret"));
     }
 }

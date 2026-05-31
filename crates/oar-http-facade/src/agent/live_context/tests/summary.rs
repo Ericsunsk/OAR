@@ -1,6 +1,6 @@
-use super::{build_doc_live_summary, build_task_live_summary};
+use super::{build_doc_live_summary, build_minutes_live_summary, build_task_live_summary};
 use crate::agent::request::AgentEvidenceRefDTO;
-use oar_lark_adapter::{DocReadSummary, TaskReadSummary};
+use oar_lark_adapter::{DocReadSummary, MinuteReadSummary, TaskReadSummary};
 
 #[test]
 fn task_live_summary_is_sanitized_and_compact() {
@@ -84,4 +84,47 @@ fn doc_live_summary_hides_sensitive_preview_markers() {
     assert!(!summary.contains("access_token"));
     assert!(!summary.contains("sk-secret-token"));
     assert!(!summary.contains("doxcni6m"));
+}
+
+#[test]
+fn minutes_live_summary_is_sanitized_and_compact() {
+    let evidence_ref = AgentEvidenceRefDTO {
+        source_type: "meeting".to_string(),
+        source_ref: "minutes://obcnq3b9jl72l83w4f14xxxx".to_string(),
+        summary: "会议证据".to_string(),
+    };
+    let summary = build_minutes_live_summary(
+        &evidence_ref,
+        &MinuteReadSummary {
+            title: Some(" Weekly Sync ".to_string()),
+            create_time_ms: Some("1669098360477".to_string()),
+            duration_ms: Some("314000".to_string()),
+        },
+    );
+
+    assert!(summary.contains("会议证据｜实时：妙记「Weekly Sync」基础信息已读取"));
+    assert!(summary.contains("时长 5分14秒"));
+    assert!(summary.contains("创建时间戳 1669098360477"));
+    assert!(!summary.contains("obcnq3b9"));
+}
+
+#[test]
+fn minutes_live_summary_hides_sensitive_title_markers() {
+    let evidence_ref = AgentEvidenceRefDTO {
+        source_type: "meeting".to_string(),
+        source_ref: "minutes://obcnq3b9jl72l83w4f14xxxx".to_string(),
+        summary: "会议证据".to_string(),
+    };
+    let summary = build_minutes_live_summary(
+        &evidence_ref,
+        &MinuteReadSummary {
+            title: Some("access_token review".to_string()),
+            create_time_ms: None,
+            duration_ms: Some("12000".to_string()),
+        },
+    );
+
+    assert!(summary.contains("妙记「未命名妙记」"));
+    assert!(!summary.contains("access_token"));
+    assert!(!summary.contains("obcnq3b9"));
 }

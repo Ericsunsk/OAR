@@ -11,6 +11,7 @@ pub mod error;
 pub mod factory;
 mod http_headers;
 pub mod material;
+pub mod minutes;
 pub mod oauth;
 pub mod okr;
 #[cfg(feature = "postgres")]
@@ -70,6 +71,11 @@ pub use material::{
     AsyncAesGcmKeyResolver, AsyncFeishuGrantMaterialStore, DecryptedFeishuGrantMaterial,
     FeishuGrantMaterialStore, FeishuStoredRefreshMaterialProvider,
     FeishuStoredRefreshMaterialProviderError, StoredFeishuGrantMaterial,
+};
+pub use minutes::{
+    build_get_minute_request, parse_minutes_source_ref, AsyncFeishuMinutesRead,
+    FeishuMinuteReadRequest, FeishuMinutesReadClient, FeishuMinutesReadError, MinuteReadSummary,
+    MinutesSourceRef,
 };
 pub use oauth::{
     AsyncFeishuOAuthLogin, AsyncFeishuRefreshMaterialProvider, AsyncHttpClient,

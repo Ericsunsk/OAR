@@ -1,11 +1,13 @@
 use oar_lark_adapter::{
-    parse_calendar_event_source_ref, parse_doc_source_ref, parse_okr_kr_source_ref,
-    parse_task_source_ref, CalendarEventSourceRef, DocSourceRef, OkrKrSourceRef,
+    parse_calendar_event_source_ref, parse_doc_source_ref, parse_minutes_source_ref,
+    parse_okr_kr_source_ref, parse_task_source_ref, CalendarEventSourceRef, DocSourceRef,
+    MinutesSourceRef, OkrKrSourceRef,
 };
 
 pub(super) type ParsedOkrEvidenceRef = OkrKrSourceRef;
 pub(super) type ParsedCalendarEvidenceRef = CalendarEventSourceRef;
 pub(super) type ParsedDocEvidenceRef = DocSourceRef;
+pub(super) type ParsedMinutesEvidenceRef = MinutesSourceRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ParsedTaskEvidenceRef {
@@ -40,6 +42,10 @@ pub(super) fn parse_calendar_evidence_ref(source_ref: &str) -> Option<ParsedCale
 
 pub(super) fn parse_doc_evidence_ref(source_ref: &str) -> Option<ParsedDocEvidenceRef> {
     parse_doc_source_ref(source_ref).ok()
+}
+
+pub(super) fn parse_minutes_evidence_ref(source_ref: &str) -> Option<ParsedMinutesEvidenceRef> {
+    parse_minutes_source_ref(source_ref).ok()
 }
 
 #[cfg(test)]
@@ -154,5 +160,30 @@ mod tests {
         assert!(parse_doc_evidence_ref("task://task_123").is_none());
         assert!(parse_doc_evidence_ref("calendar://cal_1/events/evt_1").is_none());
         assert!(parse_doc_evidence_ref("docx://doc?secret=true").is_none());
+    }
+
+    #[test]
+    fn parse_minutes_ref_supports_minutes_and_urls() {
+        let minutes =
+            parse_minutes_evidence_ref("minutes://obcnq3b9jl72l83w4f14xxxx").expect("minutes");
+        assert_eq!(minutes.source_ref(), "minutes://obcnq3b9jl72l83w4f14xxxx");
+
+        let feishu = parse_minutes_evidence_ref("feishu://minutes/obcnq3b9jl72l83w4f14xxxx")
+            .expect("feishu");
+        assert_eq!(feishu.source_ref(), "minutes://obcnq3b9jl72l83w4f14xxxx");
+
+        let url = parse_minutes_evidence_ref(
+            "https://sample.feishu.cn/minutes/obcnq3b9jl72l83w4f14xxxx?from=copy",
+        )
+        .expect("url");
+        assert_eq!(url.source_ref(), "minutes://obcnq3b9jl72l83w4f14xxxx");
+    }
+
+    #[test]
+    fn parse_minutes_ref_rejects_cross_type_and_unsafe_refs() {
+        assert!(parse_minutes_evidence_ref("task://task_123").is_none());
+        assert!(parse_minutes_evidence_ref("docx://doxcni6mOy7jLRWbEylaKKabcef").is_none());
+        assert!(parse_minutes_evidence_ref("minutes://enterprise-weekly-sync").is_none());
+        assert!(parse_minutes_evidence_ref("minutes://obcnq3b9jl72l83w4f14xxxx/child").is_none());
     }
 }

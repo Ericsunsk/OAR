@@ -7,6 +7,8 @@ use super::source_registry::LiveEvidenceResolution;
 use super::status::LiveFeishuReadStatus;
 use crate::agent::tools::AgentReadTool;
 
+const MINUTES_READONLY_SCOPE_COMPAT: &str = "minutes:minutes:readonly";
+
 pub(super) fn gate_read_demand_by_scope(
     scopes: &[String],
     evidence_resolution: &mut LiveEvidenceResolution<'_>,
@@ -19,6 +21,7 @@ pub(super) fn gate_read_demand_by_scope(
         && evidence_resolution.task_refs.is_empty()
         && evidence_resolution.calendar_refs.is_empty()
         && evidence_resolution.doc_refs.is_empty()
+        && evidence_resolution.minutes_refs.is_empty()
         && read_tools.is_empty())
 }
 
@@ -77,6 +80,12 @@ fn gate_evidence_refs_by_scope(scopes: &[String], resolution: &mut LiveEvidenceR
     if !resolution.doc_refs.is_empty() {
         gate_doc_evidence_refs_by_scope(scopes, resolution);
     }
+    if !resolution.minutes_refs.is_empty() && !has_minutes_basic_read_scope(scopes) {
+        resolution
+            .degraded
+            .push("未读取到实时 Feishu 妙记证据：授权缺少妙记基础信息读取权限。".to_string());
+        resolution.minutes_refs.clear();
+    }
 }
 
 fn gate_doc_evidence_refs_by_scope(scopes: &[String], resolution: &mut LiveEvidenceResolution<'_>) {
@@ -115,6 +124,13 @@ fn has_task_read_scope(scopes: &[String]) -> bool {
 fn has_calendar_evidence_read_scopes(scopes: &[String]) -> bool {
     has_feishu_scope(scopes, FeishuScope::CalendarRead)
         && has_feishu_scope(scopes, FeishuScope::CalendarEventRead)
+}
+
+fn has_minutes_basic_read_scope(scopes: &[String]) -> bool {
+    has_feishu_scope(scopes, FeishuScope::MinutesBasicRead)
+        || scopes
+            .iter()
+            .any(|scope| scope.trim() == MINUTES_READONLY_SCOPE_COMPAT)
 }
 
 fn missing_feishu_scope_names<'a>(
@@ -313,6 +329,45 @@ mod tests {
 
         assert_eq!(resolution.doc_refs.len(), 2);
         assert!(resolution.degraded.is_empty());
+    }
+
+    #[test]
+    fn minutes_evidence_scope_accepts_basic_or_readonly_scope_names() {
+        let refs = vec![evidence_ref(
+            "meeting",
+            "minutes://obcnq3b9jl72l83w4f14xxxx",
+            "Minutes evidence",
+        )];
+
+        let mut resolution = resolve_evidence_refs(&refs, 4);
+        gate_evidence_refs_by_scope(&[], &mut resolution);
+
+        assert!(resolution.minutes_refs.is_empty());
+        assert!(resolution
+            .degraded
+            .iter()
+            .any(|summary| summary.contains("授权缺少妙记基础信息读取权限")));
+
+        let mut resolution = resolve_evidence_refs(&refs, 4);
+        gate_evidence_refs_by_scope(
+            &[FeishuScope::MinutesBasicRead.as_str().to_string()],
+            &mut resolution,
+        );
+
+        assert_eq!(resolution.minutes_refs.len(), 1);
+        assert!(resolution.degraded.is_empty());
+
+        let mut resolution = resolve_evidence_refs(&refs, 4);
+        gate_evidence_refs_by_scope(
+            &[MINUTES_READONLY_SCOPE_COMPAT.to_string()],
+            &mut resolution,
+        );
+
+        assert_eq!(resolution.minutes_refs.len(), 1);
+        assert!(resolution.degraded.is_empty());
+        assert!(!has_minutes_basic_read_scope(&[
+            "minutes.basic.read".to_string()
+        ]));
     }
 
     fn evidence_ref(source_type: &str, source_ref: &str, summary: &str) -> AgentEvidenceRefDTO {

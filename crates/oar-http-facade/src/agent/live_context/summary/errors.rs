@@ -1,6 +1,26 @@
 use oar_lark_adapter::{
-    FeishuCalendarReadError, FeishuDocReadError, FeishuOkrReadError, FeishuTaskReadError,
+    FeishuCalendarReadError, FeishuDocReadError, FeishuMinutesReadError, FeishuOkrReadError,
+    FeishuTaskReadError,
 };
+
+pub(in crate::agent::live_context) fn minutes_read_error_reason(
+    error: FeishuMinutesReadError,
+) -> &'static str {
+    match error {
+        FeishuMinutesReadError::InvalidSourceRef => "妙记引用无效",
+        FeishuMinutesReadError::InvalidRequest => "妙记读取请求无效",
+        FeishuMinutesReadError::Unauthorized => "授权已失效，需要重新登录",
+        FeishuMinutesReadError::Forbidden => "授权缺少妙记基础信息读取权限",
+        FeishuMinutesReadError::NotFound => "妙记不存在或无权访问",
+        FeishuMinutesReadError::UpstreamClient => "妙记读取请求被拒绝",
+        FeishuMinutesReadError::UpstreamTransient
+        | FeishuMinutesReadError::Transport
+        | FeishuMinutesReadError::ApiFailure => "妙记实时读取暂不可用",
+        FeishuMinutesReadError::OversizedResponse | FeishuMinutesReadError::InvalidJson => {
+            "妙记实时读取返回不可用"
+        }
+    }
+}
 
 pub(in crate::agent::live_context) fn doc_read_error_reason(
     error: FeishuDocReadError,

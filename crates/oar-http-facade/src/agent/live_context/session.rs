@@ -3,8 +3,8 @@ use std::time::SystemTime;
 use oar_core::storage::postgres::{EncryptedTokenGrantRecord, PostgresTokenGrantRepository};
 use oar_lark_adapter::{
     material::read_access_token_from_encrypted_grant, FeishuCalendarReadClient,
-    FeishuDocReadClient, FeishuOkrReadClient, FeishuOpenApiConfig, FeishuTaskReadClient,
-    ReqwestAsyncHttpClient, SecretString,
+    FeishuDocReadClient, FeishuMinutesReadClient, FeishuOkrReadClient, FeishuOpenApiConfig,
+    FeishuTaskReadClient, ReqwestAsyncHttpClient, SecretString,
 };
 
 use super::grant::{
@@ -129,6 +129,10 @@ impl LiveFeishuReadSession {
 
     pub(super) fn doc_client(&self) -> FeishuDocReadClient<ReqwestAsyncHttpClient> {
         FeishuDocReadClient::new(self.open_api_config.clone(), self.http_client.clone())
+    }
+
+    pub(super) fn minutes_client(&self) -> FeishuMinutesReadClient<ReqwestAsyncHttpClient> {
+        FeishuMinutesReadClient::new(self.open_api_config.clone(), self.http_client.clone())
     }
 
     pub(super) async fn resolve_lark_open_id(

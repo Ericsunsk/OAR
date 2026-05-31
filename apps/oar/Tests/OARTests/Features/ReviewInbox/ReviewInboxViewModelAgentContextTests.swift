@@ -19,7 +19,7 @@ final class ReviewInboxViewModelAgentContextTests: XCTestCase {
         XCTAssertEqual(context.evidenceRefs[1].sourceRef, "task://pilot-security-review")
         XCTAssertEqual(context.evidenceRefs[1].summary, "安全问卷任务卡在应用权限说明。")
         XCTAssertEqual(context.evidenceRefs[2].sourceType, "meeting")
-        XCTAssertEqual(context.evidenceRefs[2].sourceRef, "minutes://enterprise-weekly-sync")
+        XCTAssertEqual(context.evidenceRefs[2].sourceRef, "minutes://obcnq3b9jl72l83w4f14xxxx")
         XCTAssertEqual(context.evidenceRefs[2].summary, "会议纪要显示两个试点需要周五前决策。")
         XCTAssertTrue(context.workspaceSummary.contains("共 6 个风险"))
         XCTAssertTrue(context.workspaceSummary.contains("严重/高 2 个（严重 1 个）"))

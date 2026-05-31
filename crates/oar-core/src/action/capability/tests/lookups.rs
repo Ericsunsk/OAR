@@ -184,6 +184,33 @@ fn next_batch_capabilities_are_lookupable_with_non_executing_posture() {
         CapabilityActionType::WikiNodeRead
     );
 
+    let minutes_basic = find_by_action_type(CapabilityActionType::MinutesBasicRead)
+        .expect("minutes basic read lookup");
+    assert_eq!(minutes_basic.capability, AgentCapability::MinutesBasicRead);
+    assert_eq!(minutes_basic.required_scope.as_str(), "minutes.basic.read");
+    assert_eq!(
+        minutes_basic.feishu_scopes[0].as_str(),
+        "minutes:minutes.basic:read"
+    );
+    assert_eq!(
+        minutes_basic.execution_mode,
+        CapabilityExecutionMode::AutoRead
+    );
+    assert_eq!(
+        find_by_action_type_str("minutes.basic.read"),
+        Some(minutes_basic)
+    );
+    assert!(
+        !minutes_basic.enters_execution_allowlist(),
+        "minutes basic read must stay outside write execution allowlist"
+    );
+    assert_eq!(
+        "minutes.basic.read"
+            .parse::<CapabilityActionType>()
+            .expect("minutes basic action type parse"),
+        CapabilityActionType::MinutesBasicRead
+    );
+
     let message_send =
         find_by_action_type(CapabilityActionType::ImMessageSend).expect("message send lookup");
     assert_eq!(message_send.capability, AgentCapability::ImMessageSend);
