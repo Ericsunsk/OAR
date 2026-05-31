@@ -1,6 +1,5 @@
+use super::activation::plan_agent_skill_activation;
 use super::request::AgentStreamRequest;
-use super::skills::select_skills;
-use super::tools::plan_read_tools;
 use crate::{AuthenticatedContext, OarHttpFacadeRuntime};
 
 mod assembly;
@@ -25,17 +24,13 @@ pub(crate) async fn inject_live_feishu_context(
     auth_context: &AuthenticatedContext,
     request: &mut AgentStreamRequest,
 ) {
-    let active_skills = select_skills(request);
-    request.context.activated_skill_summaries = active_skills
-        .iter()
-        .map(|skill| skill.prompt_summary())
-        .collect();
-    let read_tools = plan_read_tools(request);
+    let activation_plan = plan_agent_skill_activation(request);
+    request.context.activated_skill_summaries = activation_plan.activated_skill_summaries();
     let summaries = assemble_live_feishu_summaries(
         runtime,
         auth_context,
         &request.context.evidence_refs,
-        &read_tools,
+        activation_plan.read_tools(),
     )
     .await;
     request.context.live_feishu_read_summaries = summaries;

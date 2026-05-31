@@ -1,3 +1,4 @@
+mod activation;
 mod anthropic;
 mod live_context;
 mod openai;
