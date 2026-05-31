@@ -11,6 +11,23 @@ pub(crate) async fn seed_refresh_candidate_grant(
     grant_id: &str,
     blob: Vec<u8>,
 ) -> Result<(), oar_core::storage::postgres::PostgresRepositoryError> {
+    seed_refresh_candidate_grant_with_key_id_and_scopes(
+        pool,
+        grant_id,
+        KEY_ID,
+        default_refresh_scopes(),
+        blob,
+    )
+    .await
+}
+
+pub(crate) async fn seed_refresh_candidate_grant_with_key_id_and_scopes(
+    pool: &PgPool,
+    grant_id: &str,
+    key_id: &str,
+    scopes: Vec<String>,
+    blob: Vec<u8>,
+) -> Result<(), oar_core::storage::postgres::PostgresRepositoryError> {
     PostgresTokenGrantRepository::new(pool.clone())
         .upsert_encrypted_grant(&EncryptedTokenGrantRecord {
             id: grant_id.to_string(),
@@ -18,11 +35,7 @@ pub(crate) async fn seed_refresh_candidate_grant(
             identity_id: IDENTITY_ID.to_string(),
             actor_kind: ActorKind::User,
             scope_boundary: ScopeBoundary::User,
-            scopes: vec![
-                "offline_access".to_string(),
-                "auth:user.id:read".to_string(),
-                "okr.progress.write".to_string(),
-            ],
+            scopes,
             state: TokenGrantState::NeedsRefresh,
             issued_at_ms: 1_779_460_000_000,
             expires_at_ms: Some(1_779_465_500_000),
@@ -31,12 +44,20 @@ pub(crate) async fn seed_refresh_candidate_grant(
             reauth_required_at_ms: None,
             last_refresh_error: Some("old-error".to_string()),
             encrypted_oauth_grant: blob,
-            oauth_grant_key_id: KEY_ID.to_string(),
+            oauth_grant_key_id: key_id.to_string(),
             oauth_grant_fingerprint: OLD_FP.to_string(),
             revocation_reason: None,
         })
         .await?;
     Ok(())
+}
+
+fn default_refresh_scopes() -> Vec<String> {
+    vec![
+        "offline_access".to_string(),
+        "auth:user.id:read".to_string(),
+        "okr.progress.write".to_string(),
+    ]
 }
 
 pub(crate) fn audit_context(trace_id: &str, sequence: u64) -> TokenRefreshAuditContext {

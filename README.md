@@ -301,6 +301,9 @@ task 读取；task create/write scope 仅用于 DraftOnly/补授权准备。OAut
 写操作仍然必须经过 dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
 本地开发可临时设置 `OAR_ALLOW_EPHEMERAL_GRANT_KEY=true` 让 auth refresh 配置自动生成一次性内存
 grant key；生产环境不要打开，必须注入稳定的 `OAR_GRANT_KEY_ID` / `OAR_GRANT_KEY_HEX`。
+真实 Feishu refresh smoke 使用测试专用开关 `OAR_TEST_FEISHU_REFRESH_SMOKE_ENABLED=true`
+和 `OAR_TEST_FEISHU_REFRESH_TOKEN`；它会调用真实 OAuth refresh endpoint，并可能轮换/消费该测试
+refresh token，因此只允许使用一次性测试授权，不要使用生产用户授权。
 后台租户维护运行时使用显式 `OAR_TENANT_MAINTENANCE_ENABLED=true` 作为唯一开关；启用后，
 facade 成功绑定监听后会启动维护循环。启用时必须有数据库持久化、稳定 grant key、完整飞书 OAuth app 配置和安全的
 `OAR_TENANT_MAINTENANCE_INSTANCE_ID`，并且不能同时使用一次性内存 grant key。

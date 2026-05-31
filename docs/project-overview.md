@@ -54,7 +54,7 @@ OAR 是面向飞书企业租户的 **OKR 复盘驾驶舱**：每周自动发现 
 ## 5. 阶段状态与风险
 
 Phase 0.5：已完成 Lark CLI/OKR 读取与 progress 创建/更新验证，删除保持 dry-run；生产主路径已收敛到 Rust 原生 OpenAPI adapter。  
-Phase 0.6：token refresh service、Postgres Recorder、audit 写入、`run_once` 幂等链路、真实 Rust/Reqwest refresh adapter、后台 maintenance daemon、last-device logout 本地 grant revoke + append-only audit 已接入；仍需真实 Feishu refresh smoke、故障恢复与运维闭环验证。
+Phase 0.6：token refresh service、Postgres Recorder、audit 写入、`run_once` 幂等链路、真实 Rust/Reqwest refresh adapter、后台 maintenance daemon、last-device logout 本地 grant revoke + append-only audit 已接入；已加入默认关闭的真实 Feishu refresh smoke 入口，仍需用一次性测试授权实际运行，并继续补齐故障恢复与运维闭环验证。
 
 当前关键假设：
 
@@ -67,7 +67,7 @@ Phase 0.6：token refresh service、Postgres Recorder、audit 写入、`run_once
 | 记忆能显著提升建议质量 | 未验证 | 需要历史 OKR 复盘回归用例 |
 
 当前主要风险：
-1. 真实 Feishu refresh/live smoke 覆盖仍需补齐，避免 fake fixture 与飞书实际响应漂移。
+1. 真实 Feishu refresh/live smoke 已有 env-gated 入口，但仍需用测试授权定期执行，避免 fake fixture 与飞书实际响应漂移。
 2. 幂等执行的失败恢复覆盖不足（重试、超时、revoke/reauth）。
 3. 多端一致性与离线期间后台持续运行仍需真实流程验证。
 4. “每周 10 分钟清空风险队列”的持续使用习惯仍待真实团队验证。
@@ -87,7 +87,7 @@ Phase 0.6：token refresh service、Postgres Recorder、audit 写入、`run_once
 
 ## 6. 近期路线图（7 天）
 
-1. 补真实 Feishu refresh live smoke；确认飞书是否提供官方 OAuth provider revoke endpoint，若无则保持本地 grant revoke 边界清晰。
+1. 用一次性测试授权运行真实 Feishu refresh live smoke；确认飞书是否提供官方 OAuth provider revoke endpoint，若无则保持本地 grant revoke 边界清晰。
 2. 扩展 Postgres Recorder + `OperationLedger` + `run_once` 的并发和重试验证。
 3. 收敛审计事件结构与落库策略，补足关键失败场景可追溯性。
 4. 接入 scheduler/daemon 到真实任务流，验证客户端离线期间连续性。

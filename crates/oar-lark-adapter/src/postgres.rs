@@ -51,7 +51,7 @@ impl AsyncFeishuGrantMaterialStore for PostgresFeishuGrantMaterialStore {
                         encrypted_oauth_grant,
                         oauth_grant_key_id,
                         oauth_grant_fingerprint,
-                        array_to_string(scopes, ' ') AS scope
+                        NULLIF(array_to_string(scopes, ' '), '') AS scope
                     FROM token_grants
                     WHERE tenant_id = $1
                       AND id = $2
