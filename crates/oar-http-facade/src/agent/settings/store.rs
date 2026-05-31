@@ -130,7 +130,7 @@ fn map_setting_row(
     let base_url: String = row
         .try_get("base_url")
         .map_err(|_| AgentModelSettingsError::StoreUnavailable)?;
-    let base_url = parse_base_url(&base_url)?;
+    let base_url = parse_stored_base_url(&base_url)?;
     let stored_key_id: String = row
         .try_get("api_key_key_id")
         .map_err(|_| AgentModelSettingsError::StoreUnavailable)?;
@@ -151,4 +151,27 @@ fn map_setting_row(
             .try_get("anthropic_version")
             .map_err(|_| AgentModelSettingsError::StoreUnavailable)?,
     })
+}
+
+fn parse_stored_base_url(value: &str) -> Result<Url, AgentModelSettingsError> {
+    parse_base_url(value).map_err(|_| AgentModelSettingsError::InvalidStoredBaseURL)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_stored_base_url_maps_to_stored_invariant_error() {
+        let error = parse_stored_base_url("not a url").expect_err("invalid stored base_url");
+
+        assert_eq!(error, AgentModelSettingsError::InvalidStoredBaseURL);
+    }
+
+    #[test]
+    fn missing_stored_base_url_maps_to_stored_invariant_error() {
+        let error = parse_stored_base_url(" ").expect_err("missing stored base_url");
+
+        assert_eq!(error, AgentModelSettingsError::InvalidStoredBaseURL);
+    }
 }

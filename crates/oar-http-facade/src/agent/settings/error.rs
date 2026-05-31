@@ -10,6 +10,7 @@ pub(crate) enum AgentModelSettingsError {
     ModelNotDetected,
     StoreUnavailable,
     SecretCryptoFailed,
+    InvalidStoredBaseURL,
     InvalidStoredProtocol,
 }
 
@@ -26,6 +27,7 @@ impl std::fmt::Display for AgentModelSettingsError {
             Self::ModelNotDetected => write!(f, "agent_settings_model_not_detected"),
             Self::StoreUnavailable => write!(f, "agent_settings_store_unavailable"),
             Self::SecretCryptoFailed => write!(f, "agent_settings_secret_crypto_failed"),
+            Self::InvalidStoredBaseURL => write!(f, "agent_settings_stored_base_url_invalid"),
             Self::InvalidStoredProtocol => write!(f, "agent_settings_protocol_invalid"),
         }
     }
@@ -49,6 +51,10 @@ mod tests {
             (ModelNotDetected, "agent_settings_model_not_detected"),
             (StoreUnavailable, "agent_settings_store_unavailable"),
             (SecretCryptoFailed, "agent_settings_secret_crypto_failed"),
+            (
+                InvalidStoredBaseURL,
+                "agent_settings_stored_base_url_invalid",
+            ),
             (InvalidStoredProtocol, "agent_settings_protocol_invalid"),
         ];
 

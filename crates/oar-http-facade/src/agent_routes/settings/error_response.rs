@@ -37,6 +37,7 @@ pub(super) fn agent_model_settings_error_response(
         ),
         AgentModelSettingsError::StoreUnavailable
         | AgentModelSettingsError::SecretCryptoFailed
+        | AgentModelSettingsError::InvalidStoredBaseURL
         | AgentModelSettingsError::InvalidStoredProtocol => service_unavailable(
             "agent_settings_unavailable",
             "Agent model settings are temporarily unavailable.",
@@ -101,6 +102,11 @@ mod tests {
             ),
             (
                 SecretCryptoFailed,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "agent_settings_unavailable",
+            ),
+            (
+                InvalidStoredBaseURL,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "agent_settings_unavailable",
             ),
