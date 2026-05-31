@@ -1,5 +1,5 @@
-use super::context_text::{PROMPT_CONTEXT_TEXT_LIMIT, REDACTED_CONTEXT_SUMMARY};
 use super::*;
+use crate::agent::context_text::{PROMPT_CONTEXT_TEXT_LIMIT, REDACTED_CONTEXT_SUMMARY};
 
 #[test]
 fn prompt_builder_uses_backend_boundary_and_limits_evidence() {

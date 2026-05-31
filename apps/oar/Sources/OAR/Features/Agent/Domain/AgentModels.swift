@@ -27,8 +27,26 @@ struct AgentMessage: Identifiable, Equatable {
 }
 
 enum AgentStreamEvent: Equatable {
+    case contextStatus(AgentContextStatus)
     case delta(String)
     case completed
+}
+
+struct AgentContextStatus: Equatable {
+    let activatedSkillSummaries: [String]
+    let liveReadSummaries: [String]
+
+    init(
+        activatedSkillSummaries: [String],
+        liveReadSummaries: [String]
+    ) {
+        self.activatedSkillSummaries = activatedSkillSummaries
+        self.liveReadSummaries = liveReadSummaries
+    }
+
+    var isEmpty: Bool {
+        activatedSkillSummaries.isEmpty && liveReadSummaries.isEmpty
+    }
 }
 
 struct AgentEvidenceRef: Equatable {

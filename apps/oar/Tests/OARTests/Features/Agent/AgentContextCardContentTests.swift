@@ -94,4 +94,33 @@ final class AgentContextCardContentTests: XCTestCase {
         XCTAssertEqual(content.focusText, "当前焦点：需要 补充 平台事实")
         XCTAssertEqual(content.summaryText, "需要 补充 平台事实")
     }
+
+    func testContextStatusContentPrioritizesLiveReadSummary() {
+        let content = AgentContextStatusContent(
+            status: AgentContextStatus(
+                activatedSkillSummaries: ["feishu.okr｜Feishu OKR｜用途：读取 OKR"],
+                liveReadSummaries: ["工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"]
+            )
+        )
+
+        XCTAssertEqual(content.title, "实时读取已接入")
+        XCTAssertEqual(content.statisticsText, "读取 1｜技能 1")
+        XCTAssertEqual(
+            content.detailText,
+            "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。\nfeishu.okr｜Feishu OKR｜用途：读取 OKR"
+        )
+        XCTAssertEqual(content.symbolName, "antenna.radiowaves.left.and.right")
+    }
+
+    func testContextStatusContentHighlightsDegradedRead() {
+        let content = AgentContextStatusContent(
+            status: AgentContextStatus(
+                activatedSkillSummaries: ["feishu.okr｜Feishu OKR"],
+                liveReadSummaries: ["工具 feishu.okr.summarize_my_okr｜实时读取降级：缺少权限。"]
+            )
+        )
+
+        XCTAssertEqual(content.title, "实时读取受限")
+        XCTAssertEqual(content.symbolName, "exclamationmark.triangle")
+    }
 }

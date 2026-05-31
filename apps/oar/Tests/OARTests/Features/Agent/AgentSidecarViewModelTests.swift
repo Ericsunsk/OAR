@@ -133,6 +133,59 @@ final class AgentSidecarViewModelTests: XCTestCase {
         XCTAssertFalse(model.isSending)
     }
 
+    func testContextStatusUpdatesTransientStateWithoutAddingMessage() async {
+        let provider = ManualStreamingAgentProvider()
+        let model = AgentSidecarViewModel(provider: provider)
+        let status = AgentContextStatus(
+            activatedSkillSummaries: ["feishu.okr｜Feishu OKR｜用途：读取 OKR"],
+            liveReadSummaries: ["工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"]
+        )
+
+        let sendTask = Task {
+            await model.send("看我的 OKR", context: .empty)
+        }
+        await provider.waitForStream()
+
+        provider.yield(status)
+        await waitForContextStatus(status, in: model)
+        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["看我的 OKR"])
+
+        provider.finish(with: "读取完成。")
+        await sendTask.value
+
+        XCTAssertEqual(model.contextStatus, status)
+        XCTAssertEqual(model.messages.dropFirst().map(\.text), ["看我的 OKR", "读取完成。"])
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testContextStatusClearsBeforeNextSend() async {
+        let provider = ManualStreamingAgentProvider()
+        let model = AgentSidecarViewModel(provider: provider)
+        let status = AgentContextStatus(
+            activatedSkillSummaries: ["feishu.calendar｜Feishu Calendar"],
+            liveReadSummaries: ["实时读取完成"]
+        )
+
+        let firstSendTask = Task {
+            await model.send("看日历", context: .empty)
+        }
+        await provider.waitForStream()
+        provider.yield(status)
+        provider.finish(with: "有 1 个会议。")
+        await firstSendTask.value
+        XCTAssertEqual(model.contextStatus, status)
+
+        let secondSendTask = Task {
+            await model.send("继续", context: .empty)
+        }
+        await provider.waitForStream()
+
+        XCTAssertNil(model.contextStatus)
+
+        provider.finish(with: "收到。")
+        await secondSendTask.value
+    }
+
     func testUnflushedPartialReplyIsPreservedWhenStreamFails() async {
         let provider = ManualStreamingAgentProvider()
         let model = AgentSidecarViewModel(provider: provider, streamFlushInterval: 60)
@@ -161,6 +214,19 @@ final class AgentSidecarViewModelTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTFail("Expected last message to become \(expectedText), got \(model.messages.last?.text ?? "nil")")
+    }
+
+    private func waitForContextStatus(
+        _ expectedStatus: AgentContextStatus,
+        in model: AgentSidecarViewModel
+    ) async {
+        for _ in 0..<100 {
+            if model.contextStatus == expectedStatus {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Expected context status to become \(expectedStatus), got \(String(describing: model.contextStatus))")
     }
 }
 
@@ -199,6 +265,10 @@ private final class ManualStreamingAgentProvider: AgentProviding {
 
     func yield(_ text: String) {
         continuation?.yield(.delta(text))
+    }
+
+    func yield(_ status: AgentContextStatus) {
+        continuation?.yield(.contextStatus(status))
     }
 
     func finish() {

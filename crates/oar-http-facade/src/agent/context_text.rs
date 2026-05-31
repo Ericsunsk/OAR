@@ -2,30 +2,37 @@ use std::collections::HashSet;
 
 use oar_core::security::contains_sensitive_marker;
 
-pub(super) const PROMPT_CONTEXT_TEXT_LIMIT: usize = 240;
-pub(super) const REDACTED_CONTEXT_SUMMARY: &str = "已隐藏敏感摘要。";
+pub(in crate::agent) const PROMPT_CONTEXT_TEXT_LIMIT: usize = 240;
+pub(in crate::agent) const REDACTED_CONTEXT_SUMMARY: &str = "已隐藏敏感摘要。";
 
-pub(super) fn numbered_section(items: &[String], limit: usize, empty_text: &str) -> String {
-    if items.is_empty() {
+pub(in crate::agent) fn numbered_section(
+    items: &[String],
+    limit: usize,
+    empty_text: &str,
+) -> String {
+    let summaries = safe_context_summaries(items, limit);
+    if summaries.is_empty() {
         return empty_text.to_string();
     }
+    summaries
+        .into_iter()
+        .enumerate()
+        .map(|(index, summary)| format!("{}. {}", index + 1, summary))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
+pub(in crate::agent) fn safe_context_summaries(items: &[String], limit: usize) -> Vec<String> {
     let mut seen_summaries = HashSet::new();
-    let summaries = items
+    items
         .iter()
         .filter_map(|summary| safe_prompt_context_text(summary))
         .filter(|summary| seen_summaries.insert(prompt_context_text_key(summary)))
         .take(limit)
-        .enumerate()
-        .map(|(index, summary)| format!("{}. {}", index + 1, summary))
-        .collect::<Vec<_>>();
-    if summaries.is_empty() {
-        return empty_text.to_string();
-    }
-    summaries.join("\n")
+        .collect()
 }
 
-pub(super) fn safe_prompt_context_text(text: &str) -> Option<String> {
+pub(in crate::agent) fn safe_prompt_context_text(text: &str) -> Option<String> {
     let cleaned = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if cleaned.is_empty() {
         return None;

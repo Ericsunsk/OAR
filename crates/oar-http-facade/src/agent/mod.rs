@@ -1,5 +1,6 @@
 mod activation;
 mod anthropic;
+mod context_text;
 mod live_context;
 mod openai;
 mod prompt;
@@ -8,6 +9,7 @@ mod request;
 mod runtime;
 mod settings;
 mod skills;
+mod status;
 mod stream;
 mod tools;
 
@@ -24,3 +26,4 @@ pub(crate) use settings::{
     AgentModelCatalogRequest, AgentModelSettingsError, AgentModelSettingsRuntime,
     AgentSettingsSnapshot, AgentSettingsUpdateRequest,
 };
+pub(crate) use stream::prepend_agent_context_status_frame;

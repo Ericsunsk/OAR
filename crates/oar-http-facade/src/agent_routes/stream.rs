@@ -10,8 +10,9 @@ use tracing::warn;
 
 use super::body::collect_limited_body;
 use crate::agent::{
-    decode_agent_stream_request, inject_live_feishu_context, AgentModelSettingsError,
-    AgentProviderConfig, AgentRequestError, AgentRuntime, AgentStreamError,
+    decode_agent_stream_request, inject_live_feishu_context, prepend_agent_context_status_frame,
+    AgentModelSettingsError, AgentProviderConfig, AgentRequestError, AgentRuntime,
+    AgentStreamError,
 };
 use crate::response::{json_facade_response, service_unavailable, FacadeResponse, ResponseBody};
 use crate::{
@@ -52,6 +53,7 @@ pub(super) async fn response(
         Err(error) => return agent_request_error_response(error).into_hyper_response(),
     };
     inject_live_feishu_context(&runtime, &auth_context, &mut request).await;
+    let context_status = request.context_status();
 
     let user_agent_runtime = match user_agent_runtime(&runtime, &auth_context).await {
         UserAgentRuntime::Configured(agent_runtime) => Some(agent_runtime),
@@ -75,6 +77,7 @@ pub(super) async fn response(
         Ok(stream) => stream,
         Err(error) => return agent_stream_error_response(error).into_hyper_response(),
     };
+    let stream = prepend_agent_context_status_frame(stream, context_status);
     let body = StreamBody::new(stream).boxed();
     let mut response = Response::new(body);
     *response.status_mut() = StatusCode::OK;

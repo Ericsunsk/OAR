@@ -146,6 +146,104 @@ final class RemoteAgentProviderTests: XCTestCase {
         XCTAssertEqual(events, [.delta("风险"), .completed])
     }
 
+    func testContextStatusStreamEventIsForwardedWithoutCountingAsContent() async throws {
+        AgentTestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                )!,
+                Self.sse(
+                    """
+                    event: context_status
+                    data: {"event":"context_status","status":{"activated_skill_summaries":["feishu.okr｜Feishu OKR｜用途：读取 OKR"],"live_read_summaries":["工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"]}}
+
+                    event: delta
+                    data: {"event":"delta","delta":"已读取。"}
+
+                    event: completed
+                    data: {"event":"completed"}
+
+                    """
+                )
+            )
+        }
+
+        let events = try await Self.collectEvents(
+            from: Self.provider().stream(
+                messages: [AgentMessage(role: .user, text: "看我的 OKR")],
+                context: .empty
+            )
+        )
+
+        XCTAssertEqual(
+            events,
+            [
+                .contextStatus(
+                    AgentContextStatus(
+                        activatedSkillSummaries: ["feishu.okr｜Feishu OKR｜用途：读取 OKR"],
+                        liveReadSummaries: ["工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"]
+                    )
+                ),
+                .delta("已读取。"),
+                .completed
+            ]
+        )
+    }
+
+    func testContextStatusWithoutDeltaDoesNotCountAsAssistantContent() async {
+        await Self.assertStreamBody(
+            """
+            data: {"event":"context_status","status":{"activated_skill_summaries":["feishu.okr"],"live_read_summaries":["实时读取完成"]}}
+
+            data: {"event":"completed"}
+
+            """,
+            mapsTo: .invalidResponse
+        )
+    }
+
+    func testContextStatusDefensivelyLimitsVisibleSummaries() async throws {
+        let longSummary = String(repeating: "长", count: 260)
+        AgentTestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                )!,
+                Self.sse(
+                    """
+                    data: {"event":"context_status","status":{"activated_skill_summaries":["技能 1","技能 2","技能 3","技能 4","技能 5"],"live_read_summaries":["\(longSummary)","读取 2","读取 3","读取 4","读取 5"]}}
+
+                    data: {"event":"delta","delta":"ok"}
+
+                    data: {"event":"completed"}
+
+                    """
+                )
+            )
+        }
+
+        let events = try await Self.collectEvents(
+            from: Self.provider().stream(
+                messages: [AgentMessage(role: .user, text: "hi")],
+                context: .empty
+            )
+        )
+
+        guard case .contextStatus(let status) = events.first else {
+            return XCTFail("Expected first event to be contextStatus")
+        }
+        XCTAssertEqual(status.activatedSkillSummaries, ["技能 1", "技能 2", "技能 3", "技能 4"])
+        XCTAssertEqual(status.liveReadSummaries.count, 4)
+        XCTAssertEqual(status.liveReadSummaries[0].count, 243)
+        XCTAssertTrue(status.liveReadSummaries[0].hasSuffix("..."))
+    }
+
     func testStreamErrorEventsMapToServerUnavailable() async {
         for code in ["invalid_upstream_event", "upstream_unavailable", "upstream_error"] {
             await Self.assertStreamBody(

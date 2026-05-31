@@ -17,6 +17,7 @@ final class AgentSidecarViewModel {
     var messages: [AgentMessage] = AgentSidecarViewModel.initialMessages()
     var isSending = false
     var errorMessage: String?
+    var contextStatus: AgentContextStatus?
     private(set) var activeFocusItemID: String?
 
     private let provider: AgentProviding
@@ -47,6 +48,7 @@ final class AgentSidecarViewModel {
         thread.append(AgentMessage(role: .user, text: trimmed))
         messages = thread
         errorMessage = nil
+        contextStatus = nil
         isSending = true
 
         defer {
@@ -70,6 +72,8 @@ final class AgentSidecarViewModel {
         do {
             for try await event in provider.stream(messages: thread, context: context) {
                 switch event {
+                case .contextStatus(let status):
+                    contextStatus = status.isEmpty ? nil : status
                 case .delta(let chunk):
                     displayBuffer.append(chunk)
                 case .completed:

@@ -84,6 +84,8 @@ struct RemoteAgentProvider: AgentProviding {
         )
         for try await event in streamEvents {
             switch event {
+            case .contextStatus(let status):
+                continuation.yield(.contextStatus(status))
             case .delta(let delta):
                 didYieldContent = true
                 continuation.yield(.delta(delta))

@@ -32,6 +32,12 @@ struct AgentSidecarView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
 
+            if let contextStatus = model.contextStatus {
+                AgentContextStatusStrip(status: contextStatus)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            }
+
             Divider()
                 .overlay(Color.codexBorder.opacity(0.28))
 

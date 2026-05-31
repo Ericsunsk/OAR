@@ -1,8 +1,5 @@
+use super::context_text::{numbered_section, safe_prompt_context_text};
 use super::request::AgentConversationContextDTO;
-
-mod context_text;
-
-use context_text::{numbered_section, safe_prompt_context_text};
 
 const EVIDENCE_SUMMARY_LIMIT: usize = 4;
 const WORKSPACE_SECTION_LIMIT: usize = 5;
