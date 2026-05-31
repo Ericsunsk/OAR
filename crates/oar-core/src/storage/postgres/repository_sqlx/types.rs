@@ -4,6 +4,7 @@ mod action_execution;
 mod audit;
 mod auth_lifecycle;
 mod identity;
+mod operational_recovery;
 mod review_inbox;
 mod scheduler;
 mod token_grant;
@@ -16,6 +17,10 @@ pub use action_execution::{
 pub use audit::{AuditOutboxEnvelope, AuditOutboxMessage};
 pub use auth_lifecycle::{PostgresAuthLogoutRevokeReport, PostgresAuthLogoutRevokeRequest};
 pub use identity::{StoredDeviceSession, StoredLarkIdentity, StoredTenant, StoredWorkspaceUser};
+pub use operational_recovery::{
+    FailedAuditOutboxRecoveryItem, OperationalRecoveryAction, ParkedTokenGrantRecoveryItem,
+    PostgresOperationalRecoveryReport,
+};
 pub use review_inbox::{
     InsertProposedActionDecisionRequest, PostgresReviewDecisionContextRequest, StoredEvidenceItem,
     StoredProposedAction, StoredProposedActionDecision, StoredProposedActionDecisionKind,

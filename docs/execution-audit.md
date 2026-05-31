@@ -1,6 +1,6 @@
 # 安全、权限与执行边界
 
-更新日期：2026-05-26
+更新日期：2026-05-31
 
 ## 1. 核心原则
 
@@ -142,7 +142,7 @@ sequenceDiagram
     OAR->>Repo: append-only AuditEvent
 ```
 
-当前已验证的是安全 parser、领域决策、Postgres CAS / audit 编排、显式 `run_once` sweep、真实 Rust/Reqwest refresh adapter、后台 scheduler/daemon 装配，以及 last-device logout 的本地 grant revoke + append-only audit；adapter crate 已加入默认关闭的真实 Feishu refresh smoke 入口，需显式设置 `OAR_TEST_FEISHU_REFRESH_SMOKE_ENABLED=true`、`OAR_TEST_FEISHU_REFRESH_TOKEN`、`DATABASE_URL`、`OAR_FEISHU_APP_ID`、`OAR_FEISHU_APP_SECRET` 和稳定 `OAR_GRANT_KEY_*` 后使用一次性测试授权运行。该 smoke 会调用真实 refresh endpoint，并可能轮换/消费测试 refresh token，不能使用生产用户授权。后续仍需补齐 reauth / provider revoke 边界的运维恢复说明。生产接入不等待 Rust 官方 SDK，也不引入跨语言 SDK bridge；主路径采用 Rust 原生 OpenAPI adapter。
+当前已验证的是安全 parser、领域决策、Postgres CAS / audit 编排、显式 `run_once` sweep、真实 Rust/Reqwest refresh adapter、后台 scheduler/daemon 装配，以及 last-device logout 的本地 grant revoke + append-only audit；adapter crate 已加入默认关闭的真实 Feishu refresh smoke 入口，需显式设置 `OAR_TEST_FEISHU_REFRESH_SMOKE_ENABLED=true`、`OAR_TEST_FEISHU_REFRESH_TOKEN`、`DATABASE_URL`、`OAR_FEISHU_APP_ID`、`OAR_FEISHU_APP_SECRET` 和稳定 `OAR_GRANT_KEY_*` 后使用一次性测试授权运行。该 smoke 会调用真实 refresh endpoint，并可能轮换/消费测试 refresh token，不能使用生产用户授权。当前官方认证授权文档未列 OAuth grant revoke endpoint，`passport/v1/sessions/logout` 是登录态登出，不等同于 OAuth grant revoke；OAR 的 grant revoke 仍保持本地授权生命周期边界。core/storage 已新增只读 operational recovery report 与 runbook，用于恢复规划，不执行 requeue/resume 写操作。生产接入不等待 Rust 官方 SDK，也不引入跨语言 SDK bridge；主路径采用 Rust 原生 OpenAPI adapter。
 
 ## 5. A2A 策略
 

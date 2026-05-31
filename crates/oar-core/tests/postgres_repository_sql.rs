@@ -6,6 +6,8 @@ mod device_session_sql;
 mod identity_sql;
 #[path = "postgres_repository_sql/ledger_sql.rs"]
 mod ledger_sql;
+#[path = "postgres_repository_sql/operational_recovery_sql.rs"]
+mod operational_recovery_sql;
 #[path = "postgres_repository_sql/review_inbox_sql.rs"]
 mod review_inbox_sql;
 #[path = "postgres_repository_sql/scheduler_sql.rs"]

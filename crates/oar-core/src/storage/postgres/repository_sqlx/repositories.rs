@@ -71,6 +71,11 @@ pub struct PostgresOperationLedgerRepository {
 }
 
 #[derive(Debug, Clone)]
+pub struct PostgresOperationalRecoveryRepository {
+    pub(super) pool: PgPool,
+}
+
+#[derive(Debug, Clone)]
 pub struct PostgresExecutionRecorder {
     pub(super) pool: PgPool,
 }

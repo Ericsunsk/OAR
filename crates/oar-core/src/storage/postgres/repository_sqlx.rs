@@ -23,6 +23,7 @@ use crate::domain::token_refresh::types::{
     TokenRefreshPlannedCommand, TokenRefreshReportStatus, TokenRefreshRepositoryCommand,
     TokenRefreshServiceReport,
 };
+use crate::storage::postgres::audit_outbox_payload::SafeAuditOutboxPayload;
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
     MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
@@ -41,6 +42,9 @@ use crate::storage::postgres::identity_sql::{
 use crate::storage::postgres::operation_ledger_sql::{
     GET_BY_IDEMPOTENCY_KEY, LIST_CONFIRMED_ACTIONS_READY_FOR_EXECUTION, MARK_EXECUTING,
     MARK_FAILED, MARK_SUCCEEDED, SUBMIT_CONFIRMED_ACTION_AND_LEDGER,
+};
+use crate::storage::postgres::operational_recovery_sql::{
+    LIST_FAILED_AUDIT_OUTBOX_RECOVERY_ITEMS, LIST_PARKED_TOKEN_GRANT_RECOVERY_ITEMS,
 };
 use crate::storage::postgres::review_inbox_sql::{
     INSERT_EVIDENCE_ITEM, INSERT_PROPOSED_ACTION, INSERT_PROPOSED_ACTION_DECISION,
@@ -70,6 +74,7 @@ mod audit;
 mod codec;
 mod error;
 mod identity;
+mod operational_recovery;
 mod repositories;
 mod review_inbox;
 mod rows;
@@ -84,16 +89,17 @@ use error::{MAX_REFRESH_ERROR_CHARS, REDACTED_REFRESH_ERROR, REDACTED_TENANT_ACT
 pub use repositories::{
     PostgresAuditEventRepository, PostgresAuthLifecycleRepository, PostgresDeviceSessionRepository,
     PostgresExecutionRecorder, PostgresIdentityRepository, PostgresLarkIdentityRepository,
-    PostgresOperationLedgerRepository, PostgresReviewDecisionRecorder,
-    PostgresReviewInboxRepository, PostgresSchedulerJobRepository, PostgresTenantRepository,
-    PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator, PostgresTokenRefreshRecorder,
-    PostgresTokenRefreshSweep, PostgresWorkspaceUserRepository,
+    PostgresOperationLedgerRepository, PostgresOperationalRecoveryRepository,
+    PostgresReviewDecisionRecorder, PostgresReviewInboxRepository, PostgresSchedulerJobRepository,
+    PostgresTenantRepository, PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
+    PostgresTokenRefreshRecorder, PostgresTokenRefreshSweep, PostgresWorkspaceUserRepository,
 };
 use rows::*;
 pub use types::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
-    InsertProposedActionDecisionRequest, PostgresAuthLogoutRevokeReport,
-    PostgresAuthLogoutRevokeRequest, PostgresExecutionRecorderReport,
+    FailedAuditOutboxRecoveryItem, InsertProposedActionDecisionRequest, OperationalRecoveryAction,
+    ParkedTokenGrantRecoveryItem, PostgresAuthLogoutRevokeReport, PostgresAuthLogoutRevokeRequest,
+    PostgresExecutionRecorderReport, PostgresOperationalRecoveryReport,
     PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorderReport,
     PostgresReviewDecisionRecorderRequest, PostgresTokenRefreshOrchestratorReport,
     PostgresTokenRefreshRecorderReport, PostgresTokenRefreshSweepReport,

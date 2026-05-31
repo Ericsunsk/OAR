@@ -14,6 +14,8 @@ mod harness;
 mod identity;
 #[path = "postgres_live_repository/operation_ledger.rs"]
 mod operation_ledger;
+#[path = "postgres_live_repository/operational_recovery.rs"]
+mod operational_recovery;
 #[path = "postgres_live_repository/review_inbox.rs"]
 mod review_inbox;
 #[path = "postgres_live_repository/scheduler.rs"]

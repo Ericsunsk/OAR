@@ -55,10 +55,10 @@ pub(crate) use oar_core::storage::postgres::tenant_maintenance::{
 };
 pub(crate) use oar_core::storage::postgres::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
-    InsertProposedActionDecisionRequest, PostgresAuditEventRepository,
+    InsertProposedActionDecisionRequest, OperationalRecoveryAction, PostgresAuditEventRepository,
     PostgresDeviceSessionRepository, PostgresExecutionRecorder, PostgresLarkIdentityRepository,
-    PostgresOperationLedgerRepository, PostgresRepositoryError,
-    PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorder,
+    PostgresOperationLedgerRepository, PostgresOperationalRecoveryRepository,
+    PostgresRepositoryError, PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorder,
     PostgresReviewDecisionRecorderRequest, PostgresReviewInboxRepository,
     PostgresSchedulerJobRepository, PostgresTenantRepository, PostgresTokenGrantRepository,
     PostgresTokenRefreshOrchestrator, PostgresTokenRefreshRecorder,

@@ -2,6 +2,7 @@ pub mod audit_sql;
 pub mod device_session_sql;
 pub mod identity_sql;
 pub mod operation_ledger_sql;
+pub mod operational_recovery_sql;
 pub mod review_inbox_sql;
 pub mod scheduler_sql;
 pub mod token_grant_sql;
@@ -30,12 +31,13 @@ pub use repository_safe_error::postgres_repository_safe_error_reason;
 #[cfg(feature = "postgres")]
 pub use repository_sqlx::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
-    InsertProposedActionDecisionRequest, PostgresAuditEventRepository,
-    PostgresAuthLifecycleRepository, PostgresAuthLogoutRevokeReport,
-    PostgresAuthLogoutRevokeRequest, PostgresDeviceSessionRepository, PostgresExecutionRecorder,
-    PostgresExecutionRecorderReport, PostgresIdentityRepository, PostgresLarkIdentityRepository,
-    PostgresOperationLedgerRepository, PostgresRepositoryError,
-    PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorder,
+    FailedAuditOutboxRecoveryItem, InsertProposedActionDecisionRequest, OperationalRecoveryAction,
+    ParkedTokenGrantRecoveryItem, PostgresAuditEventRepository, PostgresAuthLifecycleRepository,
+    PostgresAuthLogoutRevokeReport, PostgresAuthLogoutRevokeRequest,
+    PostgresDeviceSessionRepository, PostgresExecutionRecorder, PostgresExecutionRecorderReport,
+    PostgresIdentityRepository, PostgresLarkIdentityRepository, PostgresOperationLedgerRepository,
+    PostgresOperationalRecoveryReport, PostgresOperationalRecoveryRepository,
+    PostgresRepositoryError, PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorder,
     PostgresReviewDecisionRecorderReport, PostgresReviewDecisionRecorderRequest,
     PostgresReviewInboxRepository, PostgresSchedulerJobRepository, PostgresTenantRepository,
     PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
