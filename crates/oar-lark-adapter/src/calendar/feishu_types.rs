@@ -63,6 +63,17 @@ pub(super) struct FeishuEventInstanceViewResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub(super) struct FeishuCalendarEventGetResponse {
+    pub code: i64,
+    pub data: Option<FeishuCalendarEventGetData>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct FeishuCalendarEventGetData {
+    pub event: Option<FeishuEventInstance>,
+}
+
+#[derive(Debug, Deserialize)]
 pub(super) struct FeishuEventInstanceViewData {
     #[serde(default, alias = "items", alias = "event_instances")]
     pub instances: Vec<FeishuEventInstance>,
@@ -167,6 +178,12 @@ impl CalendarEventInstancePage {
             .filter_map(CalendarEventInstance::from_feishu_instance)
             .collect::<Vec<_>>();
         Self { events }
+    }
+}
+
+impl CalendarEventInstance {
+    pub(super) fn from_feishu_get_data(data: FeishuCalendarEventGetData) -> Option<Self> {
+        data.event.and_then(Self::from_feishu_instance)
     }
 }
 

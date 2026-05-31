@@ -1,3 +1,4 @@
+mod calendar_refs;
 mod planning;
 mod scope_gate;
 mod summary;

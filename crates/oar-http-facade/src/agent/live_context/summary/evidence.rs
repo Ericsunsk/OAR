@@ -9,7 +9,7 @@ pub(in crate::agent::live_context) fn build_live_summary(
     parsed: &ParsedOkrEvidenceRef,
     snapshot: &OkrReadSnapshot,
 ) -> String {
-    let label = summary_label(evidence_ref);
+    let label = evidence_label(evidence_ref);
     let Some(okr) = snapshot
         .okrs
         .iter()
@@ -70,7 +70,7 @@ pub(in crate::agent::live_context) fn build_task_live_summary(
     evidence_ref: &AgentEvidenceRefDTO,
     task: &TaskReadSummary,
 ) -> String {
-    let label = summary_label(evidence_ref);
+    let label = evidence_label(evidence_ref);
     let title = task
         .title
         .as_deref()
@@ -136,7 +136,7 @@ pub(in crate::agent::live_context) fn evidence_unavailable_summary(reason: &str)
     finalize_summary(format!("未读取到实时 Feishu 证据：{}。", reason))
 }
 
-fn summary_label(evidence_ref: &AgentEvidenceRefDTO) -> String {
+pub(in crate::agent::live_context) fn evidence_label(evidence_ref: &AgentEvidenceRefDTO) -> String {
     let summary = compact_text(&evidence_ref.summary);
     if summary.is_empty() {
         "证据".to_string()

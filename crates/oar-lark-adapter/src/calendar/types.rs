@@ -56,9 +56,24 @@ impl fmt::Debug for CalendarEventInstanceViewRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CalendarEventInstanceViewRequest")
             .field("user_access_token", &"[REDACTED]")
-            .field("calendar_id", &self.calendar_id)
+            .field("calendar_id", &"[REDACTED]")
             .field("start_time", &self.start_time)
             .field("end_time", &self.end_time)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct CalendarEventReadRequest {
+    pub user_access_token: SecretString,
+    pub source_ref: String,
+}
+
+impl fmt::Debug for CalendarEventReadRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CalendarEventReadRequest")
+            .field("user_access_token", &"[REDACTED]")
+            .field("source_ref", &"[REDACTED]")
             .finish()
     }
 }

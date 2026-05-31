@@ -4,6 +4,7 @@ use crate::oauth::HttpClientFailure;
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum FeishuCalendarReadError {
+    InvalidSourceRef,
     Unauthorized,
     Forbidden,
     NotFound,
@@ -19,6 +20,7 @@ pub enum FeishuCalendarReadError {
 impl fmt::Debug for FeishuCalendarReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::InvalidSourceRef => "FeishuCalendarReadError(invalid_source_ref)",
             Self::Unauthorized => "FeishuCalendarReadError(unauthorized)",
             Self::Forbidden => "FeishuCalendarReadError(forbidden)",
             Self::NotFound => "FeishuCalendarReadError(not_found)",
@@ -36,6 +38,7 @@ impl fmt::Debug for FeishuCalendarReadError {
 impl fmt::Display for FeishuCalendarReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::InvalidSourceRef => "invalid calendar source reference",
             Self::Unauthorized => "feishu calendar token unauthorized",
             Self::Forbidden => "feishu calendar permission denied",
             Self::NotFound => "feishu calendar resource not found",

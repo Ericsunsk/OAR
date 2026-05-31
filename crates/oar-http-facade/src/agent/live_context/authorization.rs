@@ -16,6 +16,7 @@ pub(super) fn gate_read_demand_by_scope(
     gate_read_tools_by_scope(scopes, read_tools, degraded_read_statuses);
     !(evidence_resolution.okr_refs.is_empty()
         && evidence_resolution.task_refs.is_empty()
+        && evidence_resolution.calendar_refs.is_empty()
         && read_tools.is_empty())
 }
 
@@ -65,6 +66,12 @@ fn gate_evidence_refs_by_scope(scopes: &[String], resolution: &mut LiveEvidenceR
             .push("未读取到实时 Feishu 任务证据：授权缺少任务读取权限。".to_string());
         resolution.task_refs.clear();
     }
+    if !resolution.calendar_refs.is_empty() && !has_calendar_evidence_read_scopes(scopes) {
+        resolution
+            .degraded
+            .push("未读取到实时 Feishu 日历证据：授权缺少日历或日程读取权限。".to_string());
+        resolution.calendar_refs.clear();
+    }
 }
 
 fn has_okr_evidence_read_scopes(scopes: &[String]) -> bool {
@@ -74,6 +81,11 @@ fn has_okr_evidence_read_scopes(scopes: &[String]) -> bool {
 
 fn has_task_read_scope(scopes: &[String]) -> bool {
     has_feishu_scope(scopes, FeishuScope::TaskRead)
+}
+
+fn has_calendar_evidence_read_scopes(scopes: &[String]) -> bool {
+    has_feishu_scope(scopes, FeishuScope::CalendarRead)
+        && has_feishu_scope(scopes, FeishuScope::CalendarEventRead)
 }
 
 fn missing_feishu_scope_names<'a>(
@@ -153,6 +165,43 @@ mod tests {
     }
 
     #[test]
+    fn scope_gate_requires_calendar_and_event_scopes_for_calendar_evidence_refs() {
+        let refs = vec![evidence_ref(
+            "calendar",
+            "calendar://cal_secret/events/evt_secret",
+            "Calendar evidence sk-secret",
+        )];
+
+        let mut resolution = resolve_evidence_refs(&refs, 4);
+        gate_evidence_refs_by_scope(
+            &[FeishuScope::CalendarRead.as_str().to_string()],
+            &mut resolution,
+        );
+
+        assert!(resolution.calendar_refs.is_empty());
+        assert!(resolution
+            .degraded
+            .iter()
+            .any(|summary| summary.contains("授权缺少日历或日程读取权限")));
+        assert!(!resolution
+            .degraded
+            .iter()
+            .any(|summary| summary.contains("cal_secret") || summary.contains("sk-secret")));
+
+        let mut resolution = resolve_evidence_refs(&refs, 4);
+        gate_evidence_refs_by_scope(
+            &[
+                FeishuScope::CalendarRead.as_str().to_string(),
+                FeishuScope::CalendarEventRead.as_str().to_string(),
+            ],
+            &mut resolution,
+        );
+
+        assert_eq!(resolution.calendar_refs.len(), 1);
+        assert!(resolution.degraded.is_empty());
+    }
+
+    #[test]
     fn okr_evidence_read_scope_requires_content_and_progress_feishu_scope_names() {
         assert!(has_okr_evidence_read_scopes(&[
             FeishuScope::OkrContentRead.as_str().to_string(),
@@ -182,6 +231,23 @@ mod tests {
         assert!(!has_task_read_scope(&[FeishuScope::OkrProgressRead
             .as_str()
             .to_string()]));
+    }
+
+    #[test]
+    fn calendar_evidence_read_scope_requires_calendar_and_event_feishu_scope_names() {
+        assert!(has_calendar_evidence_read_scopes(&[
+            FeishuScope::CalendarRead.as_str().to_string(),
+            FeishuScope::CalendarEventRead.as_str().to_string(),
+        ]));
+        assert!(!has_calendar_evidence_read_scopes(&[
+            FeishuScope::CalendarRead.as_str().to_string()
+        ]));
+        assert!(!has_calendar_evidence_read_scopes(&[
+            FeishuScope::CalendarEventRead.as_str().to_string()
+        ]));
+        assert!(!has_calendar_evidence_read_scopes(&[
+            FeishuScope::CalendarFreeBusyRead.as_str().to_string()
+        ]));
     }
 
     fn evidence_ref(source_type: &str, source_ref: &str, summary: &str) -> AgentEvidenceRefDTO {

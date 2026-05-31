@@ -1,6 +1,6 @@
 use crate::calendar::{
-    CalendarEventInstanceViewRequest, CalendarFreeBusyBatchRequest, CalendarPrimaryRequest,
-    CalendarUserIdType,
+    CalendarEventInstanceViewRequest, CalendarEventReadRequest, CalendarFreeBusyBatchRequest,
+    CalendarPrimaryRequest, CalendarUserIdType,
 };
 use crate::redaction::SecretString;
 
@@ -29,5 +29,12 @@ pub(super) fn sample_instance_view_request() -> CalendarEventInstanceViewRequest
         calendar_id: "primary calendar/飞".to_string(),
         start_time: 1_779_984_000,
         end_time: 1_780_070_400,
+    }
+}
+
+pub(super) fn sample_event_read_request() -> CalendarEventReadRequest {
+    CalendarEventReadRequest {
+        user_access_token: SecretString::new("u-very-secret-calendar-token"),
+        source_ref: "calendar://cal_primary/events/evt_1".to_string(),
     }
 }

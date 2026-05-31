@@ -22,6 +22,7 @@ pub(in crate::agent::live_context) fn calendar_read_error_reason(
     error: FeishuCalendarReadError,
 ) -> &'static str {
     match error {
+        FeishuCalendarReadError::InvalidSourceRef => "日历引用无效",
         FeishuCalendarReadError::InvalidRequest => "日历读取请求无效",
         FeishuCalendarReadError::Unauthorized => "授权已失效，需要重新登录",
         FeishuCalendarReadError::Forbidden => "授权缺少日历读取权限",

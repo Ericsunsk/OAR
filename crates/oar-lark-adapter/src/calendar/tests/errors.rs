@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use super::support::{sample_instance_view_request, sample_primary_request, sample_request};
+use super::support::{
+    sample_event_read_request, sample_instance_view_request, sample_primary_request, sample_request,
+};
 use crate::calendar::{FeishuCalendarReadClient, FeishuCalendarReadError};
 use crate::config::FeishuOpenApiConfig;
 use crate::oauth::{HttpClientFailure, HttpResponse};
@@ -82,6 +84,47 @@ fn primary_and_instance_view_map_status_codes_to_safe_errors() {
     assert_eq!(
         instance_rate_limited.event_instance_view(sample_instance_view_request()),
         Err(FeishuCalendarReadError::UpstreamTransient)
+    );
+}
+
+#[test]
+fn get_event_maps_status_codes_and_api_shapes_to_safe_errors() {
+    let mut not_found = FeishuCalendarReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(404, "{}")),
+    );
+    assert_eq!(
+        not_found.get_event_summary(sample_event_read_request()),
+        Err(FeishuCalendarReadError::NotFound)
+    );
+
+    let mut api_not_found = FeishuCalendarReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(
+            200,
+            json!({
+                "code": 195100,
+                "msg": "not found with sensitive details",
+                "data": {"event_id": "evt_secret"}
+            })
+            .to_string(),
+        )),
+    );
+    assert_eq!(
+        api_not_found.get_event_summary(sample_event_read_request()),
+        Err(FeishuCalendarReadError::NotFound)
+    );
+
+    let mut missing_event = FeishuCalendarReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(HttpResponse::new(
+            200,
+            json!({"code":0,"data":{}}).to_string(),
+        )),
+    );
+    assert_eq!(
+        missing_event.get_event_summary(sample_event_read_request()),
+        Err(FeishuCalendarReadError::InvalidJson)
     );
 }
 

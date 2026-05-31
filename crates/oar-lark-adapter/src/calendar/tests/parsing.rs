@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use super::support::{sample_instance_view_request, sample_primary_request, sample_request};
+use super::support::{
+    sample_event_read_request, sample_instance_view_request, sample_primary_request, sample_request,
+};
 use crate::calendar::FeishuCalendarReadClient;
 use crate::config::FeishuOpenApiConfig;
 use crate::oauth::HttpResponse;
@@ -193,9 +195,63 @@ fn instance_view_success_returns_sanitized_agenda() {
     assert!(!serialized.contains("private notes"));
     assert!(!serialized.contains("meeting_url"));
     assert!(!serialized.contains("app_link"));
+    assert!(!serialized.contains("https://vc.example/private"));
+    assert!(!serialized.contains("https://applink.example/private"));
     assert!(!serialized.contains("secret_file"));
     assert!(!serialized.contains("ou_secret"));
     assert!(!serialized.contains("u_secret"));
     assert!(!serialized.contains("address should not surface"));
     assert!(!serialized.contains("missing id"));
+}
+
+#[test]
+fn get_event_success_returns_sanitized_summary_from_fixture() {
+    let response = HttpResponse::new(
+        200,
+        include_str!("fixtures/event_get_success.json").to_string(),
+    );
+    let mut client = FeishuCalendarReadClient::new(
+        FeishuOpenApiConfig::default(),
+        FakeHttpClient::from_response(response),
+    );
+
+    let event = client
+        .get_event_summary(sample_event_read_request())
+        .expect("success");
+
+    assert_eq!(event.summary.as_deref(), Some("Customer review"));
+    assert_eq!(
+        event
+            .start_time_info
+            .as_ref()
+            .and_then(|time| time.timestamp.as_deref()),
+        Some("1779987600")
+    );
+    assert_eq!(
+        event
+            .location
+            .as_ref()
+            .and_then(|location| location.name.as_deref()),
+        Some("Room 8")
+    );
+    assert_eq!(
+        event
+            .organizer
+            .as_ref()
+            .and_then(|organizer| organizer.display_name.as_deref()),
+        Some("Ada")
+    );
+    assert_eq!(event.attendee_count, 2);
+
+    let serialized = serde_json::to_string(&event).expect("event json");
+    assert!(!serialized.contains("evt_1"));
+    assert!(!serialized.contains("private notes"));
+    assert!(!serialized.contains("meeting_url"));
+    assert!(!serialized.contains("app_link"));
+    assert!(!serialized.contains("https://vc.example/private"));
+    assert!(!serialized.contains("https://applink.example/private"));
+    assert!(!serialized.contains("secret_file"));
+    assert!(!serialized.contains("ou_secret"));
+    assert!(!serialized.contains("u_secret"));
+    assert!(!serialized.contains("address should not surface"));
 }

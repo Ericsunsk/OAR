@@ -1,6 +1,10 @@
-use oar_lark_adapter::{parse_okr_kr_source_ref, parse_task_source_ref, OkrKrSourceRef};
+use oar_lark_adapter::{
+    parse_calendar_event_source_ref, parse_okr_kr_source_ref, parse_task_source_ref,
+    CalendarEventSourceRef, OkrKrSourceRef,
+};
 
 pub(super) type ParsedOkrEvidenceRef = OkrKrSourceRef;
+pub(super) type ParsedCalendarEvidenceRef = CalendarEventSourceRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ParsedTaskEvidenceRef {
@@ -27,6 +31,10 @@ pub(super) fn parse_task_evidence_ref(source_ref: &str) -> Option<ParsedTaskEvid
         source_ref: normalized,
         task_id: parsed.task_id,
     })
+}
+
+pub(super) fn parse_calendar_evidence_ref(source_ref: &str) -> Option<ParsedCalendarEvidenceRef> {
+    parse_calendar_event_source_ref(source_ref)
 }
 
 #[cfg(test)]
@@ -102,5 +110,22 @@ mod tests {
         assert!(
             parse_task_evidence_ref("okr://okr_demo/objectives/obj_demo/krs/kr_demo").is_none()
         );
+    }
+
+    #[test]
+    fn parse_calendar_ref_supports_calendar_event_refs() {
+        let calendar =
+            parse_calendar_evidence_ref(" calendar://cal_1/events/evt_1 ").expect("calendar ref");
+        assert_eq!(calendar.calendar_id, "cal_1");
+        assert_eq!(calendar.event_id, "evt_1");
+        assert_eq!(calendar.source_ref(), "calendar://cal_1/events/evt_1");
+    }
+
+    #[test]
+    fn parse_calendar_ref_rejects_cross_type_and_opaque_refs() {
+        assert!(parse_calendar_evidence_ref("task://task_123").is_none());
+        assert!(parse_calendar_evidence_ref("calendar://customer-cadence").is_none());
+        assert!(parse_calendar_evidence_ref("calendar://cal_1/event/evt_1").is_none());
+        assert!(parse_calendar_evidence_ref("calendar://cal_1/events/evt?1").is_none());
     }
 }

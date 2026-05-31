@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use super::refs::{
-    parse_okr_evidence_ref, parse_task_evidence_ref, ParsedOkrEvidenceRef, ParsedTaskEvidenceRef,
+    parse_calendar_evidence_ref, parse_okr_evidence_ref, parse_task_evidence_ref,
+    ParsedCalendarEvidenceRef, ParsedOkrEvidenceRef, ParsedTaskEvidenceRef,
 };
 use super::summary::degraded_summary;
 use crate::agent::request::AgentEvidenceRefDTO;
@@ -10,6 +11,7 @@ use crate::agent::request::AgentEvidenceRefDTO;
 pub(super) struct LiveEvidenceResolution<'a> {
     pub(super) okr_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedOkrEvidenceRef)>,
     pub(super) task_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedTaskEvidenceRef)>,
+    pub(super) calendar_refs: Vec<(&'a AgentEvidenceRefDTO, ParsedCalendarEvidenceRef)>,
     pub(super) degraded: Vec<String>,
 }
 
@@ -56,6 +58,17 @@ pub(super) fn resolve_evidence_refs<'a>(
             continue;
         }
 
+        if is_calendar_source_type(&evidence_ref.source_type) {
+            match parse_calendar_evidence_ref(&evidence_ref.source_ref) {
+                Some(parsed) => resolution.calendar_refs.push((evidence_ref, parsed)),
+                None => resolution.degraded.push(degraded_summary(
+                    evidence_ref,
+                    "source_ref 不是可识别的日历引用",
+                )),
+            }
+            continue;
+        }
+
         resolution.degraded.push(degraded_summary(
             evidence_ref,
             "source_type 暂不支持实时读取",
@@ -87,6 +100,9 @@ enum EvidenceRefKey {
     Task {
         source_ref: String,
     },
+    Calendar {
+        source_ref: String,
+    },
     Raw {
         source_type: String,
         source_ref: String,
@@ -111,6 +127,13 @@ fn evidence_ref_key(evidence_ref: &AgentEvidenceRefDTO) -> EvidenceRefKey {
             };
         }
     }
+    if is_calendar_source_type(&source_type) {
+        if let Some(parsed) = parse_calendar_evidence_ref(&evidence_ref.source_ref) {
+            return EvidenceRefKey::Calendar {
+                source_ref: parsed.source_ref(),
+            };
+        }
+    }
     EvidenceRefKey::Raw {
         source_type,
         source_ref: evidence_ref.source_ref.trim().to_string(),
@@ -127,6 +150,11 @@ fn is_task_source_type(source_type: &str) -> bool {
     source_type == "task" || source_type == "feishu_task" || source_type == "lark_task"
 }
 
+fn is_calendar_source_type(source_type: &str) -> bool {
+    let source_type = source_type.trim().to_ascii_lowercase();
+    source_type == "calendar" || source_type == "feishu_calendar" || source_type == "lark_calendar"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,17 +168,31 @@ mod tests {
                 "OKR evidence",
             ),
             evidence_ref("task", "task://task_123", "Task evidence"),
+            evidence_ref(
+                "lark_calendar",
+                "calendar://cal_1/events/evt_1",
+                "Calendar evidence",
+            ),
             evidence_ref("doc", "task://task_456", "Doc evidence"),
             evidence_ref("okr", "task://task_789", "Invalid OKR evidence"),
-            evidence_ref("task", "task://task_over_limit", "Too late"),
+            evidence_ref(
+                "calendar",
+                "calendar://cal_over/events/evt_over",
+                "Too late",
+            ),
         ];
 
-        let resolution = resolve_evidence_refs(&refs, 4);
+        let resolution = resolve_evidence_refs(&refs, 5);
 
         assert_eq!(resolution.okr_refs.len(), 1);
         assert_eq!(resolution.okr_refs[0].1.okr_id, "okr_demo");
         assert_eq!(resolution.task_refs.len(), 1);
         assert_eq!(resolution.task_refs[0].1.task_id, "task_123");
+        assert_eq!(resolution.calendar_refs.len(), 1);
+        assert_eq!(
+            resolution.calendar_refs[0].1.source_ref(),
+            "calendar://cal_1/events/evt_1"
+        );
         assert_eq!(resolution.degraded.len(), 3);
         assert!(resolution
             .degraded
@@ -163,7 +205,7 @@ mod tests {
         assert!(resolution
             .degraded
             .iter()
-            .any(|summary| summary.contains("仅实时读取前 4 条 evidence refs")));
+            .any(|summary| summary.contains("仅实时读取前 5 条 evidence refs")));
         assert!(!resolution
             .degraded
             .iter()
@@ -209,6 +251,7 @@ mod tests {
 
         assert_eq!(resolution.task_refs.len(), 1);
         assert_eq!(resolution.okr_refs.len(), 1);
+        assert!(resolution.calendar_refs.is_empty());
         assert_eq!(resolution.degraded.len(), 1);
         assert!(resolution.degraded[0].contains("已合并 3 条重复 evidence refs"));
         assert!(!resolution.degraded[0].contains("sk-secret"));
@@ -248,6 +291,88 @@ mod tests {
         assert!(!resolution.degraded[0].contains("sk-secret"));
         assert!(!resolution.degraded[0].contains("auth code"));
         assert!(!resolution.degraded[0].contains("raw transcript"));
+    }
+
+    #[test]
+    fn calendar_refs_resolve_aliases_and_deduplicate_canonical_ref() {
+        let refs = vec![
+            evidence_ref(
+                "calendar",
+                " calendar://cal_1/events/evt_1 ",
+                "Calendar evidence",
+            ),
+            evidence_ref(
+                "lark_calendar",
+                "calendar://cal_1/events/evt_1",
+                "duplicate summary sk-secret",
+            ),
+            evidence_ref(
+                "feishu_calendar",
+                "calendar://cal%3A2/events/evt%2F2",
+                "Encoded calendar evidence",
+            ),
+        ];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert_eq!(resolution.calendar_refs.len(), 2);
+        assert_eq!(
+            resolution.calendar_refs[0].1.source_ref(),
+            "calendar://cal_1/events/evt_1"
+        );
+        assert_eq!(resolution.calendar_refs[1].1.calendar_id, "cal:2");
+        assert_eq!(resolution.calendar_refs[1].1.event_id, "evt/2");
+        assert_eq!(resolution.degraded.len(), 1);
+        assert!(resolution.degraded[0].contains("已合并 1 条重复 evidence refs"));
+        assert!(!resolution.degraded[0].contains("sk-secret"));
+        assert!(!resolution.degraded[0].contains("cal_1"));
+        assert!(!resolution.degraded[0].contains("evt_1"));
+    }
+
+    #[test]
+    fn invalid_calendar_refs_degrade_without_echoing_evidence_summary_or_ref() {
+        let refs = vec![evidence_ref(
+            "calendar",
+            "calendar://sk-secret-ref/events/evt%",
+            "sk-secret auth code raw transcript",
+        )];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert_eq!(resolution.degraded.len(), 1);
+        assert!(resolution.degraded[0].contains("source_ref 不是可识别的日历引用"));
+        assert!(!resolution.degraded[0].contains("sk-secret"));
+        assert!(!resolution.degraded[0].contains("auth code"));
+        assert!(!resolution.degraded[0].contains("raw transcript"));
+    }
+
+    #[test]
+    fn calendar_refs_require_calendar_source_type_without_cross_parsing() {
+        let refs = vec![
+            evidence_ref(
+                "doc",
+                "calendar://sk-secret-cal/events/sk-secret-event",
+                "sk-secret auth code raw transcript",
+            ),
+            evidence_ref("calendar", "task://sk-secret-task", "task ref in calendar"),
+        ];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert!(resolution.calendar_refs.is_empty());
+        assert_eq!(resolution.degraded.len(), 2);
+        assert!(resolution
+            .degraded
+            .iter()
+            .any(|summary| summary.contains("source_type 暂不支持实时读取")));
+        assert!(resolution
+            .degraded
+            .iter()
+            .any(|summary| summary.contains("source_ref 不是可识别的日历引用")));
+        assert!(!resolution
+            .degraded
+            .iter()
+            .any(|summary| summary.contains("sk-secret") || summary.contains("auth code")));
     }
 
     fn evidence_ref(source_type: &str, source_ref: &str, summary: &str) -> AgentEvidenceRefDTO {

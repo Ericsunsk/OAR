@@ -65,7 +65,14 @@ fn redacted_url(value: &str) -> String {
     };
     url.set_query(None);
     url.set_fragment(None);
-    url.to_string()
+    let Some(host) = url.host_str() else {
+        return "[REDACTED_URL]".to_string();
+    };
+    let port = url
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    format!("{}://{}{}/[REDACTED_PATH]", url.scheme(), host, port)
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -122,6 +129,36 @@ impl fmt::Display for HttpClientFailure {
                 max_response_bytes
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_debug_redacts_path_query_fragment_and_body() {
+        let request = HttpRequest {
+            method: "GET".to_string(),
+            url: "https://open.feishu.cn/open-apis/calendar/v4/calendars/cal_secret/events/evt_secret?token=secret#frag"
+                .to_string(),
+            headers: vec![(
+                "Authorization".to_string(),
+                "Bearer u-very-secret-token".to_string(),
+            )],
+            body: serde_json::json!({"secret": "body-secret"}),
+            max_response_bytes: 1024,
+        };
+
+        let debug = format!("{request:?}");
+
+        assert!(debug.contains("https://open.feishu.cn/[REDACTED_PATH]"));
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains("cal_secret"));
+        assert!(!debug.contains("evt_secret"));
+        assert!(!debug.contains("token=secret"));
+        assert!(!debug.contains("body-secret"));
+        assert!(!debug.contains("u-very-secret-token"));
     }
 }
 

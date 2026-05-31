@@ -1,8 +1,11 @@
 use super::error::FeishuCalendarReadError;
 use super::feishu_types::{
-    FeishuEventInstanceViewResponse, FeishuFreeBusyBatchResponse, FeishuPrimaryCalendarResponse,
+    FeishuCalendarEventGetResponse, FeishuEventInstanceViewResponse, FeishuFreeBusyBatchResponse,
+    FeishuPrimaryCalendarResponse,
 };
-use super::types::{CalendarEventInstancePage, CalendarFreeBusyPage, CalendarPrimaryPage};
+use super::types::{
+    CalendarEventInstance, CalendarEventInstancePage, CalendarFreeBusyPage, CalendarPrimaryPage,
+};
 
 pub(super) fn map_status_or_parse_free_busy(
     status: u16,
@@ -46,6 +49,22 @@ pub(super) fn map_status_or_parse_instance_view(
         }
         let data = parsed.data.ok_or(FeishuCalendarReadError::InvalidJson)?;
         Ok(CalendarEventInstancePage::from_feishu_data(data))
+    })
+}
+
+pub(super) fn map_status_or_parse_event(
+    status: u16,
+    body: &str,
+) -> Result<CalendarEventInstance, FeishuCalendarReadError> {
+    map_status_or_parse_calendar_response(status, body, |body| {
+        let parsed: FeishuCalendarEventGetResponse =
+            serde_json::from_str(body).map_err(|_| FeishuCalendarReadError::InvalidJson)?;
+        if parsed.code != 0 {
+            return Err(map_api_code(parsed.code));
+        }
+        let data = parsed.data.ok_or(FeishuCalendarReadError::InvalidJson)?;
+        CalendarEventInstance::from_feishu_get_data(data)
+            .ok_or(FeishuCalendarReadError::InvalidJson)
     })
 }
 

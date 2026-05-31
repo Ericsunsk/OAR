@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use super::support::{sample_instance_view_request, sample_primary_request, sample_request};
+use super::support::{
+    sample_event_read_request, sample_instance_view_request, sample_primary_request, sample_request,
+};
 use crate::calendar::{AsyncFeishuCalendarRead, FeishuCalendarReadClient};
 use crate::config::FeishuOpenApiConfig;
 use crate::oauth::HttpResponse;
@@ -76,4 +78,19 @@ fn async_primary_and_instance_view_success_response_parse() {
         .block_on(instances.event_instance_view(sample_instance_view_request()))
         .expect("success");
     assert_eq!(parsed_instances.events[0].attendee_count, 2);
+
+    let mut event = FeishuCalendarReadClient::new(
+        FeishuOpenApiConfig::default(),
+        AsyncFakeHttpClient {
+            response: HttpResponse::new(
+                200,
+                json!({"code":0,"data":{"event":{"event_id":"evt_1","summary":"Review"}}})
+                    .to_string(),
+            ),
+        },
+    );
+    let parsed_event = runtime
+        .block_on(event.get_event_summary(sample_event_read_request()))
+        .expect("success");
+    assert_eq!(parsed_event.summary.as_deref(), Some("Review"));
 }

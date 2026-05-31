@@ -30,6 +30,7 @@ pub(super) async fn assemble_live_feishu_statuses(
 
     if evidence_resolution.okr_refs.is_empty()
         && evidence_resolution.task_refs.is_empty()
+        && evidence_resolution.calendar_refs.is_empty()
         && read_tools.is_empty()
     {
         return degraded_statuses(evidence_resolution.degraded);
@@ -80,6 +81,7 @@ pub(super) async fn assemble_live_feishu_statuses(
     append_calendar_summary(
         &mut live_statuses,
         &session,
+        &mut evidence_resolution,
         planned_reads,
         &lark_open_id_for_tool_reads,
     )

@@ -7,9 +7,11 @@ use oar_lark_adapter::{
 };
 
 use super::super::summary::{
-    compact_text, examples_suffix, finalize_summary, tool_live_label, truncate_chars,
+    compact_text, evidence_label, examples_suffix, finalize_summary, tool_live_label,
+    truncate_chars,
 };
 use super::{lookahead_window_text, CALENDAR_LOOKAHEAD_DAYS};
+use crate::agent::request::AgentEvidenceRefDTO;
 use crate::agent::tools::AgentReadTool;
 use crate::feishu_auth::iso8601_utc;
 
@@ -52,7 +54,7 @@ fn summarize_event_instances_page(page: &CalendarEventInstancePage) -> String {
     let examples = page
         .events
         .iter()
-        .map(summarize_event_example)
+        .map(summarize_calendar_event)
         .take(EVENT_EXAMPLE_LIMIT)
         .collect::<Vec<_>>();
     let suffix = examples_suffix(&examples);
@@ -65,7 +67,7 @@ fn summarize_event_instances_page(page: &CalendarEventInstancePage) -> String {
     ))
 }
 
-fn summarize_event_example(event: &CalendarEventInstance) -> String {
+fn summarize_calendar_event(event: &CalendarEventInstance) -> String {
     let start = event_time_text(event.start_time_info.as_ref());
     let end = event_time_text(event.end_time_info.as_ref());
     let title =
@@ -107,6 +109,16 @@ fn summarize_event_example(event: &CalendarEventInstance) -> String {
     }
 
     parts.join("，")
+}
+
+pub(in crate::agent::live_context) fn build_calendar_event_live_summary(
+    evidence_ref: &AgentEvidenceRefDTO,
+    event: &CalendarEventInstance,
+) -> String {
+    let label = evidence_label(evidence_ref);
+    let event_summary = summarize_calendar_event(event);
+
+    finalize_summary(format!("{label}｜实时：日程：{event_summary}。"))
 }
 
 fn event_time_text(time_info: Option<&CalendarEventTimeInfo>) -> Option<String> {
@@ -216,6 +228,46 @@ mod tests {
                 tool_live_label(AgentReadTool::CalendarEvents)
             )
         );
+    }
+
+    #[test]
+    fn calendar_event_live_summary_is_sanitized_and_compact() {
+        let evidence_ref = AgentEvidenceRefDTO {
+            source_type: "calendar".to_string(),
+            source_ref: "calendar://cal_secret/events/evt_secret".to_string(),
+            summary: "客户会议证据".to_string(),
+        };
+        let summary = build_calendar_event_live_summary(
+            &evidence_ref,
+            &CalendarEventInstance {
+                summary: Some(" Customer review ".to_string()),
+                start_time_info: Some(CalendarEventTimeInfo {
+                    timestamp: Some("1780000000".to_string()),
+                    timezone: Some("Asia/Shanghai".to_string()),
+                    date: None,
+                }),
+                end_time_info: None,
+                status: Some("confirmed".to_string()),
+                visibility: Some("default".to_string()),
+                free_busy_status: Some("busy".to_string()),
+                location: Some(CalendarEventLocation {
+                    name: Some(" Boardroom ".to_string()),
+                }),
+                organizer: Some(CalendarEventOrganizer {
+                    display_name: Some(" Alice ".to_string()),
+                }),
+                attendee_count: 3,
+            },
+        );
+
+        assert!(summary.contains("客户会议证据｜实时：日程："));
+        assert!(summary.contains("Customer review"));
+        assert!(summary.contains("地点 Boardroom"));
+        assert!(summary.contains("组织者 Alice"));
+        assert!(summary.contains("参与人 3 位"));
+        assert!(!summary.contains("cal_secret"));
+        assert!(!summary.contains("evt_secret"));
+        assert!(!summary.contains("1780000000"));
     }
 
     fn event_with_title(title: &str) -> CalendarEventInstance {

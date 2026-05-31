@@ -27,10 +27,11 @@ pub use audit_outbox::{
     WebhookAuditOutboxSink, WebhookAuditOutboxSinkConfigError,
 };
 pub use calendar::{
-    build_event_instance_view_request, build_free_busy_batch_request,
-    build_primary_calendar_request, AsyncFeishuCalendarRead, CalendarEventInstance,
-    CalendarEventInstancePage, CalendarEventInstanceViewRequest, CalendarEventLocation,
-    CalendarEventOrganizer, CalendarEventTimeInfo, CalendarFreeBusyBatchRequest,
+    build_event_instance_view_request, build_free_busy_batch_request, build_get_event_request,
+    build_primary_calendar_request, parse_calendar_event_source_ref, AsyncFeishuCalendarRead,
+    CalendarEventInstance, CalendarEventInstancePage, CalendarEventInstanceViewRequest,
+    CalendarEventLocation, CalendarEventOrganizer, CalendarEventReadRequest,
+    CalendarEventSourceRef, CalendarEventTimeInfo, CalendarFreeBusyBatchRequest,
     CalendarFreeBusyItem, CalendarFreeBusyList, CalendarFreeBusyPage, CalendarPrimaryCalendar,
     CalendarPrimaryPage, CalendarPrimaryRequest, CalendarUserIdType, FeishuCalendarReadClient,
     FeishuCalendarReadError,

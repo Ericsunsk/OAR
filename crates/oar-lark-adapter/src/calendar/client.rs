@@ -8,17 +8,21 @@ use crate::url_encoding::{encode_query, percent_encode};
 
 use super::error::FeishuCalendarReadError;
 use super::response_parser::{
-    map_status_or_parse_free_busy, map_status_or_parse_instance_view, map_status_or_parse_primary,
+    map_status_or_parse_event, map_status_or_parse_free_busy, map_status_or_parse_instance_view,
+    map_status_or_parse_primary,
 };
+use super::source_ref::parse_calendar_event_source_ref;
 use super::types::{
-    valid_calendar_id, valid_calendar_user_id, valid_rfc3339ish_time, CalendarEventInstancePage,
-    CalendarEventInstanceViewRequest, CalendarFreeBusyBatchRequest, CalendarFreeBusyPage,
-    CalendarPrimaryPage, CalendarPrimaryRequest,
+    valid_calendar_id, valid_calendar_user_id, valid_rfc3339ish_time, CalendarEventInstance,
+    CalendarEventInstancePage, CalendarEventInstanceViewRequest, CalendarEventReadRequest,
+    CalendarFreeBusyBatchRequest, CalendarFreeBusyPage, CalendarPrimaryPage,
+    CalendarPrimaryRequest,
 };
 
 const FREE_BUSY_BATCH_PATH: &str = "/open-apis/calendar/v4/freebusy/batch";
 const PRIMARY_CALENDAR_PATH: &str = "/open-apis/calendar/v4/calendars/primary";
 const EVENT_INSTANCE_VIEW_PATH_SUFFIX: &str = "events/instance_view";
+const EVENTS_PATH_SUFFIX: &str = "events";
 const MAX_INSTANCE_VIEW_WINDOW_SECONDS: i64 = 40 * 24 * 60 * 60;
 
 #[derive(Debug, Clone)]
@@ -76,6 +80,17 @@ where
             .map_err(FeishuCalendarReadError::from)?;
         map_status_or_parse_instance_view(raw.status, &raw.body)
     }
+
+    pub fn get_event_summary(
+        &mut self,
+        request: CalendarEventReadRequest,
+    ) -> Result<CalendarEventInstance, FeishuCalendarReadError> {
+        let raw = self
+            .http_client
+            .send_json(build_get_event_request(&self.config, request)?)
+            .map_err(FeishuCalendarReadError::from)?;
+        map_status_or_parse_event(raw.status, &raw.body)
+    }
 }
 
 #[async_trait]
@@ -94,6 +109,11 @@ pub trait AsyncFeishuCalendarRead {
         &mut self,
         request: CalendarEventInstanceViewRequest,
     ) -> Result<CalendarEventInstancePage, FeishuCalendarReadError>;
+
+    async fn get_event_summary(
+        &mut self,
+        request: CalendarEventReadRequest,
+    ) -> Result<CalendarEventInstance, FeishuCalendarReadError>;
 }
 
 #[async_trait]
@@ -135,6 +155,18 @@ where
             .await
             .map_err(FeishuCalendarReadError::from)?;
         map_status_or_parse_instance_view(raw.status, &raw.body)
+    }
+
+    async fn get_event_summary(
+        &mut self,
+        request: CalendarEventReadRequest,
+    ) -> Result<CalendarEventInstance, FeishuCalendarReadError> {
+        let raw = self
+            .http_client
+            .send_json(build_get_event_request(&self.config, request)?)
+            .await
+            .map_err(FeishuCalendarReadError::from)?;
+        map_status_or_parse_event(raw.status, &raw.body)
     }
 }
 
@@ -204,6 +236,29 @@ pub fn build_event_instance_view_request(
         percent_encode(request.calendar_id.trim()),
         EVENT_INSTANCE_VIEW_PATH_SUFFIX,
         query_string
+    );
+
+    Ok(HttpRequest {
+        method: "GET".to_string(),
+        url,
+        headers: bearer_accept_headers(&request.user_access_token),
+        body: json!({}),
+        max_response_bytes: config.max_response_bytes,
+    })
+}
+
+pub fn build_get_event_request(
+    config: &FeishuOpenApiConfig,
+    request: CalendarEventReadRequest,
+) -> Result<HttpRequest, FeishuCalendarReadError> {
+    let source_ref = parse_calendar_event_source_ref(&request.source_ref)
+        .ok_or(FeishuCalendarReadError::InvalidSourceRef)?;
+    let url = format!(
+        "{}/open-apis/calendar/v4/calendars/{}/{}/{}",
+        config.base_url.trim_end_matches('/'),
+        percent_encode(&source_ref.calendar_id),
+        EVENTS_PATH_SUFFIX,
+        percent_encode(&source_ref.event_id)
     );
 
     Ok(HttpRequest {

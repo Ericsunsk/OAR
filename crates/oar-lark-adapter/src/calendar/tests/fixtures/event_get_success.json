@@ -1,0 +1,47 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "event": {
+      "event_id": "evt_1",
+      "summary": "Customer review",
+      "description": "private notes should not surface",
+      "meeting_url": "https://vc.example/private",
+      "app_link": "https://applink.example/private",
+      "attachments": [
+        {
+          "file_token": "secret_file"
+        }
+      ],
+      "start_time": {
+        "timestamp": "1779987600",
+        "timezone": "Asia/Shanghai"
+      },
+      "end_time": {
+        "timestamp": "1779991200",
+        "timezone": "Asia/Shanghai"
+      },
+      "status": "confirmed",
+      "visibility": "default",
+      "free_busy_status": "busy",
+      "location": {
+        "name": "Room 8",
+        "address": "address should not surface"
+      },
+      "organizer": {
+        "open_id": "ou_secret_organizer",
+        "display_name": "Ada"
+      },
+      "attendees": [
+        {
+          "open_id": "ou_secret_1",
+          "display_name": "One"
+        },
+        {
+          "user_id": "u_secret_2",
+          "display_name": "Two"
+        }
+      ]
+    }
+  }
+}
