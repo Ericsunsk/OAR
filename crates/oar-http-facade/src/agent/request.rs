@@ -2,8 +2,6 @@ use std::fmt;
 
 use serde::Deserialize;
 
-use super::status::AgentContextStatus;
-
 const AGENT_CONTEXT_MESSAGE_LIMIT: usize = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,10 +37,6 @@ impl AgentStreamRequest {
             .len()
             .saturating_sub(AGENT_CONTEXT_MESSAGE_LIMIT);
         self.messages.iter().skip(message_start)
-    }
-
-    pub(crate) fn context_status(&self) -> AgentContextStatus {
-        AgentContextStatus::from_context(&self.context)
     }
 }
 
@@ -207,57 +201,5 @@ mod tests {
             }"#;
         let error = decode_agent_stream_request(body.as_bytes()).expect_err("invalid");
         assert_eq!(error, AgentRequestError::InvalidJson);
-    }
-
-    #[test]
-    fn context_status_sanitizes_server_owned_live_context_for_sse() {
-        let mut request = AgentStreamRequest {
-            messages: vec![AgentMessageDTO {
-                role: "user".to_string(),
-                text: "查 OKR".to_string(),
-            }],
-            context: AgentConversationContextDTO {
-                title: "KR 风险".to_string(),
-                risk_reason: "连续延期".to_string(),
-                action_summary: "更新进展".to_string(),
-                evidence_summaries: vec![],
-                evidence_refs: vec![],
-                workspace_summary: "摘要".to_string(),
-                workspace_signals: vec![],
-                pending_action_summaries: vec![],
-                ledger_event_summaries: vec![],
-                live_feishu_read_summaries: vec![
-                    "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。".to_string(),
-                    "refresh_token rt_live_fake".to_string(),
-                    "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。".to_string(),
-                ],
-                activated_skill_summaries: vec![
-                    "feishu.okr｜Feishu OKR｜用途：读取 OKR".to_string(),
-                    "  feishu.okr｜Feishu OKR｜用途：读取   OKR  ".to_string(),
-                ],
-            },
-        };
-        request.context.live_feishu_read_summaries.extend(
-            ["实时 3", "实时 4", "实时 5"]
-                .into_iter()
-                .map(str::to_string),
-        );
-
-        let status = request.context_status();
-
-        assert_eq!(
-            status.activated_skill_summaries,
-            vec!["feishu.okr｜Feishu OKR｜用途：读取 OKR"]
-        );
-        assert_eq!(
-            status.live_read_summaries,
-            vec![
-                "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。",
-                "已隐藏敏感摘要。",
-                "实时 3",
-                "实时 4"
-            ]
-        );
-        assert!(!format!("{status:?}").contains("rt_live_fake"));
     }
 }

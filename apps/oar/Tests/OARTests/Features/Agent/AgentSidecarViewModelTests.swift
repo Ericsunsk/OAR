@@ -137,8 +137,21 @@ final class AgentSidecarViewModelTests: XCTestCase {
         let provider = ManualStreamingAgentProvider()
         let model = AgentSidecarViewModel(provider: provider)
         let status = AgentContextStatus(
-            activatedSkillSummaries: ["feishu.okr｜Feishu OKR｜用途：读取 OKR"],
-            liveReadSummaries: ["工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"]
+            activatedSkills: [
+                AgentActivatedSkillStatus(
+                    id: "feishu.okr",
+                    name: "Feishu OKR",
+                    summary: "feishu.okr｜Feishu OKR｜用途：读取 OKR"
+                )
+            ],
+            liveReads: [
+                AgentLiveReadStatus(
+                    id: "feishu.okr.summarize_my_okr",
+                    label: "feishu.okr.summarize_my_okr",
+                    state: .ready,
+                    summary: "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"
+                )
+            ]
         )
 
         let sendTask = Task {
@@ -162,8 +175,21 @@ final class AgentSidecarViewModelTests: XCTestCase {
         let provider = ManualStreamingAgentProvider()
         let model = AgentSidecarViewModel(provider: provider)
         let status = AgentContextStatus(
-            activatedSkillSummaries: ["feishu.calendar｜Feishu Calendar"],
-            liveReadSummaries: ["实时读取完成"]
+            activatedSkills: [
+                AgentActivatedSkillStatus(
+                    id: "feishu.calendar",
+                    name: "Feishu Calendar",
+                    summary: "feishu.calendar｜Feishu Calendar"
+                )
+            ],
+            liveReads: [
+                AgentLiveReadStatus(
+                    id: "feishu.calendar.summarize_my_events",
+                    label: "feishu.calendar.summarize_my_events",
+                    state: .ready,
+                    summary: "实时读取完成"
+                )
+            ]
         )
 
         let firstSendTask = Task {

@@ -118,7 +118,9 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::agent::status::AgentContextStatus;
+    use crate::agent::status::{
+        AgentActivatedSkillStatus, AgentContextStatus, AgentLiveReadState, AgentLiveReadStatus,
+    };
 
     #[tokio::test]
     async fn context_status_frame_is_sent_before_upstream_frames() {
@@ -126,12 +128,18 @@ mod tests {
         let mut stream = prepend_agent_context_status_frame(
             upstream,
             AgentContextStatus {
-                activated_skill_summaries: vec![
-                    "feishu.okr｜Feishu OKR｜用途：读取 OKR".to_string()
-                ],
-                live_read_summaries: vec![
-                    "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。".to_string(),
-                ],
+                activated_skills: vec![AgentActivatedSkillStatus {
+                    id: "feishu.okr".to_string(),
+                    name: "Feishu OKR".to_string(),
+                    summary: "feishu.okr｜Feishu OKR｜用途：读取 OKR".to_string(),
+                }],
+                live_reads: vec![AgentLiveReadStatus {
+                    id: "feishu.okr.summarize_my_okr".to_string(),
+                    label: "feishu.okr.summarize_my_okr".to_string(),
+                    state: AgentLiveReadState::Ready,
+                    summary: "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"
+                        .to_string(),
+                }],
             },
         );
         send_agent_stream_frames(
@@ -148,13 +156,14 @@ mod tests {
         assert!(first.raw.starts_with("event: context_status\n"));
         assert_eq!(first.payload["event"], "context_status");
         assert_eq!(
-            first.payload["status"]["activated_skill_summaries"][0],
-            "feishu.okr｜Feishu OKR｜用途：读取 OKR"
+            first.payload["status"]["activated_skills"][0]["id"],
+            "feishu.okr"
         );
         assert_eq!(
-            first.payload["status"]["live_read_summaries"][0],
+            first.payload["status"]["live_reads"][0]["summary"],
             "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"
         );
+        assert_eq!(first.payload["status"]["live_reads"][0]["state"], "ready");
         assert!(second.raw.starts_with("event: delta\n"));
         assert_eq!(second.payload["event"], "delta");
         assert_eq!(second.payload["delta"], "收到");
@@ -166,8 +175,8 @@ mod tests {
         let mut stream = prepend_agent_context_status_frame(
             upstream,
             AgentContextStatus {
-                activated_skill_summaries: vec![],
-                live_read_summaries: vec![],
+                activated_skills: vec![],
+                live_reads: vec![],
             },
         );
         send_agent_stream_frames(

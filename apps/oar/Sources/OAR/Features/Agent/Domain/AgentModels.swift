@@ -33,19 +33,47 @@ enum AgentStreamEvent: Equatable {
 }
 
 struct AgentContextStatus: Equatable {
-    let activatedSkillSummaries: [String]
-    let liveReadSummaries: [String]
+    let activatedSkills: [AgentActivatedSkillStatus]
+    let liveReads: [AgentLiveReadStatus]
 
     init(
-        activatedSkillSummaries: [String],
-        liveReadSummaries: [String]
+        activatedSkills: [AgentActivatedSkillStatus],
+        liveReads: [AgentLiveReadStatus]
     ) {
-        self.activatedSkillSummaries = activatedSkillSummaries
-        self.liveReadSummaries = liveReadSummaries
+        self.activatedSkills = activatedSkills
+        self.liveReads = liveReads
     }
 
     var isEmpty: Bool {
-        activatedSkillSummaries.isEmpty && liveReadSummaries.isEmpty
+        activatedSkills.isEmpty && liveReads.isEmpty
+    }
+}
+
+struct AgentActivatedSkillStatus: Equatable {
+    let id: String
+    let name: String
+    let summary: String
+}
+
+struct AgentLiveReadStatus: Equatable {
+    let id: String
+    let label: String
+    let state: AgentLiveReadState
+    let summary: String
+}
+
+enum AgentLiveReadState: Equatable {
+    case ready
+    case degraded
+    case unknown(String)
+
+    var isRestricted: Bool {
+        switch self {
+        case .degraded:
+            return true
+        case .ready, .unknown:
+            return false
+        }
     }
 }
 

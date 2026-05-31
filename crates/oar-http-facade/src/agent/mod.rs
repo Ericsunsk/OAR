@@ -26,4 +26,5 @@ pub(crate) use settings::{
     AgentModelCatalogRequest, AgentModelSettingsError, AgentModelSettingsRuntime,
     AgentSettingsSnapshot, AgentSettingsUpdateRequest,
 };
+pub(crate) use status::AgentContextStatus;
 pub(crate) use stream::prepend_agent_context_status_frame;

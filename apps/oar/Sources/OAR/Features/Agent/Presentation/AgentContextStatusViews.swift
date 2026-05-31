@@ -51,25 +51,22 @@ struct AgentContextStatusContent {
     let tint: Color
 
     init(status: AgentContextStatus) {
-        let summaries = status.liveReadSummaries + status.activatedSkillSummaries
-        let hasDegradedRead = summaries.contains { summary in
-            ["降级", "失败", "缺少权限", "未配置", "无法"].contains { summary.contains($0) }
-        }
+        let hasDegradedRead = status.liveReads.contains { $0.state.isRestricted }
         if hasDegradedRead {
             title = "实时读取受限"
-        } else if !status.liveReadSummaries.isEmpty {
+        } else if !status.liveReads.isEmpty {
             title = "实时读取已接入"
         } else {
             title = "已激活内置 skill"
         }
-        statisticsText = "读取 \(status.liveReadSummaries.count)｜技能 \(status.activatedSkillSummaries.count)"
+        statisticsText = "读取 \(status.liveReads.count)｜技能 \(status.activatedSkills.count)"
         detailText = Self.detailText(for: status)
         symbolName = hasDegradedRead ? "exclamationmark.triangle" : "antenna.radiowaves.left.and.right"
         tint = hasDegradedRead ? Color.oarAmber : Color.oarMoss
     }
 
     private static func detailText(for status: AgentContextStatus) -> String? {
-        let summaries = [status.liveReadSummaries.first, status.activatedSkillSummaries.first]
+        let summaries = [status.liveReads.first?.summary, status.activatedSkills.first?.summary]
             .compactMap { $0 }
             .map { summary in
                 summary

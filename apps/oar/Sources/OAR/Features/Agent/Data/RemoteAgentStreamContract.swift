@@ -177,29 +177,91 @@ private struct RemoteAgentContextStatusDTO: Decodable {
     private static let maxSummaryCount = 4
     private static let maxSummaryCharacters = 240
 
-    let activatedSkillSummaries: [String]
-    let liveReadSummaries: [String]
+    let activatedSkills: [RemoteAgentActivatedSkillStatusDTO]
+    let liveReads: [RemoteAgentLiveReadStatusDTO]
 
     enum CodingKeys: String, CodingKey {
-        case activatedSkillSummaries = "activated_skill_summaries"
-        case liveReadSummaries = "live_read_summaries"
+        case activatedSkills = "activated_skills"
+        case liveReads = "live_reads"
     }
 
     var domain: AgentContextStatus {
         AgentContextStatus(
-            activatedSkillSummaries: Self.visibleSummaries(activatedSkillSummaries),
-            liveReadSummaries: Self.visibleSummaries(liveReadSummaries)
+            activatedSkills: activatedSkills
+                .prefix(Self.maxSummaryCount)
+                .map(\.domain),
+            liveReads: liveReads
+                .prefix(Self.maxSummaryCount)
+                .map(\.domain)
         )
     }
 
-    private static func visibleSummaries(_ summaries: [String]) -> [String] {
-        summaries
-            .map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-            .filter { !$0.isEmpty }
-            .prefix(maxSummaryCount)
-            .map { summary in
-                guard summary.count > maxSummaryCharacters else { return summary }
-                return "\(String(summary.prefix(maxSummaryCharacters)))..."
-            }
+    static func visibleText(_ value: String) -> String {
+        let compacted = value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard compacted.count > maxSummaryCharacters else { return compacted }
+        return "\(String(compacted.prefix(maxSummaryCharacters)))..."
+    }
+
+    static func stableID(_ value: String) -> String {
+        value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+}
+
+private struct RemoteAgentActivatedSkillStatusDTO: Decodable {
+    let id: String
+    let name: String
+    let summary: String
+
+    var domain: AgentActivatedSkillStatus {
+        AgentActivatedSkillStatus(
+            id: RemoteAgentContextStatusDTO.stableID(id),
+            name: RemoteAgentContextStatusDTO.visibleText(name),
+            summary: RemoteAgentContextStatusDTO.visibleText(summary)
+        )
+    }
+}
+
+private struct RemoteAgentLiveReadStatusDTO: Decodable {
+    let id: String
+    let label: String
+    let state: RemoteAgentLiveReadStateDTO
+    let summary: String
+
+    var domain: AgentLiveReadStatus {
+        AgentLiveReadStatus(
+            id: RemoteAgentContextStatusDTO.stableID(id),
+            label: RemoteAgentContextStatusDTO.visibleText(label),
+            state: state.domain,
+            summary: RemoteAgentContextStatusDTO.visibleText(summary)
+        )
+    }
+}
+
+private enum RemoteAgentLiveReadStateDTO: Decodable, Equatable {
+    case ready
+    case degraded
+    case unknown(String)
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "ready":
+            self = .ready
+        case "degraded":
+            self = .degraded
+        default:
+            self = .unknown(value)
+        }
+    }
+
+    var domain: AgentLiveReadState {
+        switch self {
+        case .ready:
+            return .ready
+        case .degraded:
+            return .degraded
+        case .unknown(let value):
+            return .unknown(value)
+        }
     }
 }

@@ -1,5 +1,7 @@
 import Foundation
 
+private let remoteAgentMessageLimit = 12
+
 protocol AgentProviding {
     var isAvailable: Bool { get }
 
@@ -115,9 +117,10 @@ struct RemoteAgentProvider: AgentProviding {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(appSession.sessionID)", forHTTPHeaderField: "Authorization")
+        let recentMessages = messages.suffix(remoteAgentMessageLimit)
         request.httpBody = try encoder.encode(
             RemoteAgentStreamRequestDTO(
-                messages: messages.map {
+                messages: recentMessages.map {
                     RemoteAgentMessageDTO(role: $0.role.backendRole, text: $0.text)
                 },
                 context: RemoteAgentContextDTO(context: context)

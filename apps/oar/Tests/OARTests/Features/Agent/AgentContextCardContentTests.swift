@@ -98,8 +98,21 @@ final class AgentContextCardContentTests: XCTestCase {
     func testContextStatusContentPrioritizesLiveReadSummary() {
         let content = AgentContextStatusContent(
             status: AgentContextStatus(
-                activatedSkillSummaries: ["feishu.okr｜Feishu OKR｜用途：读取 OKR"],
-                liveReadSummaries: ["工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"]
+                activatedSkills: [
+                    AgentActivatedSkillStatus(
+                        id: "feishu.okr",
+                        name: "Feishu OKR",
+                        summary: "feishu.okr｜Feishu OKR｜用途：读取 OKR"
+                    )
+                ],
+                liveReads: [
+                    AgentLiveReadStatus(
+                        id: "feishu.okr.summarize_my_okr",
+                        label: "feishu.okr.summarize_my_okr",
+                        state: .ready,
+                        summary: "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"
+                    )
+                ]
             )
         )
 
@@ -115,12 +128,44 @@ final class AgentContextCardContentTests: XCTestCase {
     func testContextStatusContentHighlightsDegradedRead() {
         let content = AgentContextStatusContent(
             status: AgentContextStatus(
-                activatedSkillSummaries: ["feishu.okr｜Feishu OKR"],
-                liveReadSummaries: ["工具 feishu.okr.summarize_my_okr｜实时读取降级：缺少权限。"]
+                activatedSkills: [
+                    AgentActivatedSkillStatus(
+                        id: "feishu.okr",
+                        name: "Feishu OKR",
+                        summary: "feishu.okr｜Feishu OKR"
+                    )
+                ],
+                liveReads: [
+                    AgentLiveReadStatus(
+                        id: "feishu.okr.summarize_my_okr",
+                        label: "feishu.okr.summarize_my_okr",
+                        state: .degraded,
+                        summary: "工具 feishu.okr.summarize_my_okr｜实时读取受限。"
+                    )
+                ]
             )
         )
 
         XCTAssertEqual(content.title, "实时读取受限")
         XCTAssertEqual(content.symbolName, "exclamationmark.triangle")
+    }
+
+    func testContextStatusContentDoesNotInferStateFromSummaryWords() {
+        let content = AgentContextStatusContent(
+            status: AgentContextStatus(
+                activatedSkills: [],
+                liveReads: [
+                    AgentLiveReadStatus(
+                        id: "feishu.task.summarize_my_tasks",
+                        label: "feishu.task.summarize_my_tasks",
+                        state: .ready,
+                        summary: "工具返回摘要：标题里包含失败复盘，但读取本身成功。"
+                    )
+                ]
+            )
+        )
+
+        XCTAssertEqual(content.title, "实时读取已接入")
+        XCTAssertEqual(content.symbolName, "antenna.radiowaves.left.and.right")
     }
 }

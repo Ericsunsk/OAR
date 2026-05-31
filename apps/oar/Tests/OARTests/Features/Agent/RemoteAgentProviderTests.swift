@@ -18,7 +18,7 @@ final class RemoteAgentProviderTests: XCTestCase {
             let body = try URLRequestBodyTestSupport.bodyData(from: request)
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
-            XCTAssertEqual(messages.count, 13)
+            XCTAssertEqual(messages.count, 12)
             XCTAssertEqual(messages.last?["role"] as? String, "user")
             XCTAssertEqual(messages.last?["text"] as? String, "解释风险")
             let context = try XCTUnwrap(json["context"] as? [String: Any])
@@ -158,7 +158,7 @@ final class RemoteAgentProviderTests: XCTestCase {
                 Self.sse(
                     """
                     event: context_status
-                    data: {"event":"context_status","status":{"activated_skill_summaries":["feishu.okr｜Feishu OKR｜用途：读取 OKR"],"live_read_summaries":["工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"]}}
+                    data: {"event":"context_status","status":{"activated_skills":[{"id":"feishu.okr","name":"Feishu OKR","summary":"feishu.okr｜Feishu OKR｜用途：读取 OKR"}],"live_reads":[{"id":"feishu.okr.summarize_my_okr","label":"feishu.okr.summarize_my_okr","state":"ready","summary":"工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"}]}}
 
                     event: delta
                     data: {"event":"delta","delta":"已读取。"}
@@ -183,8 +183,21 @@ final class RemoteAgentProviderTests: XCTestCase {
             [
                 .contextStatus(
                     AgentContextStatus(
-                        activatedSkillSummaries: ["feishu.okr｜Feishu OKR｜用途：读取 OKR"],
-                        liveReadSummaries: ["工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"]
+                        activatedSkills: [
+                            AgentActivatedSkillStatus(
+                                id: "feishu.okr",
+                                name: "Feishu OKR",
+                                summary: "feishu.okr｜Feishu OKR｜用途：读取 OKR"
+                            )
+                        ],
+                        liveReads: [
+                            AgentLiveReadStatus(
+                                id: "feishu.okr.summarize_my_okr",
+                                label: "feishu.okr.summarize_my_okr",
+                                state: .ready,
+                                summary: "工具 feishu.okr.summarize_my_okr｜实时：读取到 2 条目标。"
+                            )
+                        ]
                     )
                 ),
                 .delta("已读取。"),
@@ -196,7 +209,7 @@ final class RemoteAgentProviderTests: XCTestCase {
     func testContextStatusWithoutDeltaDoesNotCountAsAssistantContent() async {
         await Self.assertStreamBody(
             """
-            data: {"event":"context_status","status":{"activated_skill_summaries":["feishu.okr"],"live_read_summaries":["实时读取完成"]}}
+            data: {"event":"context_status","status":{"activated_skills":[{"id":"feishu.okr","name":"Feishu OKR","summary":"feishu.okr"}],"live_reads":[{"id":"feishu.okr.summarize_my_okr","label":"feishu.okr.summarize_my_okr","state":"ready","summary":"实时读取完成"}]}}
 
             data: {"event":"completed"}
 
@@ -217,7 +230,7 @@ final class RemoteAgentProviderTests: XCTestCase {
                 )!,
                 Self.sse(
                     """
-                    data: {"event":"context_status","status":{"activated_skill_summaries":["技能 1","技能 2","技能 3","技能 4","技能 5"],"live_read_summaries":["\(longSummary)","读取 2","读取 3","读取 4","读取 5"]}}
+                    data: {"event":"context_status","status":{"activated_skills":[{"id":"skill.1","name":"技能 1","summary":"技能 1"},{"id":"skill.2","name":"技能 2","summary":"技能 2"},{"id":"skill.3","name":"技能 3","summary":"技能 3"},{"id":"skill.4","name":"技能 4","summary":"技能 4"},{"id":"skill.5","name":"技能 5","summary":"技能 5"}],"live_reads":[{"id":"read.1","label":"读取 1","state":"ready","summary":"\(longSummary)"},{"id":"read.2","label":"读取 2","state":"ready","summary":"读取 2"},{"id":"read.3","label":"读取 3","state":"ready","summary":"读取 3"},{"id":"read.4","label":"读取 4","state":"ready","summary":"读取 4"},{"id":"read.5","label":"读取 5","state":"ready","summary":"读取 5"}]}}
 
                     data: {"event":"delta","delta":"ok"}
 
@@ -238,10 +251,45 @@ final class RemoteAgentProviderTests: XCTestCase {
         guard case .contextStatus(let status) = events.first else {
             return XCTFail("Expected first event to be contextStatus")
         }
-        XCTAssertEqual(status.activatedSkillSummaries, ["技能 1", "技能 2", "技能 3", "技能 4"])
-        XCTAssertEqual(status.liveReadSummaries.count, 4)
-        XCTAssertEqual(status.liveReadSummaries[0].count, 243)
-        XCTAssertTrue(status.liveReadSummaries[0].hasSuffix("..."))
+        XCTAssertEqual(status.activatedSkills.map(\.summary), ["技能 1", "技能 2", "技能 3", "技能 4"])
+        XCTAssertEqual(status.liveReads.count, 4)
+        XCTAssertEqual(status.liveReads[0].summary.count, 243)
+        XCTAssertTrue(status.liveReads[0].summary.hasSuffix("..."))
+    }
+
+    func testContextStatusDecodesDegradedAndUnknownLiveReadStates() async throws {
+        AgentTestURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "text/event-stream"]
+                )!,
+                Self.sse(
+                    """
+                    data: {"event":"context_status","status":{"activated_skills":[],"live_reads":[{"id":"read.degraded","label":"Read degraded","state":"degraded","summary":"受限摘要"},{"id":"read.future","label":"Read future","state":"paused","summary":"未来状态摘要"}]}}
+
+                    data: {"event":"delta","delta":"ok"}
+
+                    data: {"event":"completed"}
+
+                    """
+                )
+            )
+        }
+
+        let events = try await Self.collectEvents(
+            from: Self.provider().stream(
+                messages: [AgentMessage(role: .user, text: "hi")],
+                context: .empty
+            )
+        )
+
+        guard case .contextStatus(let status) = events.first else {
+            return XCTFail("Expected first event to be contextStatus")
+        }
+        XCTAssertEqual(status.liveReads.map(\.state), [.degraded, .unknown("paused")])
     }
 
     func testStreamErrorEventsMapToServerUnavailable() async {
