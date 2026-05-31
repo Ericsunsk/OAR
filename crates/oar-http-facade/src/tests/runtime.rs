@@ -82,6 +82,7 @@ async fn runtime_tenant_maintenance_parses_safe_runtime_settings() {
         .as_ref()
         .expect("tenant maintenance settings");
     assert_eq!(settings.worker.instance_id, "tenant-maintenance-test");
+    assert!(!format!("{settings:?}").contains("webhook-secret"));
     assert_eq!(
         settings.runtime.tick_interval,
         Duration::from_millis(15_000)
@@ -107,10 +108,63 @@ async fn runtime_tenant_maintenance_uses_default_schedule_settings() {
 }
 
 #[tokio::test]
+async fn runtime_tenant_maintenance_requires_real_audit_outbox_sink() {
+    let missing_audit_sink = OarHttpFacadeRuntime::from_env_map_with_persistence(
+        &|key| match key {
+            "OAR_TENANT_MAINTENANCE_ENABLED" => Some("true".to_string()),
+            _ => configured_feishu_env(key),
+        },
+        Some(test_persistence()),
+    )
+    .expect_err("audit outbox sink is required");
+    assert_eq!(
+        missing_audit_sink.to_string(),
+        "oar_tenant_maintenance_audit_outbox_sink_required"
+    );
+
+    let noop_audit_sink = OarHttpFacadeRuntime::from_env_map_with_persistence(
+        &|key| match key {
+            "OAR_TENANT_MAINTENANCE_ENABLED" => Some("true".to_string()),
+            "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK" => Some("local-noop".to_string()),
+            _ => configured_tenant_maintenance_env(key),
+        },
+        Some(test_persistence()),
+    )
+    .expect_err("noop audit outbox sink is not valid for maintenance runtime");
+    assert_eq!(
+        noop_audit_sink.to_string(),
+        "oar_tenant_maintenance_config_invalid"
+    );
+    assert!(!format!("{noop_audit_sink:?}").contains("local-noop"));
+
+    let insecure_webhook = OarHttpFacadeRuntime::from_env_map_with_persistence(
+        &|key| match key {
+            "OAR_TENANT_MAINTENANCE_ENABLED" => Some("true".to_string()),
+            "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK" => Some("webhook".to_string()),
+            "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL" => {
+                Some("http://audit.example.test/webhook?token=webhook-secret".to_string())
+            }
+            _ => configured_tenant_maintenance_env(key),
+        },
+        Some(test_persistence()),
+    )
+    .expect_err("webhook sink must use https");
+    assert_eq!(
+        insecure_webhook.to_string(),
+        "oar_tenant_maintenance_config_invalid"
+    );
+    assert!(!format!("{insecure_webhook:?}").contains("webhook-secret"));
+}
+
+#[tokio::test]
 async fn runtime_tenant_maintenance_rejects_missing_instance_or_invalid_numbers() {
     let missing_instance = OarHttpFacadeRuntime::from_env_map_with_persistence(
         &|key| match key {
             "OAR_TENANT_MAINTENANCE_ENABLED" => Some("true".to_string()),
+            "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK" => Some("webhook".to_string()),
+            "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL" => {
+                Some("https://audit.example.test/webhook".to_string())
+            }
             _ => configured_feishu_env(key),
         },
         Some(test_persistence()),
@@ -299,6 +353,10 @@ fn configured_tenant_maintenance_env(key: &str) -> Option<String> {
     match key {
         "OAR_TENANT_MAINTENANCE_ENABLED" => Some("true".to_string()),
         "OAR_TENANT_MAINTENANCE_INSTANCE_ID" => Some("tenant-maintenance-test".to_string()),
+        "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK" => Some("webhook".to_string()),
+        "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL" => {
+            Some("https://audit.example.test/webhook?token=webhook-secret".to_string())
+        }
         _ => configured_feishu_env(key),
     }
 }

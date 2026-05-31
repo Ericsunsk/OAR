@@ -5,6 +5,7 @@ use std::time::Duration;
 use oar_core::action::audit_event::{AuditActor, AuditActorKind};
 use oar_core::storage::postgres::PostgresTenantMaintenanceConfig;
 use oar_runtime::TenantMaintenanceRuntimeConfig;
+use reqwest::Url;
 
 use crate::util::non_empty_env;
 
@@ -12,6 +13,23 @@ use crate::util::non_empty_env;
 pub(crate) struct TenantMaintenanceRuntimeSettings {
     pub(crate) runtime: TenantMaintenanceRuntimeConfig,
     pub(crate) worker: TenantMaintenanceWorkerSettings,
+    pub(crate) audit_outbox_sink: TenantMaintenanceAuditOutboxSinkSettings,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum TenantMaintenanceAuditOutboxSinkSettings {
+    Webhook { endpoint: String },
+}
+
+impl fmt::Debug for TenantMaintenanceAuditOutboxSinkSettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Webhook { .. } => f
+                .debug_struct("Webhook")
+                .field("endpoint", &"[REDACTED]")
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +95,7 @@ impl TenantMaintenanceWorkerSettings {
 pub(crate) enum TenantMaintenanceSettingsError {
     RequiresDatabase,
     RequiresFeishuAuth,
+    RequiresAuditOutboxSink,
     MissingInstanceId,
     InvalidConfig,
 }
@@ -86,6 +105,9 @@ impl fmt::Display for TenantMaintenanceSettingsError {
         match self {
             Self::RequiresDatabase => write!(f, "oar_tenant_maintenance_database_required"),
             Self::RequiresFeishuAuth => write!(f, "oar_tenant_maintenance_feishu_auth_required"),
+            Self::RequiresAuditOutboxSink => {
+                write!(f, "oar_tenant_maintenance_audit_outbox_sink_required")
+            }
             Self::MissingInstanceId => write!(f, "oar_tenant_maintenance_instance_id_required"),
             Self::InvalidConfig => write!(f, "oar_tenant_maintenance_config_invalid"),
         }
@@ -111,6 +133,7 @@ pub(crate) fn tenant_maintenance_runtime_settings_from_env_map(
     if !has_feishu_login {
         return Err(TenantMaintenanceSettingsError::RequiresFeishuAuth);
     }
+    let audit_outbox_sink = tenant_maintenance_audit_outbox_sink_from_env(env)?;
 
     let instance_id = non_empty_env(env, TENANT_MAINTENANCE_INSTANCE_ID_ENV)
         .ok_or(TenantMaintenanceSettingsError::MissingInstanceId)?;
@@ -154,13 +177,20 @@ pub(crate) fn tenant_maintenance_runtime_settings_from_env_map(
     };
     worker.config_for_tenant(TENANT_MAINTENANCE_CONFIG_PROBE_TENANT_ID, 0)?;
 
-    Ok(Some(TenantMaintenanceRuntimeSettings { runtime, worker }))
+    Ok(Some(TenantMaintenanceRuntimeSettings {
+        runtime,
+        worker,
+        audit_outbox_sink,
+    }))
 }
 
 const TENANT_MAINTENANCE_ENABLED_ENV: &str = "OAR_TENANT_MAINTENANCE_ENABLED";
 const TENANT_MAINTENANCE_INSTANCE_ID_ENV: &str = "OAR_TENANT_MAINTENANCE_INSTANCE_ID";
 const TENANT_MAINTENANCE_INTERVAL_MS_ENV: &str = "OAR_TENANT_MAINTENANCE_INTERVAL_MS";
 const TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS_ENV: &str = "OAR_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS";
+const TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK_ENV: &str = "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK";
+const TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL_ENV: &str =
+    "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL";
 const ALLOW_EPHEMERAL_GRANT_KEY_ENV: &str = "OAR_ALLOW_EPHEMERAL_GRANT_KEY";
 const DEFAULT_TENANT_MAINTENANCE_INTERVAL_MS: u64 = 60_000;
 const DEFAULT_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS: u64 = 300_000;
@@ -181,6 +211,33 @@ const DEFAULT_TENANT_MAINTENANCE_OUTBOX_LEASE_MS: u64 = 30_000;
 const DEFAULT_TENANT_MAINTENANCE_OUTBOX_RETRY_DELAY_MS: u64 = 60_000;
 const DEFAULT_TENANT_MAINTENANCE_OUTBOX_MAX_ATTEMPTS: u32 = 5;
 const TENANT_MAINTENANCE_CONFIG_PROBE_TENANT_ID: &str = "tenant_maintenance_config_probe";
+
+fn tenant_maintenance_audit_outbox_sink_from_env(
+    env: &impl Fn(&str) -> Option<String>,
+) -> Result<TenantMaintenanceAuditOutboxSinkSettings, TenantMaintenanceSettingsError> {
+    let Some(kind) = non_empty_env(env, TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK_ENV) else {
+        return Err(TenantMaintenanceSettingsError::RequiresAuditOutboxSink);
+    };
+    match kind.as_str() {
+        "webhook" => {
+            let endpoint = non_empty_env(env, TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL_ENV)
+                .ok_or(TenantMaintenanceSettingsError::RequiresAuditOutboxSink)?;
+            validate_webhook_endpoint(&endpoint)?;
+            Ok(TenantMaintenanceAuditOutboxSinkSettings::Webhook { endpoint })
+        }
+        "noop" | "local-noop" => Err(TenantMaintenanceSettingsError::InvalidConfig),
+        _ => Err(TenantMaintenanceSettingsError::InvalidConfig),
+    }
+}
+
+fn validate_webhook_endpoint(value: &str) -> Result<(), TenantMaintenanceSettingsError> {
+    let endpoint = Url::parse(value).map_err(|_| TenantMaintenanceSettingsError::InvalidConfig)?;
+    if endpoint.scheme() == "https" && endpoint.host().is_some() {
+        Ok(())
+    } else {
+        Err(TenantMaintenanceSettingsError::InvalidConfig)
+    }
+}
 
 fn validate_tenant_maintenance_instance_id(
     value: &str,
@@ -266,6 +323,7 @@ mod tests {
         assert_eq!(config.audit_stream, "audit-events");
         assert_eq!(config.scheduled_limit, 50);
         assert_eq!(config.outbox_batch_limit, 100);
+        assert!(!format!("{settings:?}").contains("webhook-secret"));
     }
 
     #[test]
@@ -291,6 +349,10 @@ mod tests {
         match key {
             "OAR_TENANT_MAINTENANCE_ENABLED" => Some("true".to_string()),
             "OAR_TENANT_MAINTENANCE_INSTANCE_ID" => Some("oar-prod-1".to_string()),
+            "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK" => Some("webhook".to_string()),
+            "OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL" => {
+                Some("https://audit.example.test/webhook?token=webhook-secret".to_string())
+            }
             _ => None,
         }
     }

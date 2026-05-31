@@ -6,6 +6,7 @@ use super::{
     AuditOutboxDeliveryEnvelope, AuditOutboxSink, AuditOutboxSinkDelivery, AuditOutboxSinkError,
 };
 
+/// Test/local contract sink only. Do not use this for tenant maintenance daemon assembly.
 #[derive(Default)]
 pub struct NoopAuditOutboxSink {
     delivered: Vec<AuditOutboxDeliveryEnvelope>,

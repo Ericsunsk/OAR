@@ -44,6 +44,7 @@ pub enum OarHttpFacadeRuntimeError {
     InvalidAgentConfig,
     TenantMaintenanceRequiresDatabase,
     TenantMaintenanceRequiresFeishuAuth,
+    TenantMaintenanceRequiresAuditOutboxSink,
     TenantMaintenanceMissingInstanceId,
     InvalidTenantMaintenanceConfig,
     DatabaseConnectFailed,
@@ -72,6 +73,9 @@ impl fmt::Display for OarHttpFacadeRuntimeError {
             }
             Self::TenantMaintenanceRequiresFeishuAuth => {
                 write!(f, "oar_tenant_maintenance_feishu_auth_required")
+            }
+            Self::TenantMaintenanceRequiresAuditOutboxSink => {
+                write!(f, "oar_tenant_maintenance_audit_outbox_sink_required")
             }
             Self::TenantMaintenanceMissingInstanceId => {
                 write!(f, "oar_tenant_maintenance_instance_id_required")
@@ -167,6 +171,9 @@ fn tenant_maintenance_settings_error(
         }
         TenantMaintenanceSettingsError::RequiresFeishuAuth => {
             OarHttpFacadeRuntimeError::TenantMaintenanceRequiresFeishuAuth
+        }
+        TenantMaintenanceSettingsError::RequiresAuditOutboxSink => {
+            OarHttpFacadeRuntimeError::TenantMaintenanceRequiresAuditOutboxSink
         }
         TenantMaintenanceSettingsError::MissingInstanceId => {
             OarHttpFacadeRuntimeError::TenantMaintenanceMissingInstanceId
