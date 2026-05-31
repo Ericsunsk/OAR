@@ -20,6 +20,7 @@ use oar_core::storage::postgres::tenant_maintenance::{
 };
 use oar_core::storage::postgres::{
     AuditOutboxEnvelope, EncryptedTokenGrantRecord, PostgresAuditEventRepository,
+    PostgresAuthLifecycleRepository, PostgresAuthLogoutRevokeRequest,
     PostgresDeviceSessionRepository, PostgresExecutionRecorder, PostgresExecutionRecorderReport,
     PostgresIdentityRepository, PostgresLarkIdentityRepository, PostgresOperationLedgerRepository,
     PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorder,
@@ -50,6 +51,8 @@ fn postgres_repositories_are_importable_and_constructible_from_pg_pool() {
         PostgresReviewDecisionRecorder::new;
     let _from_pool_ctor_token_refresh_recorder: fn(PgPool) -> PostgresTokenRefreshRecorder =
         PostgresTokenRefreshRecorder::new;
+    let _from_pool_ctor_auth_lifecycle: fn(PgPool) -> PostgresAuthLifecycleRepository =
+        PostgresAuthLifecycleRepository::new;
     let _from_pool_ctor_token_grant: fn(PgPool) -> PostgresTokenGrantRepository =
         PostgresTokenGrantRepository::new;
     let _from_pool_ctor_device_session: fn(PgPool) -> PostgresDeviceSessionRepository =
@@ -107,6 +110,8 @@ fn postgres_repository_async_methods_are_type_checked() {
     let _apply_refresh_command = PostgresTokenGrantRepository::apply_refresh_command;
     let _apply_planned_refresh_command_with_audit =
         PostgresTokenRefreshRecorder::apply_planned_command_with_audit;
+    let _auth_logout_revoke =
+        PostgresAuthLifecycleRepository::revoke_logout_session_and_last_device_grants;
     let _token_refresh_orchestrator_ctor =
         PostgresTokenRefreshOrchestrator::<NoopRefreshAdapter>::new;
     let _token_refresh_orchestrator_refresh =
@@ -177,6 +182,7 @@ fn postgres_repository_async_methods_are_type_checked() {
     let _phantom_workspace_user: Option<StoredWorkspaceUser> = None;
     let _phantom_lark_identity: Option<StoredLarkIdentity> = None;
     let _phantom_token_refresh_context: Option<TokenRefreshAuditContext> = None;
+    let _phantom_auth_logout_revoke: Option<PostgresAuthLogoutRevokeRequest<'static>> = None;
     let _phantom_token_refresh_sweep_request: Option<PostgresTokenRefreshSweepRequest> = None;
     let _phantom_token_refresh_sweep_report: Option<PostgresTokenRefreshSweepReport> = None;
     let _phantom_rotate_request: Option<RotateEncryptedGrantRequest<'static>> = None;

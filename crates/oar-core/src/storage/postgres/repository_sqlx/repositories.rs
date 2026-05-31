@@ -7,6 +7,11 @@ pub struct PostgresTokenGrantRepository {
 }
 
 #[derive(Debug, Clone)]
+pub struct PostgresAuthLifecycleRepository {
+    pub(super) pool: PgPool,
+}
+
+#[derive(Debug, Clone)]
 pub struct PostgresTokenRefreshOrchestrator<A>
 where
     A: AsyncAuthRefreshAdapter,

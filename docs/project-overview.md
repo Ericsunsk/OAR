@@ -54,7 +54,7 @@ OAR 是面向飞书企业租户的 **OKR 复盘驾驶舱**：每周自动发现 
 ## 5. 阶段状态与风险
 
 Phase 0.5：已完成 Lark CLI/OKR 读取与 progress 创建/更新验证，删除保持 dry-run；生产主路径已收敛到 Rust 原生 OpenAPI adapter。  
-Phase 0.6：token refresh service、Postgres Recorder、audit 写入、`run_once` 幂等链路、真实 Rust/Reqwest refresh adapter、后台 maintenance daemon、last-device logout 本地 grant revoke 已接入；仍需真实 Feishu refresh smoke、故障恢复与运维闭环验证。
+Phase 0.6：token refresh service、Postgres Recorder、audit 写入、`run_once` 幂等链路、真实 Rust/Reqwest refresh adapter、后台 maintenance daemon、last-device logout 本地 grant revoke + append-only audit 已接入；仍需真实 Feishu refresh smoke、故障恢复与运维闭环验证。
 
 当前关键假设：
 
@@ -62,7 +62,7 @@ Phase 0.6：token refresh service、Postgres Recorder、audit 写入、`run_once
 | --- | --- | --- |
 | 飞书 OKR 是权威数据源 | 公开资料与 Phase 0.5 支持 | OAR 应叠加在飞书之上 |
 | Lark CLI 可作为验证和 fixture 工具 | 已验证 | 生产主路径仍转向 Rust 原生 OpenAPI adapter |
-| Lark OAuth 可绑定用户身份 | 已初步验证 | `offline_access` 已授权；production `TokenGrant`、refresh rotation、last-device logout 本地 revoke 已接入 |
+| Lark OAuth 可绑定用户身份 | 已初步验证 | `offline_access` 已授权；production `TokenGrant`、refresh rotation、last-device logout 本地 revoke/audit 已接入 |
 | 用户愿意每周打开复盘收件箱 | 未验证 | 需要 3-5 个真实经理 / PMO 做 2-4 周陪跑 |
 | 记忆能显著提升建议质量 | 未验证 | 需要历史 OKR 复盘回归用例 |
 

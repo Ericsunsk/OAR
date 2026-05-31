@@ -2,6 +2,7 @@ use super::*;
 
 mod action_execution;
 mod audit;
+mod auth_lifecycle;
 mod identity;
 mod review_inbox;
 mod scheduler;
@@ -13,6 +14,7 @@ pub use action_execution::{
     PostgresReviewDecisionRecorderRequest, StoredPendingConfirmedAction,
 };
 pub use audit::{AuditOutboxEnvelope, AuditOutboxMessage};
+pub use auth_lifecycle::{PostgresAuthLogoutRevokeReport, PostgresAuthLogoutRevokeRequest};
 pub use identity::{StoredDeviceSession, StoredLarkIdentity, StoredTenant, StoredWorkspaceUser};
 pub use review_inbox::{
     InsertProposedActionDecisionRequest, PostgresReviewDecisionContextRequest, StoredEvidenceItem,

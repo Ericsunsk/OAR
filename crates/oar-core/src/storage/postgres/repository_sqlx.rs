@@ -82,16 +82,18 @@ use codec::*;
 pub use error::{PgRepositoryResult, PostgresRepositoryError};
 use error::{MAX_REFRESH_ERROR_CHARS, REDACTED_REFRESH_ERROR, REDACTED_TENANT_ACTUAL};
 pub use repositories::{
-    PostgresAuditEventRepository, PostgresDeviceSessionRepository, PostgresExecutionRecorder,
-    PostgresIdentityRepository, PostgresLarkIdentityRepository, PostgresOperationLedgerRepository,
-    PostgresReviewDecisionRecorder, PostgresReviewInboxRepository, PostgresSchedulerJobRepository,
-    PostgresTenantRepository, PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator,
-    PostgresTokenRefreshRecorder, PostgresTokenRefreshSweep, PostgresWorkspaceUserRepository,
+    PostgresAuditEventRepository, PostgresAuthLifecycleRepository, PostgresDeviceSessionRepository,
+    PostgresExecutionRecorder, PostgresIdentityRepository, PostgresLarkIdentityRepository,
+    PostgresOperationLedgerRepository, PostgresReviewDecisionRecorder,
+    PostgresReviewInboxRepository, PostgresSchedulerJobRepository, PostgresTenantRepository,
+    PostgresTokenGrantRepository, PostgresTokenRefreshOrchestrator, PostgresTokenRefreshRecorder,
+    PostgresTokenRefreshSweep, PostgresWorkspaceUserRepository,
 };
 use rows::*;
 pub use types::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
-    InsertProposedActionDecisionRequest, PostgresExecutionRecorderReport,
+    InsertProposedActionDecisionRequest, PostgresAuthLogoutRevokeReport,
+    PostgresAuthLogoutRevokeRequest, PostgresExecutionRecorderReport,
     PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorderReport,
     PostgresReviewDecisionRecorderRequest, PostgresTokenRefreshOrchestratorReport,
     PostgresTokenRefreshRecorderReport, PostgresTokenRefreshSweepReport,

@@ -142,7 +142,7 @@ sequenceDiagram
     OAR->>Repo: append-only AuditEvent
 ```
 
-当前已验证的是安全 parser、领域决策、Postgres CAS / audit 编排、显式 `run_once` sweep、真实 Rust/Reqwest refresh adapter 和后台 scheduler/daemon 装配；仍需用真实测试 Feishu grant 做 refresh smoke，并补齐 revoke/reauth 的运维恢复说明。生产接入不等待 Rust 官方 SDK，也不引入跨语言 SDK bridge；主路径采用 Rust 原生 OpenAPI adapter。
+当前已验证的是安全 parser、领域决策、Postgres CAS / audit 编排、显式 `run_once` sweep、真实 Rust/Reqwest refresh adapter、后台 scheduler/daemon 装配，以及 last-device logout 的本地 grant revoke + append-only audit；仍需用真实测试 Feishu grant 做 refresh smoke，并补齐 reauth / provider revoke 边界的运维恢复说明。生产接入不等待 Rust 官方 SDK，也不引入跨语言 SDK bridge；主路径采用 Rust 原生 OpenAPI adapter。
 
 ## 5. A2A 策略
 

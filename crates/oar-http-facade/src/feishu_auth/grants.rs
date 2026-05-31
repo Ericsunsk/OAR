@@ -1,15 +1,17 @@
 use std::time::SystemTime;
 
-use oar_core::storage::postgres::device_session_sql::REVOKE_DEVICE_SESSION;
-use oar_core::storage::postgres::EncryptedTokenGrantRecord;
+use oar_core::storage::postgres::{
+    EncryptedTokenGrantRecord, PostgresAuthLifecycleRepository, PostgresAuthLogoutRevokeRequest,
+};
 
 use crate::AuthenticatedContext;
 
-use super::util::system_time_to_ms_lossy;
+use super::util::{stable_sha256_hex, system_time_to_ms_lossy};
 
 const WORKSPACE_USER_PREFIX: &str = "feishu_user_";
 const GRANT_PREFIX: &str = "feishu_grant_";
 const LOGOUT_GRANT_REVOCATION_REASON: &str = "oar_session_logout_last_device";
+const LOGOUT_GRANT_REVOKE_ACTION_TYPE: &str = "token_grant.revoke.logout_last_device";
 
 pub(crate) async fn resolve_grant_id_for_user(
     pool: &sqlx::PgPool,
@@ -107,82 +109,36 @@ pub(crate) async fn revoke_logout_session_and_last_device_grant(
     pool: sqlx::PgPool,
     auth_context: &AuthenticatedContext,
     now: SystemTime,
-) -> Result<(), sqlx::Error> {
-    let now_ms = system_time_to_ms_lossy(now) as i64;
+) -> Result<(), oar_core::storage::postgres::PostgresRepositoryError> {
+    let now_ms = system_time_to_ms_lossy(now);
     let generated_grant_id = grant_id_for_workspace_user_id(&auth_context.user_id);
-    let mut tx = pool.begin().await?;
+    PostgresAuthLifecycleRepository::new(pool)
+        .revoke_logout_session_and_last_device_grants(PostgresAuthLogoutRevokeRequest {
+            tenant_id: &auth_context.tenant_id,
+            user_id: &auth_context.user_id,
+            session_id: &auth_context.session_id,
+            grant_id_hint: generated_grant_id.as_deref(),
+            occurred_at_ms: now_ms,
+            revocation_reason: LOGOUT_GRANT_REVOCATION_REASON,
+            audit_trace_id: &safe_logout_grant_revoke_trace_id(auth_context, now_ms),
+            audit_action_type: LOGOUT_GRANT_REVOKE_ACTION_TYPE,
+        })
+        .await
+        .map(|_| ())
+}
 
-    sqlx::query(
-        r#"
-        SELECT id
-        FROM device_sessions
-        WHERE tenant_id = $1
-          AND user_id = $2
-          AND state = 'active'
-          AND revoked_at IS NULL
-          AND expired_at IS NULL
-        FOR UPDATE
-        "#,
-    )
-    .bind(&auth_context.tenant_id)
-    .bind(&auth_context.user_id)
-    .fetch_all(&mut *tx)
-    .await?;
-
-    sqlx::query(REVOKE_DEVICE_SESSION)
-        .bind(&auth_context.tenant_id)
-        .bind(&auth_context.session_id)
-        .bind(now_ms)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-    let remaining_active_sessions = sqlx::query_scalar::<_, i64>(
-        r#"
-        SELECT COUNT(*)
-        FROM device_sessions
-        WHERE tenant_id = $1
-          AND user_id = $2
-          AND state = 'active'
-          AND revoked_at IS NULL
-          AND expired_at IS NULL
-        "#,
-    )
-    .bind(&auth_context.tenant_id)
-    .bind(&auth_context.user_id)
-    .fetch_one(&mut *tx)
-    .await?;
-
-    if remaining_active_sessions == 0 {
-        sqlx::query(
-            r#"
-            UPDATE token_grants tg
-            SET state = 'revoked',
-                revoked_at = to_timestamp($3::double precision / 1000.0),
-                revocation_reason = $4,
-                updated_at = to_timestamp($3::double precision / 1000.0)
-            FROM lark_identities li
-            WHERE tg.tenant_id = $1
-              AND tg.identity_id = li.id
-              AND li.tenant_id = tg.tenant_id
-              AND tg.actor_kind = 'user'
-              AND tg.scope_boundary = 'user'
-              AND tg.state <> 'revoked'
-              AND (
-                  ($5::text IS NOT NULL AND tg.id = $5)
-                  OR (li.actor_kind = 'user' AND li.actor_external_id = $2)
-              )
-            "#,
-        )
-        .bind(&auth_context.tenant_id)
-        .bind(&auth_context.user_id)
-        .bind(now_ms)
-        .bind(LOGOUT_GRANT_REVOCATION_REASON)
-        .bind(generated_grant_id.as_deref())
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await
+fn safe_logout_grant_revoke_trace_id(
+    auth_context: &AuthenticatedContext,
+    occurred_at_ms: u64,
+) -> String {
+    let digest = stable_sha256_hex(&[
+        &auth_context.tenant_id,
+        &auth_context.user_id,
+        &auth_context.session_id,
+        &occurred_at_ms.to_string(),
+        LOGOUT_GRANT_REVOKE_ACTION_TYPE,
+    ]);
+    format!("auth-logout-grant-revoke-{}", &digest[..24])
 }
 
 fn grant_id_for_workspace_user_id(user_id: &str) -> Option<String> {
