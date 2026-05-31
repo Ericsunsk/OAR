@@ -200,11 +200,11 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - Rust core 已新增 Postgres `PostgresExecutionRecorder` storage 边界，可在一个 DB transaction 内提交 ledger + audit + outbox，并用 live tests 验证 audit append 失败时 ledger/outbox 一起回滚。
 - Rust core 已新增 feature-gated async `PostgresActionExecutor` 运行时路径，覆盖 `ConfirmedAction -> dry-run -> execute -> terminal audit/outbox`，重复执行会跳过 adapter 和重复 side effects。
 - Rust core 已新增 feature-gated `PostgresAuditOutboxWorker` 最小 drain 路径，使用 `attempt_count + lease_until` guard 防止陈旧 worker 误标 sent/retry/failed；dispatcher error 仍按 retryable 处理，但达到 `max_attempts` 后会转入 `failed` 并在 report 中计为 `exhausted`，作为本地 poison-message 隔离边界。
-- `oar-lark-adapter` 已新增 feature-gated `AuditOutboxSink` / `AuditOutboxSinkDispatcher` 投递边界，把 core outbox message 收敛成最小安全 envelope；no-op/local placeholder 仅允许测试或本地 contract 验证，后台 daemon 启动前必须显式配置真实外部 sink，并由稳定 `delivery_id` 保证幂等。
+- `oar-lark-adapter` 已新增 feature-gated `AuditOutboxSink` / `AuditOutboxSinkDispatcher` 投递边界，把 core outbox message 收敛成最小安全 envelope；adapter 层已提供 HTTPS webhook sink，使用稳定 `delivery_id` / idempotency header 做幂等投递，且按 2xx / retryable / terminal 4xx 做安全分类。no-op/local placeholder 仅允许测试或本地 contract 验证，后台 daemon 不得用它作为默认装配。
 - `audit_outbox.payload` 必须保持最小安全 envelope：仅保存可路由事件引用（例如 `event_id`、`trace_id`、`event_type`、`kind`），入库前拒绝 token、authorization、raw stdout/stderr、encrypted blob、fingerprint 等敏感字段或值。
 - `audit_outbox` 的 pending claim 已补 tenant/stream 组合索引，匹配多租户 drain 查询形态，避免大表下按全局 status 扫描。
 - `postgres` / `postgres-sqlx` feature 可编译 `sqlx` 版 Postgres repository 类型；默认构建仍不拉起数据库运行时依赖。
-- 下一步需要接入真实后台调度、真实外部审计投递 sink、crash recovery，以及更接近生产的并发压力测试；tenant maintenance facade 已先加启动门禁，启用时缺少真实 audit outbox sink 或配置 noop/local-noop 会 fail-closed。
+- 下一步需要把 webhook audit outbox sink 组装进真实后台调度、补齐 crash recovery，以及更接近生产的并发压力测试；tenant maintenance facade 已先加启动门禁，启用时缺少真实 audit outbox sink 或配置 noop/local-noop 会 fail-closed。
 
 ## 6.2 Phase 0.6 下一切片：Identity Repositories + TokenRefreshDecision Bridge
 

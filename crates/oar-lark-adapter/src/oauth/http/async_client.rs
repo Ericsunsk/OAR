@@ -53,21 +53,25 @@ impl AsyncHttpClient for ReqwestAsyncHttpClient {
             }
             _ => return Err(HttpClientFailure::Transport),
         };
-        let response = builder
+        let mut response = builder
             .send()
             .await
             .map_err(|_| HttpClientFailure::Transport)?;
         let status = response.status().as_u16();
-        let bytes = response
-            .bytes()
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .map_err(|_| HttpClientFailure::Transport)?;
-        if bytes.len() > request.max_response_bytes {
-            return Err(HttpClientFailure::OversizedResponse {
-                max_response_bytes: request.max_response_bytes,
-            });
+            .map_err(|_| HttpClientFailure::Transport)?
+        {
+            if body.len().saturating_add(chunk.len()) > request.max_response_bytes {
+                return Err(HttpClientFailure::OversizedResponse {
+                    max_response_bytes: request.max_response_bytes,
+                });
+            }
+            body.extend_from_slice(&chunk);
         }
-        let body = String::from_utf8(bytes.to_vec()).map_err(|_| HttpClientFailure::Transport)?;
+        let body = String::from_utf8(body).map_err(|_| HttpClientFailure::Transport)?;
         Ok(HttpResponse { status, body })
     }
 }

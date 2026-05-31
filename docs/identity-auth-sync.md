@@ -166,6 +166,6 @@
 - `PostgresTokenRefreshOrchestrator` 与具体 auth transport / scheduler 的生产集成验证需继续补齐：refresh 只经加密授权包与 CAS guard，且不绕过 `LarkAdapter/AuthAdapter`；不引入跨语言 SDK bridge。
 - token refresh background scheduler/daemon 仍未完成；当前仅补到“可安全选择候选 grant + lease-gated 显式单次 `run_once` sweep + recurring `pending` / `running` 持久化基础”切片，不代表已具备无人值守 refresh 执行能力。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
-- Postgres executor / outbox worker 尚未接入真实后台调度、外部审计投递 sink、failed outbox 运维恢复入口和 crash recovery；tenant maintenance daemon 启动门禁已先 fail-closed 到真实 audit outbox sink 配置。
+- Postgres executor / outbox worker 尚未接入真实后台调度、failed outbox 运维恢复入口和 crash recovery；真实 HTTPS webhook audit outbox sink 已在 adapter 层落地，但 tenant maintenance daemon 仍需把它生产组装进 outbox drain 路径，启动门禁已先 fail-closed 到真实 audit outbox sink 配置。
 - tenant maintenance 已从 one-shot contract 向外层 runtime 壳推进：`oar-runtime` 可周期触发 `run_once` 并支持 cancellation；多租户 registry 与 tenant discovery / registry builder 前置边界已能以静态 discovery/fake factory 方式验证构建路径，并已接入 repository-backed active tenant discovery；具体 Rust OpenAPI auth transport production 装配、runtime tick factory production wiring、重试策略、stage-level alerting 与生产监控闭环仍待完成。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

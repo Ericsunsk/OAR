@@ -6,6 +6,7 @@ use oar_core::storage::postgres::AuditOutboxMessage;
 use serde_json::Value;
 
 use super::*;
+use crate::oauth::{AsyncHttpClient, HttpClientFailure, HttpRequest, HttpResponse};
 
 fn message(payload: Value) -> AuditOutboxMessage {
     AuditOutboxMessage {
@@ -188,8 +189,175 @@ fn noop_sink_records_safe_envelope_without_external_write() {
     assert!(!debug.contains("trace_1"));
 }
 
+#[test]
+fn webhook_sink_posts_safe_envelope_with_idempotency_headers() {
+    let http_client = RecordingAsyncHttpClient::from_response(HttpResponse::new(202, "{}"));
+    let mut sink = WebhookAuditOutboxSink::with_max_response_bytes(
+        "https://audit.example.test/webhook?token=webhook-secret",
+        http_client,
+        1024,
+    )
+    .expect("webhook sink should build");
+    let delivery = runtime().block_on(async {
+        sink.deliver(
+            AuditOutboxDeliveryEnvelope::try_from(&message(serde_json::json!({
+                "trace_id": "trace_1",
+                "kind": "audit_event"
+            })))
+            .expect("safe envelope"),
+        )
+        .await
+    });
+    assert_eq!(
+        delivery.expect("webhook delivery should succeed"),
+        AuditOutboxSinkDelivery::Sent
+    );
+
+    let request = sink
+        .http_client()
+        .requests
+        .first()
+        .expect("webhook request");
+    assert_eq!(request.method, "POST");
+    assert_eq!(
+        request.url,
+        "https://audit.example.test/webhook?token=webhook-secret"
+    );
+    assert_eq!(request.max_response_bytes, 1024);
+    assert_eq!(
+        header_value(&request.headers, "Idempotency-Key"),
+        Some("tenant_1:audit-events:trace_1:42")
+    );
+    assert_eq!(
+        header_value(&request.headers, "X-OAR-Delivery-ID"),
+        Some("tenant_1:audit-events:trace_1:42")
+    );
+    assert_eq!(
+        header_value(&request.headers, "X-OAR-Tenant-ID"),
+        Some("tenant_1")
+    );
+    assert_eq!(
+        request.body["delivery_id"],
+        serde_json::json!("tenant_1:audit-events:trace_1:42")
+    );
+    assert_eq!(
+        request.body["payload"]["trace_id"],
+        serde_json::json!("trace_1")
+    );
+    assert_eq!(
+        request.body["payload"]["kind"],
+        serde_json::json!("audit_event")
+    );
+
+    let rendered = format!("{sink:?} {request:?}");
+    assert!(!rendered.contains("webhook-secret"));
+    assert!(!rendered.contains("token="));
+}
+
+#[test]
+fn webhook_sink_classifies_status_and_transport_safely() {
+    for (status, expected) in [
+        (200, AuditOutboxSinkDelivery::Sent),
+        (299, AuditOutboxSinkDelivery::Sent),
+        (408, AuditOutboxSinkDelivery::Retryable),
+        (429, AuditOutboxSinkDelivery::Retryable),
+        (503, AuditOutboxSinkDelivery::Retryable),
+        (400, AuditOutboxSinkDelivery::Failed),
+        (401, AuditOutboxSinkDelivery::Failed),
+    ] {
+        let delivery = deliver_with_webhook_result(Ok(HttpResponse::new(status, "{}")))
+            .expect("status classification should not error");
+        assert_eq!(delivery, expected, "status {status}");
+    }
+
+    let error = deliver_with_webhook_result(Err(HttpClientFailure::Transport))
+        .expect_err("transport should map to retryable sink error");
+    assert_eq!(error.classify(), AuditOutboxSinkDelivery::Retryable);
+    let rendered = format!("{error:?} {error}");
+    assert!(!rendered.contains("webhook-secret"));
+}
+
+#[test]
+fn webhook_sink_rejects_invalid_config_without_echoing_endpoint() {
+    for endpoint in [
+        "http://audit.example.test/webhook?token=webhook-secret",
+        "not-a-url?token=webhook-secret",
+    ] {
+        let error = WebhookAuditOutboxSink::new(
+            endpoint,
+            RecordingAsyncHttpClient::from_response(HttpResponse::new(200, "{}")),
+        )
+        .expect_err("invalid endpoint should fail");
+        let rendered = format!("{error:?} {error}");
+        assert!(!rendered.contains("webhook-secret"));
+        assert!(!rendered.contains(endpoint));
+    }
+
+    let error = WebhookAuditOutboxSink::with_max_response_bytes(
+        "https://audit.example.test/webhook?token=webhook-secret",
+        RecordingAsyncHttpClient::from_response(HttpResponse::new(200, "{}")),
+        0,
+    )
+    .expect_err("zero max response bytes should fail");
+    let rendered = format!("{error:?} {error}");
+    assert!(!rendered.contains("webhook-secret"));
+}
+
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("test tokio runtime should build")
+}
+
+fn deliver_with_webhook_result(
+    result: Result<HttpResponse, HttpClientFailure>,
+) -> Result<AuditOutboxSinkDelivery, AuditOutboxSinkError> {
+    let mut sink = WebhookAuditOutboxSink::new(
+        "https://audit.example.test/webhook?token=webhook-secret",
+        RecordingAsyncHttpClient::from_result(result),
+    )
+    .expect("webhook sink should build");
+    runtime().block_on(async {
+        sink.deliver(
+            AuditOutboxDeliveryEnvelope::try_from(&message(serde_json::json!({
+                "trace_id": "trace_1"
+            })))
+            .expect("safe envelope"),
+        )
+        .await
+    })
+}
+
+fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(header_name, _)| header_name == name)
+        .map(|(_, value)| value.as_str())
+}
+
+#[derive(Debug)]
+struct RecordingAsyncHttpClient {
+    result: Result<HttpResponse, HttpClientFailure>,
+    requests: Vec<HttpRequest>,
+}
+
+impl RecordingAsyncHttpClient {
+    fn from_response(response: HttpResponse) -> Self {
+        Self::from_result(Ok(response))
+    }
+
+    fn from_result(result: Result<HttpResponse, HttpClientFailure>) -> Self {
+        Self {
+            result,
+            requests: Vec::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl AsyncHttpClient for RecordingAsyncHttpClient {
+    async fn post_json(&mut self, request: HttpRequest) -> Result<HttpResponse, HttpClientFailure> {
+        self.requests.push(request);
+        self.result.clone()
+    }
 }

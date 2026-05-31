@@ -43,7 +43,7 @@ impl fmt::Debug for HttpRequest {
             .collect::<Vec<_>>();
         f.debug_struct("HttpRequest")
             .field("method", &self.method)
-            .field("url", &self.url)
+            .field("url", &redacted_url(&self.url))
             .field("headers", &headers)
             .field("body", &"[REDACTED]")
             .field("max_response_bytes", &self.max_response_bytes)
@@ -57,6 +57,15 @@ fn is_sensitive_header(name: &str) -> bool {
         || lower == "cookie"
         || lower == "set-cookie"
         || lower.starts_with("x-lark-")
+}
+
+fn redacted_url(value: &str) -> String {
+    let Ok(mut url) = reqwest::Url::parse(value) else {
+        return "[REDACTED_URL]".to_string();
+    };
+    url.set_query(None);
+    url.set_fragment(None);
+    url.to_string()
 }
 
 #[derive(Clone, PartialEq, Eq)]

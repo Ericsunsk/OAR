@@ -24,6 +24,7 @@ mod url_encoding;
 pub use audit_outbox::{
     sink_unavailable_error, AuditOutboxDeliveryEnvelope, AuditOutboxSafePayload, AuditOutboxSink,
     AuditOutboxSinkDelivery, AuditOutboxSinkDispatcher, AuditOutboxSinkError, NoopAuditOutboxSink,
+    WebhookAuditOutboxSink, WebhookAuditOutboxSinkConfigError,
 };
 pub use calendar::{
     build_event_instance_view_request, build_free_busy_batch_request,

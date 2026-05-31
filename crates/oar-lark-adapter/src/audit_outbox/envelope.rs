@@ -3,11 +3,12 @@ use std::fmt;
 use oar_core::storage::postgres::{
     validate_audit_outbox_text, AuditOutboxMessage, SafeAuditOutboxPayload,
 };
+use serde::Serialize;
 use serde_json::Value;
 
 use super::sink::{unsafe_envelope_error, AuditOutboxSinkError};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct AuditOutboxDeliveryEnvelope {
     pub delivery_id: String,
     pub tenant_id: String,
@@ -30,13 +31,19 @@ impl fmt::Debug for AuditOutboxDeliveryEnvelope {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuditOutboxSafePayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub event_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub event_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
 }
 
