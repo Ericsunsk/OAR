@@ -84,9 +84,9 @@ struct RemoteAgentProvider: AgentProviding {
         )
         for try await event in streamEvents {
             switch event {
-            case .delta:
+            case .delta(let delta):
                 didYieldContent = true
-                continuation.yield(event)
+                continuation.yield(.delta(delta))
             case .completed:
                 guard didYieldContent else {
                     throw AgentProviderError.invalidResponse
@@ -94,6 +94,8 @@ struct RemoteAgentProvider: AgentProviding {
                 continuation.yield(.completed)
                 continuation.finish()
                 return
+            case .error:
+                throw AgentProviderError.serverUnavailable
             }
 
             if Task.isCancelled { return }

@@ -110,7 +110,7 @@ final class RemoteAgentProviderTests: XCTestCase {
         await Self.assertStreamError(statusCode: 418, mapsTo: .invalidResponse)
     }
 
-    func testCompletedStreamWithoutDeltaMapsToInvalidResponse() async {
+    func testUnknownStreamEventIsIgnoredForForwardCompatibility() async throws {
         AgentTestURLProtocol.handler = { request in
             (
                 HTTPURLResponse(
@@ -121,6 +121,10 @@ final class RemoteAgentProviderTests: XCTestCase {
                 )!,
                 Self.sse(
                     """
+                    data: {"event":"delta","delta":"风险"}
+
+                    data: {"event":"metadata","message":"future event"}
+
                     data: {"event":"completed"}
 
                     """
@@ -128,82 +132,86 @@ final class RemoteAgentProviderTests: XCTestCase {
             )
         }
 
-        let provider = Self.provider()
-
-        do {
-            try await Self.drain(
-                provider.stream(messages: [AgentMessage(role: .user, text: "hi")], context: .empty)
+        let events = try await Self.collectEvents(
+            from: Self.provider().stream(
+                messages: [AgentMessage(role: .user, text: "hi")],
+                context: .empty
             )
-            XCTFail("Expected invalid response error")
-        } catch let error as AgentProviderError {
-            XCTAssertEqual(error, .invalidResponse)
-        } catch {
-            XCTFail("Unexpected error: \(error)")
+        )
+
+        XCTAssertEqual(events, [.delta("风险"), .completed])
+    }
+
+    func testStreamErrorEventsMapToServerUnavailable() async {
+        for code in ["invalid_upstream_event", "upstream_unavailable", "upstream_error"] {
+            await Self.assertStreamBody(
+                """
+                data: {"event":"error","error":"\(code)"}
+
+                """,
+                mapsTo: .serverUnavailable
+            )
         }
+
+        await Self.assertStreamBody(
+            """
+            data: {"event":"error","code":"upstream_error"}
+
+            """,
+            mapsTo: .serverUnavailable
+        )
+    }
+
+    func testStreamErrorCodeIsNotExposedToUI() async {
+        await Self.assertStreamBody(
+            """
+            data: {"event":"error","error":"oar_session_secret"}
+
+            """,
+            mapsTo: .serverUnavailable
+        )
+    }
+
+    func testBlankDeltaIsIgnoredAndDoesNotCountAsContent() async {
+        await Self.assertStreamBody(
+            """
+            data: {"event":"delta","delta":"   "}
+
+            data: {"event":"completed"}
+
+            """,
+            mapsTo: .invalidResponse
+        )
+    }
+
+    func testCompletedStreamWithoutDeltaMapsToInvalidResponse() async {
+        await Self.assertStreamBody(
+            """
+            data: {"event":"completed"}
+
+            """,
+            mapsTo: .invalidResponse
+        )
     }
 
     func testMalformedStreamEventMapsToInvalidResponse() async {
-        AgentTestURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "text/event-stream"]
-                )!,
-                Self.sse(
-                    """
-                    data: not-json
+        await Self.assertStreamBody(
+            """
+            data: not-json
 
-                    """
-                )
-            )
-        }
-
-        let provider = Self.provider()
-
-        do {
-            try await Self.drain(
-                provider.stream(messages: [AgentMessage(role: .user, text: "hi")], context: .empty)
-            )
-            XCTFail("Expected invalid response error")
-        } catch let error as AgentProviderError {
-            XCTAssertEqual(error, .invalidResponse)
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
+            """,
+            mapsTo: .invalidResponse
+        )
     }
 
     func testEOFBeforeCompletedMapsToInvalidResponse() async {
-        AgentTestURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: 200,
-                    httpVersion: nil,
-                    headerFields: ["Content-Type": "text/event-stream"]
-                )!,
-                Self.sse(
-                    """
-                    data: {"event":"delta","delta":"partial"}
+        await Self.assertStreamBody(
+            """
+            data: {"event":"delta","delta":"partial"}
 
-                    """
-                )
-            )
-        }
-
-        let provider = Self.provider()
-
-        do {
-            try await Self.drain(
-                provider.stream(messages: [AgentMessage(role: .user, text: "hi")], context: .empty)
-            )
-            XCTFail("Expected invalid response error")
-        } catch let error as AgentProviderError {
-            XCTAssertEqual(error, .invalidResponse)
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
+            """,
+            mapsTo: .invalidResponse
+        )
     }
 
     private static let appSession = AppSession(
@@ -235,17 +243,55 @@ final class RemoteAgentProviderTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        AgentTestURLProtocol.handler = { request in
-            (
-                HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: statusCode,
-                    httpVersion: nil,
-                    headerFields: nil
-                )!,
-                Data("error".utf8)
-            )
-        }
+        await Self.assertStreamFailure(
+            response: { request in
+                (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: statusCode,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!,
+                    Data("error".utf8)
+                )
+            },
+            mapsTo: expectedError,
+            file: file,
+            line: line
+        )
+    }
+
+    private static func assertStreamBody(
+        _ text: String,
+        mapsTo expectedError: AgentProviderError,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        await Self.assertStreamFailure(
+            response: { request in
+                (
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "text/event-stream"]
+                    )!,
+                    Self.sse(text)
+                )
+            },
+            mapsTo: expectedError,
+            file: file,
+            line: line
+        )
+    }
+
+    private static func assertStreamFailure(
+        response: @escaping (URLRequest) throws -> (HTTPURLResponse, Data),
+        mapsTo expectedError: AgentProviderError,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        AgentTestURLProtocol.handler = response
 
         do {
             try await Self.drain(

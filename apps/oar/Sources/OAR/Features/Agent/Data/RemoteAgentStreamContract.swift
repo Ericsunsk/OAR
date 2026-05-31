@@ -65,7 +65,7 @@ private struct RemoteAgentEvidenceRefDTO: Encodable {
 }
 
 struct RemoteAgentEventSequence<Base: AsyncSequence>: AsyncSequence where Base.Element == ServerSentEvent {
-    typealias Element = AgentStreamEvent
+    typealias Element = RemoteAgentStreamEvent
 
     let events: Base
     let decoder: JSONDecoder
@@ -78,7 +78,7 @@ struct RemoteAgentEventSequence<Base: AsyncSequence>: AsyncSequence where Base.E
         var eventIterator: Base.AsyncIterator
         let decoder: JSONDecoder
 
-        mutating func next() async throws -> AgentStreamEvent? {
+        mutating func next() async throws -> RemoteAgentStreamEvent? {
             while let event = try await eventIterator.next() {
                 let dto: RemoteAgentStreamEventDTO
                 do {
@@ -90,14 +90,16 @@ struct RemoteAgentEventSequence<Base: AsyncSequence>: AsyncSequence where Base.E
                     throw AgentProviderError.invalidResponse
                 }
                 switch dto.event {
-                case "delta":
-                    guard let delta = dto.delta, !delta.isEmpty else { continue }
+                case .delta:
+                    guard let delta = dto.delta,
+                          !delta.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    else { continue }
                     return .delta(delta)
-                case "completed":
+                case .completed:
                     return .completed
-                case "error":
-                    throw AgentProviderError.serverUnavailable
-                default:
+                case .error:
+                    return .error(dto.streamError)
+                case .unknown:
                     continue
                 }
             }
@@ -106,7 +108,55 @@ struct RemoteAgentEventSequence<Base: AsyncSequence>: AsyncSequence where Base.E
     }
 }
 
+enum RemoteAgentStreamEvent: Equatable {
+    case delta(String)
+    case completed
+    case error(RemoteAgentStreamErrorDTO)
+}
+
+struct RemoteAgentStreamErrorDTO: Decodable, Equatable {
+    let code: String?
+}
+
+private enum RemoteAgentStreamEventKind: Decodable, Equatable {
+    case delta
+    case completed
+    case error
+    case unknown(String)
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "delta":
+            self = .delta
+        case "completed":
+            self = .completed
+        case "error":
+            self = .error
+        default:
+            self = .unknown(value)
+        }
+    }
+}
+
 private struct RemoteAgentStreamEventDTO: Decodable {
-    let event: String
+    let event: RemoteAgentStreamEventKind
     let delta: String?
+    let streamError: RemoteAgentStreamErrorDTO
+
+    enum CodingKeys: String, CodingKey {
+        case event
+        case delta
+        case error
+        case code
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        event = try container.decode(RemoteAgentStreamEventKind.self, forKey: .event)
+        delta = try container.decodeIfPresent(String.self, forKey: .delta)
+        let code = try container.decodeIfPresent(String.self, forKey: .code)
+            ?? container.decodeIfPresent(String.self, forKey: .error)
+        streamError = RemoteAgentStreamErrorDTO(code: code)
+    }
 }
