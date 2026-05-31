@@ -270,6 +270,7 @@ docker compose -f docker/compose.dev.yml up --build
 docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql
 docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0002_review_inbox_domain.sql
 docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0003_agent_model_settings.sql
+docker exec -i oar-postgres-1 psql -U oar -d oar -v ON_ERROR_STOP=1 < crates/oar-core/migrations/0004_expand_evidence_source_kinds.sql
 ```
 
 生产 / 云端 compose 只启动 backend，必须显式提供外部 `DATABASE_URL`：
@@ -300,8 +301,8 @@ task 读取；task create/write scope 仅用于 DraftOnly/补授权准备。OAut
 写操作仍然必须经过 dry-run、人工确认、`OperationLedger` 和 `AuditEvent`。
 本地开发可临时设置 `OAR_ALLOW_EPHEMERAL_GRANT_KEY=true` 让 auth refresh 配置自动生成一次性内存
 grant key；生产环境不要打开，必须注入稳定的 `OAR_GRANT_KEY_ID` / `OAR_GRANT_KEY_HEX`。
-后台租户维护运行时使用显式 `OAR_TENANT_MAINTENANCE_ENABLED=true` 作为唯一开关；当前阶段只做启动期配置门禁，
-尚不启动维护循环。启用时必须有数据库持久化、稳定 grant key、完整飞书 OAuth app 配置和安全的
+后台租户维护运行时使用显式 `OAR_TENANT_MAINTENANCE_ENABLED=true` 作为唯一开关；启用后，
+facade 成功绑定监听后会启动维护循环。启用时必须有数据库持久化、稳定 grant key、完整飞书 OAuth app 配置和安全的
 `OAR_TENANT_MAINTENANCE_INSTANCE_ID`，并且不能同时使用一次性内存 grant key。
 
 飞书应用凭证模型：

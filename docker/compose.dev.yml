@@ -20,10 +20,24 @@ services:
       OAR_FEISHU_APP_SECRET: ${OAR_FEISHU_APP_SECRET:-}
       OAR_FEISHU_REDIRECT_URI: ${OAR_FEISHU_REDIRECT_URI:-}
       OAR_FEISHU_AUTHORIZE_BASE_URL: ${OAR_FEISHU_AUTHORIZE_BASE_URL:-https://open.feishu.cn}
-      OAR_FEISHU_AUTH_SCOPE: "${OAR_FEISHU_AUTH_SCOPE:-offline_access}"
+      OAR_FEISHU_AUTH_SCOPE: ${OAR_FEISHU_AUTH_SCOPE:-}
       OAR_ALLOW_EPHEMERAL_GRANT_KEY: ${OAR_ALLOW_EPHEMERAL_GRANT_KEY:-}
       OAR_GRANT_KEY_ID: ${OAR_GRANT_KEY_ID:-}
       OAR_GRANT_KEY_HEX: ${OAR_GRANT_KEY_HEX:-}
+      OAR_AGENT_PROVIDER: ${OAR_AGENT_PROVIDER:-}
+      OAR_AGENT_OPENAI_BASE_URL: ${OAR_AGENT_OPENAI_BASE_URL:-}
+      OAR_AGENT_OPENAI_API_KEY: ${OAR_AGENT_OPENAI_API_KEY:-}
+      OAR_AGENT_OPENAI_MODEL: ${OAR_AGENT_OPENAI_MODEL:-}
+      OAR_AGENT_ANTHROPIC_BASE_URL: ${OAR_AGENT_ANTHROPIC_BASE_URL:-}
+      OAR_AGENT_ANTHROPIC_API_KEY: ${OAR_AGENT_ANTHROPIC_API_KEY:-}
+      OAR_AGENT_ANTHROPIC_MODEL: ${OAR_AGENT_ANTHROPIC_MODEL:-}
+      OAR_AGENT_ANTHROPIC_VERSION: ${OAR_AGENT_ANTHROPIC_VERSION:-}
+      OAR_TENANT_MAINTENANCE_ENABLED: ${OAR_TENANT_MAINTENANCE_ENABLED:-}
+      OAR_TENANT_MAINTENANCE_INSTANCE_ID: ${OAR_TENANT_MAINTENANCE_INSTANCE_ID:-}
+      OAR_TENANT_MAINTENANCE_INTERVAL_MS: ${OAR_TENANT_MAINTENANCE_INTERVAL_MS:-}
+      OAR_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS: ${OAR_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS:-}
+      OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK: ${OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_SINK:-}
+      OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL: ${OAR_TENANT_MAINTENANCE_AUDIT_OUTBOX_WEBHOOK_URL:-}
     ports:
       - "8080:8080"
 
@@ -40,6 +54,7 @@ services:
       - ../crates/oar-core/migrations/0001_phase_0_6_identity_action_audit.sql:/docker-entrypoint-initdb.d/001_phase_0_6_identity_action_audit.sql:ro
       - ../crates/oar-core/migrations/0002_review_inbox_domain.sql:/docker-entrypoint-initdb.d/002_review_inbox_domain.sql:ro
       - ../crates/oar-core/migrations/0003_agent_model_settings.sql:/docker-entrypoint-initdb.d/003_agent_model_settings.sql:ro
+      - ../crates/oar-core/migrations/0004_expand_evidence_source_kinds.sql:/docker-entrypoint-initdb.d/004_expand_evidence_source_kinds.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
