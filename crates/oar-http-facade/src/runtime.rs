@@ -1,14 +1,16 @@
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
-use oar_runtime::TenantMaintenanceRuntimeConfig;
 use sqlx::postgres::PgPoolOptions;
 
 use crate::agent::{AgentModelSettingsRuntime, AgentRuntime, AgentRuntimeConfigError};
 use crate::feishu_auth::{FeishuLoginRuntime, FeishuLoginRuntimeConfigError};
 use crate::persistence::{FacadePersistenceConfig, FacadePersistenceRuntime};
+use crate::tenant_maintenance::{
+    tenant_maintenance_runtime_settings_from_env_map, TenantMaintenanceRuntimeSettings,
+    TenantMaintenanceSettingsError,
+};
 use crate::util::non_empty_env;
 
 #[derive(Clone, Default)]
@@ -30,13 +32,6 @@ impl fmt::Debug for OarHttpFacadeRuntime {
             .field("tenant_maintenance", &self.tenant_maintenance.is_some())
             .finish()
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TenantMaintenanceRuntimeSettings {
-    pub(crate) runtime: TenantMaintenanceRuntimeConfig,
-    pub(crate) instance_id: String,
-    pub(crate) due_lookahead_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,9 +144,10 @@ impl OarHttpFacadeRuntime {
             .map(Arc::new);
         let tenant_maintenance = tenant_maintenance_runtime_settings_from_env_map(
             env,
-            persistence.as_ref(),
-            feishu_login.as_ref(),
-        )?;
+            persistence.is_some(),
+            feishu_login.is_some(),
+        )
+        .map_err(tenant_maintenance_settings_error)?;
         Ok(Self {
             persistence,
             feishu_login,
@@ -162,111 +158,23 @@ impl OarHttpFacadeRuntime {
     }
 }
 
-const TENANT_MAINTENANCE_ENABLED_ENV: &str = "OAR_TENANT_MAINTENANCE_ENABLED";
-const TENANT_MAINTENANCE_INSTANCE_ID_ENV: &str = "OAR_TENANT_MAINTENANCE_INSTANCE_ID";
-const TENANT_MAINTENANCE_INTERVAL_MS_ENV: &str = "OAR_TENANT_MAINTENANCE_INTERVAL_MS";
-const TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS_ENV: &str = "OAR_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS";
-const ALLOW_EPHEMERAL_GRANT_KEY_ENV: &str = "OAR_ALLOW_EPHEMERAL_GRANT_KEY";
-const DEFAULT_TENANT_MAINTENANCE_INTERVAL_MS: u64 = 60_000;
-const DEFAULT_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS: u64 = 300_000;
-const MIN_TENANT_MAINTENANCE_INTERVAL_MS: u64 = 5_000;
-const MAX_TENANT_MAINTENANCE_INTERVAL_MS: u64 = 3_600_000;
-const MIN_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS: u64 = 1_000;
-const MAX_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS: u64 = 86_400_000;
-const TENANT_MAINTENANCE_INSTANCE_ID_MAX_LEN: usize = 128;
-
-fn tenant_maintenance_runtime_settings_from_env_map(
-    env: &impl Fn(&str) -> Option<String>,
-    persistence: Option<&FacadePersistenceRuntime>,
-    feishu_login: Option<&Arc<FeishuLoginRuntime>>,
-) -> Result<Option<TenantMaintenanceRuntimeSettings>, OarHttpFacadeRuntimeError> {
-    if !enabled_env_flag(env, TENANT_MAINTENANCE_ENABLED_ENV)? {
-        return Ok(None);
+fn tenant_maintenance_settings_error(
+    error: TenantMaintenanceSettingsError,
+) -> OarHttpFacadeRuntimeError {
+    match error {
+        TenantMaintenanceSettingsError::RequiresDatabase => {
+            OarHttpFacadeRuntimeError::TenantMaintenanceRequiresDatabase
+        }
+        TenantMaintenanceSettingsError::RequiresFeishuAuth => {
+            OarHttpFacadeRuntimeError::TenantMaintenanceRequiresFeishuAuth
+        }
+        TenantMaintenanceSettingsError::MissingInstanceId => {
+            OarHttpFacadeRuntimeError::TenantMaintenanceMissingInstanceId
+        }
+        TenantMaintenanceSettingsError::InvalidConfig => {
+            OarHttpFacadeRuntimeError::InvalidTenantMaintenanceConfig
+        }
     }
-    if enabled_env_flag(env, ALLOW_EPHEMERAL_GRANT_KEY_ENV)? {
-        return Err(OarHttpFacadeRuntimeError::InvalidTenantMaintenanceConfig);
-    }
-    if persistence.is_none() {
-        return Err(OarHttpFacadeRuntimeError::TenantMaintenanceRequiresDatabase);
-    }
-    if feishu_login.is_none() {
-        return Err(OarHttpFacadeRuntimeError::TenantMaintenanceRequiresFeishuAuth);
-    }
-
-    let instance_id = non_empty_env(env, TENANT_MAINTENANCE_INSTANCE_ID_ENV)
-        .ok_or(OarHttpFacadeRuntimeError::TenantMaintenanceMissingInstanceId)?;
-    validate_tenant_maintenance_instance_id(&instance_id)?;
-    let interval_ms = bounded_u64_env(
-        env,
-        TENANT_MAINTENANCE_INTERVAL_MS_ENV,
-        DEFAULT_TENANT_MAINTENANCE_INTERVAL_MS,
-        MIN_TENANT_MAINTENANCE_INTERVAL_MS,
-        MAX_TENANT_MAINTENANCE_INTERVAL_MS,
-    )?;
-    let due_lookahead_ms = bounded_u64_env(
-        env,
-        TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS_ENV,
-        DEFAULT_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS,
-        MIN_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS,
-        MAX_TENANT_MAINTENANCE_DUE_LOOKAHEAD_MS,
-    )?;
-    let runtime = TenantMaintenanceRuntimeConfig {
-        tick_interval: Duration::from_millis(interval_ms),
-    };
-    runtime
-        .validate()
-        .map_err(|_| OarHttpFacadeRuntimeError::InvalidTenantMaintenanceConfig)?;
-
-    Ok(Some(TenantMaintenanceRuntimeSettings {
-        runtime,
-        instance_id,
-        due_lookahead_ms,
-    }))
-}
-
-fn validate_tenant_maintenance_instance_id(value: &str) -> Result<(), OarHttpFacadeRuntimeError> {
-    let valid = !value.is_empty()
-        && value.len() <= TENANT_MAINTENANCE_INSTANCE_ID_MAX_LEN
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'));
-    if !valid {
-        return Err(OarHttpFacadeRuntimeError::InvalidTenantMaintenanceConfig);
-    }
-    Ok(())
-}
-
-fn enabled_env_flag(
-    env: &impl Fn(&str) -> Option<String>,
-    key: &str,
-) -> Result<bool, OarHttpFacadeRuntimeError> {
-    let Some(value) = non_empty_env(env, key) else {
-        return Ok(false);
-    };
-    match value.as_str() {
-        "1" | "true" | "TRUE" | "yes" | "YES" => Ok(true),
-        "0" | "false" | "FALSE" | "no" | "NO" => Ok(false),
-        _ => Err(OarHttpFacadeRuntimeError::InvalidTenantMaintenanceConfig),
-    }
-}
-
-fn bounded_u64_env(
-    env: &impl Fn(&str) -> Option<String>,
-    key: &str,
-    default_value: u64,
-    min_value: u64,
-    max_value: u64,
-) -> Result<u64, OarHttpFacadeRuntimeError> {
-    let Some(value) = non_empty_env(env, key) else {
-        return Ok(default_value);
-    };
-    let value = value
-        .parse::<u64>()
-        .map_err(|_| OarHttpFacadeRuntimeError::InvalidTenantMaintenanceConfig)?;
-    if !(min_value..=max_value).contains(&value) {
-        return Err(OarHttpFacadeRuntimeError::InvalidTenantMaintenanceConfig);
-    }
-    Ok(value)
 }
 
 fn agent_runtime_config_error(error: AgentRuntimeConfigError) -> OarHttpFacadeRuntimeError {

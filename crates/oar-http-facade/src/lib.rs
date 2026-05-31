@@ -11,6 +11,7 @@ mod routing;
 mod runtime;
 mod server;
 mod session_auth;
+mod tenant_maintenance;
 mod util;
 
 pub(crate) use routing::{accepts_event_stream, event_stream_required};

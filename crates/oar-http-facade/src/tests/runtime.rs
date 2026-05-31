@@ -81,12 +81,12 @@ async fn runtime_tenant_maintenance_parses_safe_runtime_settings() {
         .tenant_maintenance
         .as_ref()
         .expect("tenant maintenance settings");
-    assert_eq!(settings.instance_id, "tenant-maintenance-test");
+    assert_eq!(settings.worker.instance_id, "tenant-maintenance-test");
     assert_eq!(
         settings.runtime.tick_interval,
         Duration::from_millis(15_000)
     );
-    assert_eq!(settings.due_lookahead_ms, 90_000);
+    assert_eq!(settings.worker.due_lookahead_ms, 90_000);
     assert!(!format!("{runtime:?}").contains("tenant-maintenance-test"));
 }
 
@@ -103,7 +103,7 @@ async fn runtime_tenant_maintenance_uses_default_schedule_settings() {
         .as_ref()
         .expect("tenant maintenance settings");
     assert_eq!(settings.runtime.tick_interval, Duration::from_secs(60));
-    assert_eq!(settings.due_lookahead_ms, 300_000);
+    assert_eq!(settings.worker.due_lookahead_ms, 300_000);
 }
 
 #[tokio::test]
