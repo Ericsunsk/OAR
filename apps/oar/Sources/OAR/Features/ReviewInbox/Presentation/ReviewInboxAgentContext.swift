@@ -25,7 +25,7 @@ extension ReviewInboxViewModel {
             evidenceSummaries: selectedEvidenceSummaries,
             evidenceRefs: zip(selectedEvidence, selectedEvidenceSummaries).map { evidence, summary in
                 AgentEvidenceRef(
-                    sourceType: evidence.sourceType.rawValue,
+                    sourceType: evidence.sourceType.agentSourceType,
                     sourceRef: evidence.sourceRef,
                     summary: summary
                 )
@@ -53,9 +53,12 @@ extension ReviewInboxViewModel {
     }
 
     private var agentWorkspaceSignals: [String] {
-        let riskSignals = sortedItems.prefix(4).map { item in
-            "\(item.riskLevel.rawValue)｜\(safeAgentSummary(item.keyResultTitle, maxCharacters: 80))｜owner：\(safeAgentSummary(item.ownerName, maxCharacters: 40))｜置信 \(agentConfidenceText(item.confidenceScore))｜状态：\(item.status.rawValue)｜原因：\(safeAgentSummary(item.riskReason))"
-        }
+        let riskSignals = sortedItems
+            .filter { item in item.id != selectedItem?.id }
+            .prefix(4)
+            .map { item in
+                "\(item.riskLevel.rawValue)｜\(safeAgentSummary(item.keyResultTitle, maxCharacters: 80))｜owner：\(safeAgentSummary(item.ownerName, maxCharacters: 40))｜置信 \(agentConfidenceText(item.confidenceScore))｜状态：\(item.status.rawValue)｜原因：\(safeAgentSummary(item.riskReason))"
+            }
         let evidenceGaps = agentEvidenceGapSummaries.prefix(2)
         return Array((riskSignals + evidenceGaps).prefix(5))
     }
@@ -169,5 +172,24 @@ extension ReviewInboxViewModel {
 private extension ReviewInboxSuggestedAction {
     var isPendingOrDraftForAgent: Bool {
         gateState == .pending || gateState == .draft
+    }
+}
+
+private extension ReviewInboxEvidenceSource {
+    var agentSourceType: String {
+        switch self {
+        case .okr:
+            return "okr"
+        case .task:
+            return "task"
+        case .calendar:
+            return "calendar"
+        case .meeting:
+            return "meeting"
+        case .doc:
+            return "doc"
+        case .im:
+            return "im"
+        }
     }
 }

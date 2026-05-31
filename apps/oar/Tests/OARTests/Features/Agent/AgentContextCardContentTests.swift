@@ -35,8 +35,8 @@ final class AgentContextCardContentTests: XCTestCase {
             actionSummary: "更新进展：真实发送的动作摘要 dry-run：只写入进展，不改 owner。",
             evidenceSummaries: ["证据摘要 A", "证据摘要 B"],
             evidenceRefs: [
-                AgentEvidenceRef(sourceType: "OKR", sourceRef: "okr://real", summary: "证据摘要 A"),
-                AgentEvidenceRef(sourceType: "任务", sourceRef: "task://real", summary: "证据摘要 B")
+                AgentEvidenceRef(sourceType: "okr", sourceRef: "okr://real", summary: "证据摘要 A"),
+                AgentEvidenceRef(sourceType: "task", sourceRef: "task://real", summary: "证据摘要 B")
             ],
             workspaceSummary: "工作区摘要：共 2 个风险，当前焦点 1/2。",
             workspaceSignals: ["严重｜真实发送的 KR 标题｜owner：陈敏｜置信 91%"],

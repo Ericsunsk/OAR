@@ -62,7 +62,8 @@ struct AgentContextCardContent: Equatable {
         item: ReviewInboxDisplayItem? = nil,
         action: ReviewInboxSuggestedAction? = nil
     ) {
-        let evidenceCount = max(context.evidenceRefs.count, context.evidenceSummaries.count)
+        let evidenceSummaries = context.canonicalEvidenceSummaries
+        let evidenceCount = max(context.evidenceRefs.count, evidenceSummaries.count)
         title = Self.displayText(
             context.title,
             fallback: item?.keyResultTitle ?? AgentConversationContext.empty.title,
@@ -75,7 +76,10 @@ struct AgentContextCardContent: Equatable {
             maxCharacters: 220
         )
         statisticsText = "证据 \(evidenceCount)｜信号 \(context.workspaceSignals.count)｜待处理 \(context.pendingActionSummaries.count)｜账本 \(context.ledgerEventSummaries.count)"
-        primarySignalText = Self.primarySignalText(context: context)
+        primarySignalText = Self.primarySignalText(
+            context: context,
+            evidenceSummaries: evidenceSummaries
+        )
     }
 
     private static func focusText(
@@ -99,7 +103,10 @@ struct AgentContextCardContent: Equatable {
         return "当前焦点：工作区总览"
     }
 
-    private static func primarySignalText(context: AgentConversationContext) -> String? {
+    private static func primarySignalText(
+        context: AgentConversationContext,
+        evidenceSummaries: [String]
+    ) -> String? {
         if let workspaceSignal = context.workspaceSignals.first {
             return "信号：\(displayText(workspaceSignal, fallback: "", maxCharacters: 170))"
         }
@@ -108,7 +115,7 @@ struct AgentContextCardContent: Equatable {
             return "待处理：\(displayText(pendingAction, fallback: "", maxCharacters: 170))"
         }
 
-        if let evidenceSummary = context.evidenceSummaries.first {
+        if let evidenceSummary = evidenceSummaries.first {
             return "证据：\(displayText(evidenceSummary, fallback: "", maxCharacters: 170))"
         }
 

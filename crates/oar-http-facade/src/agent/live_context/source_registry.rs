@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::refs::{
     parse_okr_evidence_ref, parse_task_evidence_ref, ParsedOkrEvidenceRef, ParsedTaskEvidenceRef,
 };
@@ -16,8 +18,22 @@ pub(super) fn resolve_evidence_refs<'a>(
     limit: usize,
 ) -> LiveEvidenceResolution<'a> {
     let mut resolution = LiveEvidenceResolution::default();
+    let mut seen_refs = HashSet::new();
+    let mut duplicate_count = 0usize;
+    let mut processed_count = 0usize;
+    let mut skipped_over_limit = false;
 
-    for evidence_ref in evidence_refs.iter().take(limit) {
+    for evidence_ref in evidence_refs {
+        if !seen_refs.insert(evidence_ref_key(evidence_ref)) {
+            duplicate_count += 1;
+            continue;
+        }
+        if processed_count >= limit {
+            skipped_over_limit = true;
+            continue;
+        }
+        processed_count += 1;
+
         if is_okr_source_type(&evidence_ref.source_type) {
             match parse_okr_evidence_ref(&evidence_ref.source_ref) {
                 Some(parsed) => resolution.okr_refs.push((evidence_ref, parsed)),
@@ -46,13 +62,26 @@ pub(super) fn resolve_evidence_refs<'a>(
         ));
     }
 
-    if evidence_refs.len() > limit {
+    if duplicate_count > 0 {
+        resolution
+            .degraded
+            .push(format!("已合并 {} 条重复 evidence refs。", duplicate_count));
+    }
+
+    if skipped_over_limit {
         resolution
             .degraded
             .push(format!("仅实时读取前 {} 条 evidence refs。", limit));
     }
 
     resolution
+}
+
+fn evidence_ref_key(evidence_ref: &AgentEvidenceRefDTO) -> (String, String) {
+    (
+        evidence_ref.source_type.trim().to_ascii_lowercase(),
+        evidence_ref.source_ref.trim().to_string(),
+    )
 }
 
 fn is_okr_source_type(source_type: &str) -> bool {
@@ -123,6 +152,28 @@ mod tests {
         assert_eq!(resolution.okr_refs[0].1.objective_id, "obj/1");
         assert_eq!(resolution.okr_refs[0].1.kr_id, "kr a%?#:");
         assert!(resolution.degraded.is_empty());
+    }
+
+    #[test]
+    fn deduplicates_refs_before_resolving_without_echoing_duplicate_values() {
+        let refs = vec![
+            evidence_ref("task", " task://task_123 ", "Task evidence"),
+            evidence_ref("TASK", "task://task_123", "sk-secret duplicate summary"),
+            evidence_ref(
+                "okr",
+                "okr://okr_demo/objectives/obj_demo/krs/kr_demo",
+                "OKR evidence",
+            ),
+        ];
+
+        let resolution = resolve_evidence_refs(&refs, 4);
+
+        assert_eq!(resolution.task_refs.len(), 1);
+        assert_eq!(resolution.okr_refs.len(), 1);
+        assert_eq!(resolution.degraded.len(), 1);
+        assert!(resolution.degraded[0].contains("已合并 1 条重复 evidence refs"));
+        assert!(!resolution.degraded[0].contains("sk-secret"));
+        assert!(!resolution.degraded[0].contains("task_123"));
     }
 
     #[test]

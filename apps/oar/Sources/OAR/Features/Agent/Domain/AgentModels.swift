@@ -76,6 +76,13 @@ struct AgentConversationContext: Equatable {
         self.ledgerEventSummaries = ledgerEventSummaries
     }
 
+    var canonicalEvidenceSummaries: [String] {
+        let refSummaries = evidenceRefs
+            .map(\.summary)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return refSummaries.isEmpty ? evidenceSummaries : refSummaries
+    }
+
     static let empty = AgentConversationContext(
         title: "未选择风险",
         riskReason: "暂无风险说明。",

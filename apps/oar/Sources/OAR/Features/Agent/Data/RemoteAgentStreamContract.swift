@@ -37,7 +37,7 @@ struct RemoteAgentContextDTO: Encodable {
         title = context.title
         riskReason = context.riskReason
         actionSummary = context.actionSummary
-        evidenceSummaries = context.evidenceSummaries
+        evidenceSummaries = context.canonicalEvidenceSummaries
         evidenceRefs = context.evidenceRefs.map(RemoteAgentEvidenceRefDTO.init(ref:))
         workspaceSummary = context.workspaceSummary
         workspaceSignals = context.workspaceSignals

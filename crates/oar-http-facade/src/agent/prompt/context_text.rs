@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use oar_core::security::contains_sensitive_marker;
 
 pub(super) const PROMPT_CONTEXT_TEXT_LIMIT: usize = 240;
@@ -8,10 +10,12 @@ pub(super) fn numbered_section(items: &[String], limit: usize, empty_text: &str)
         return empty_text.to_string();
     }
 
+    let mut seen_summaries = HashSet::new();
     let summaries = items
         .iter()
-        .take(limit)
         .filter_map(|summary| safe_prompt_context_text(summary))
+        .filter(|summary| seen_summaries.insert(prompt_context_text_key(summary)))
+        .take(limit)
         .enumerate()
         .map(|(index, summary)| format!("{}. {}", index + 1, summary))
         .collect::<Vec<_>>();
@@ -30,6 +34,13 @@ pub(super) fn safe_prompt_context_text(text: &str) -> Option<String> {
         return Some(REDACTED_CONTEXT_SUMMARY.to_string());
     }
     Some(truncate_chars(&cleaned, PROMPT_CONTEXT_TEXT_LIMIT))
+}
+
+fn prompt_context_text_key(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn truncate_chars(text: &str, max_chars: usize) -> String {

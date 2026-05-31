@@ -171,6 +171,33 @@ fn prompt_builder_compacts_and_truncates_client_context_items() {
 }
 
 #[test]
+fn prompt_builder_deduplicates_context_sections_after_sanitizing() {
+    let prompt = AgentSystemPromptBuilder::make_prompt(&AgentConversationContextDTO {
+        title: "KR 风险".to_string(),
+        risk_reason: "连续延期".to_string(),
+        action_summary: "更新进度".to_string(),
+        evidence_summaries: vec![
+            "证据 A".to_string(),
+            "  证据   A  ".to_string(),
+            "证据 B".to_string(),
+        ],
+        evidence_refs: vec![],
+        workspace_summary: "摘要".to_string(),
+        workspace_signals: vec!["信号 A".to_string(), "信号 A".to_string()],
+        pending_action_summaries: vec![],
+        ledger_event_summaries: vec![],
+        live_feishu_read_summaries: vec![],
+        activated_skill_summaries: vec![],
+    });
+
+    assert!(prompt.contains("1. 证据 A"));
+    assert!(prompt.contains("2. 证据 B"));
+    assert!(!prompt.contains("3. 证据"));
+    assert!(prompt.contains("1. 信号 A"));
+    assert!(!prompt.contains("2. 信号 A"));
+}
+
+#[test]
 fn prompt_builder_includes_backend_tool_result_summary() {
     let prompt = AgentSystemPromptBuilder::make_prompt(&AgentConversationContextDTO {
         title: "OKR 查询".to_string(),
