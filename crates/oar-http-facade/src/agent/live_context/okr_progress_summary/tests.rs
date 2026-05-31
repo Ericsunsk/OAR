@@ -6,7 +6,10 @@ fn empty_progress_summary_reports_no_cycles() {
 
     assert_eq!(
         summary,
-        "工具 feishu.okr.summarize_my_progress｜实时：未读取到 OKR 周期。"
+        format!(
+            "{}｜实时：未读取到 OKR 周期。",
+            tool_live_label(AgentReadTool::OkrProgress)
+        )
     );
 }
 

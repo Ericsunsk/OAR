@@ -1,21 +1,22 @@
 use std::collections::BTreeMap;
 
-use super::super::summary::finalize_summary;
+use super::super::summary::{finalize_summary, tool_live_label};
 use super::aggregation::{
     compare_progress_examples_for_display, OkrProgressAggregation, ProgressExample,
 };
-use super::TOOL_LABEL;
+use crate::agent::tools::AgentReadTool;
 
 const PROGRESS_EXAMPLE_LIMIT: usize = 3;
 const STATUS_COUNT_LIMIT: usize = 4;
 
 pub(super) fn build_okr_progress_live_summary(aggregation: &OkrProgressAggregation) -> String {
+    let tool_label = tool_live_label(AgentReadTool::OkrProgress);
     if aggregation.cycles_total == 0 {
-        return format!("{TOOL_LABEL}｜实时：未读取到 OKR 周期。");
+        return format!("{tool_label}｜实时：未读取到 OKR 周期。");
     }
     if aggregation.targets_read == 0 {
         return finalize_summary(format!(
-            "{TOOL_LABEL}｜实时：读取到 {} 个 OKR 周期；未发现可读取进展的 Objective/KR target{}。",
+            "{tool_label}｜实时：读取到 {} 个 OKR 周期；未发现可读取进展的 Objective/KR target{}。",
             aggregation.cycles_total,
             skip_suffix(aggregation)
         ));
@@ -39,7 +40,7 @@ pub(super) fn build_okr_progress_live_summary(aggregation: &OkrProgressAggregati
     };
 
     finalize_summary(format!(
-        "{TOOL_LABEL}｜实时：周期 {}/{}，Objective {}，KR {}，进展目标 {}，记录 {}{}{}{}。",
+        "{tool_label}｜实时：周期 {}/{}，Objective {}，KR {}，进展目标 {}，记录 {}{}{}{}。",
         aggregation.cycles_expanded,
         aggregation.cycles_total,
         aggregation.objectives_seen,

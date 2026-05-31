@@ -6,8 +6,9 @@ use oar_lark_adapter::{
     FeishuCalendarReadClient, ReqwestAsyncHttpClient, SecretString,
 };
 
-use super::super::summary::{compact_text, finalize_summary, truncate_chars};
+use super::super::summary::{compact_text, finalize_summary, tool_live_label, truncate_chars};
 use super::{examples_suffix, lookahead_window_text, CALENDAR_LOOKAHEAD_DAYS};
+use crate::agent::tools::AgentReadTool;
 use crate::feishu_auth::iso8601_utc;
 
 const EVENT_EXAMPLE_LIMIT: usize = 5;
@@ -38,9 +39,10 @@ pub(in crate::agent::live_context) async fn read_my_calendar_events_summary(
 }
 
 fn summarize_event_instances_page(page: &CalendarEventInstancePage) -> String {
+    let tool_label = tool_live_label(AgentReadTool::CalendarEvents);
     if page.events.is_empty() {
         return format!(
-            "工具 feishu.calendar.summarize_my_events｜实时：{}未读取到日程实例。",
+            "{tool_label}｜实时：{}未读取到日程实例。",
             lookahead_window_text()
         );
     }
@@ -54,7 +56,7 @@ fn summarize_event_instances_page(page: &CalendarEventInstancePage) -> String {
     let suffix = examples_suffix(&examples);
 
     finalize_summary(format!(
-        "工具 feishu.calendar.summarize_my_events｜实时：{}读取到 {} 条日程实例{}。",
+        "{tool_label}｜实时：{}读取到 {} 条日程实例{}。",
         lookahead_window_text(),
         page.events.len(),
         suffix
@@ -206,7 +208,10 @@ mod tests {
 
         assert_eq!(
             summarize_event_instances_page(&page),
-            "工具 feishu.calendar.summarize_my_events｜实时：未来 7 天未读取到日程实例。"
+            format!(
+                "{}｜实时：未来 7 天未读取到日程实例。",
+                tool_live_label(AgentReadTool::CalendarEvents)
+            )
         );
     }
 

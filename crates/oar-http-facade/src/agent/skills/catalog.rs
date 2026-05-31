@@ -127,6 +127,7 @@ mod tests {
             let registered = AgentReadTool::from_name(tool_spec.name)
                 .expect("builtin skill tool must be registered");
             assert_eq!(registered, *tool);
+            assert!(spec.manifest_markdown.contains(tool_spec.name));
             assert!(!tool_spec.description.trim().is_empty());
         }
     }

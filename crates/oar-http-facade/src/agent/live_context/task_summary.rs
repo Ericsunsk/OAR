@@ -5,7 +5,8 @@ use oar_lark_adapter::{
     SecretString, TaskListType, TaskReadSummary, TaskUserIdType,
 };
 
-use super::summary::{compact_text, finalize_summary, truncate_chars};
+use super::summary::{compact_text, finalize_summary, tool_live_label, truncate_chars};
+use crate::agent::tools::AgentReadTool;
 
 const MY_TASK_PAGE_SIZE: u16 = 100;
 const MY_TASK_PAGE_LIMIT: usize = 3;
@@ -38,8 +39,9 @@ pub(super) async fn read_my_task_summary(
         }
     }
 
+    let tool_label = tool_live_label(AgentReadTool::TaskSummary);
     if tasks.is_empty() {
-        return Ok("工具 feishu.task.summarize_my_tasks｜实时：未读取到我负责的任务。".to_string());
+        return Ok(format!("{tool_label}｜实时：未读取到我负责的任务。"));
     }
 
     let mut status_counts = BTreeMap::new();
@@ -76,7 +78,7 @@ pub(super) async fn read_my_task_summary(
     };
 
     Ok(finalize_summary(format!(
-        "工具 feishu.task.summarize_my_tasks｜实时：读取到 {} 条我负责的任务；状态：{}{}{}。",
+        "{tool_label}｜实时：读取到 {} 条我负责的任务；状态：{}{}{}。",
         tasks.len(),
         status_summary,
         examples_suffix,

@@ -9,8 +9,11 @@ use super::super::okr_summary::build_my_okr_summary_from_topology;
 use super::super::okr_topology::{read_my_okr_topology, OkrTopologyReadOptions};
 use super::super::session::LiveFeishuReadSession;
 use super::super::source_registry::LiveEvidenceResolution;
-use super::super::summary::{build_live_summary, okr_read_error_reason};
+use super::super::summary::{
+    build_live_summary, okr_read_error_reason, tool_live_degraded_summary,
+};
 use super::PlannedLiveReads;
+use crate::agent::tools::AgentReadTool;
 
 pub(super) async fn append_okr_summaries(
     live_summaries: &mut Vec<String>,
@@ -54,9 +57,9 @@ pub(super) async fn append_okr_summaries(
                             .await
                             {
                                 Ok(summary) => live_summaries.push(summary),
-                                Err(error) => live_summaries.push(format!(
-                                    "工具 feishu.okr.summarize_my_progress｜实时读取降级：{}。",
-                                    okr_read_error_reason(error)
+                                Err(error) => live_summaries.push(tool_live_degraded_summary(
+                                    AgentReadTool::OkrProgress,
+                                    okr_read_error_reason(error),
                                 )),
                             }
                         }
@@ -137,15 +140,15 @@ fn push_okr_tool_degraded_summaries(
     reason: &str,
 ) {
     if include_summary {
-        live_summaries.push(format!(
-            "工具 feishu.okr.summarize_my_okr｜实时读取降级：{}。",
-            reason
+        live_summaries.push(tool_live_degraded_summary(
+            AgentReadTool::OkrSummary,
+            reason,
         ));
     }
     if include_progress {
-        live_summaries.push(format!(
-            "工具 feishu.okr.summarize_my_progress｜实时读取降级：{}。",
-            reason
+        live_summaries.push(tool_live_degraded_summary(
+            AgentReadTool::OkrProgress,
+            reason,
         ));
     }
 }

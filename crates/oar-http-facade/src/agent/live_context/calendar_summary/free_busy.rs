@@ -5,8 +5,9 @@ use oar_lark_adapter::{
     CalendarUserIdType, FeishuCalendarReadClient, ReqwestAsyncHttpClient, SecretString,
 };
 
-use super::super::summary::{compact_text, finalize_summary, truncate_chars};
+use super::super::summary::{compact_text, finalize_summary, tool_live_label, truncate_chars};
 use super::{examples_suffix, lookahead_window_text, CALENDAR_LOOKAHEAD_DAYS};
+use crate::agent::tools::AgentReadTool;
 use crate::feishu_auth::iso8601_utc;
 
 const BUSY_SLOT_EXAMPLE_LIMIT: usize = 4;
@@ -36,6 +37,7 @@ pub(in crate::agent::live_context) async fn read_my_calendar_free_busy_summary(
 }
 
 fn summarize_free_busy_page(page: &CalendarFreeBusyPage) -> String {
+    let tool_label = tool_live_label(AgentReadTool::CalendarFreeBusy);
     let busy_items = page
         .lists
         .iter()
@@ -44,7 +46,7 @@ fn summarize_free_busy_page(page: &CalendarFreeBusyPage) -> String {
 
     if busy_items.is_empty() {
         return format!(
-            "工具 feishu.calendar.summarize_my_free_busy｜实时：{}未读取到忙碌时段。",
+            "{tool_label}｜实时：{}未读取到忙碌时段。",
             lookahead_window_text()
         );
     }
@@ -73,7 +75,7 @@ fn summarize_free_busy_page(page: &CalendarFreeBusyPage) -> String {
     let suffix = examples_suffix(&examples);
 
     finalize_summary(format!(
-        "工具 feishu.calendar.summarize_my_free_busy｜实时：{}读取到 {} 段忙碌时段{}。",
+        "{tool_label}｜实时：{}读取到 {} 段忙碌时段{}。",
         lookahead_window_text(),
         busy_items.len(),
         suffix
@@ -109,7 +111,10 @@ mod tests {
 
         assert_eq!(
             summarize_free_busy_page(&page),
-            "工具 feishu.calendar.summarize_my_free_busy｜实时：未来 7 天未读取到忙碌时段。"
+            format!(
+                "{}｜实时：未来 7 天未读取到忙碌时段。",
+                tool_live_label(AgentReadTool::CalendarFreeBusy)
+            )
         );
     }
 }

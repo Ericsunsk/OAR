@@ -4,6 +4,8 @@ use oar_lark_adapter::{
 };
 
 use super::okr_topology::OkrTopologyRead;
+use super::summary::tool_live_label;
+use crate::agent::tools::AgentReadTool;
 
 mod aggregation;
 mod rendering;
@@ -21,7 +23,6 @@ use targets::{ProgressTarget, ProgressTargetKind};
 #[cfg(test)]
 use text::short_title;
 
-const TOOL_LABEL: &str = "工具 feishu.okr.summarize_my_progress";
 const PROGRESS_PAGE_SIZE: u32 = 20;
 
 pub(super) async fn read_my_okr_progress_summary_from_topology<C>(
@@ -33,7 +34,8 @@ where
     C: AsyncFeishuOkrRead,
 {
     let OkrTopologyRead::Snapshot(snapshot) = topology else {
-        return Ok(format!("{TOOL_LABEL}｜实时：Feishu 返回空数据。"));
+        let tool_label = tool_live_label(AgentReadTool::OkrProgress);
+        return Ok(format!("{tool_label}｜实时：Feishu 返回空数据。"));
     };
     let mut aggregation = OkrProgressAggregation {
         cycles_total: snapshot.cycles.len(),

@@ -2,8 +2,9 @@ use super::super::calendar_summary::{
     read_my_calendar_events_summary, read_my_calendar_free_busy_summary,
 };
 use super::super::session::LiveFeishuReadSession;
-use super::super::summary::calendar_read_error_reason;
+use super::super::summary::{calendar_read_error_reason, tool_live_degraded_summary};
 use super::PlannedLiveReads;
+use crate::agent::tools::AgentReadTool;
 
 pub(super) async fn append_calendar_summary(
     live_summaries: &mut Vec<String>,
@@ -30,20 +31,20 @@ pub(super) async fn append_calendar_summary(
             .await
             {
                 Ok(summary) => live_summaries.push(summary),
-                Err(error) => live_summaries.push(format!(
-                    "工具 feishu.calendar.summarize_my_free_busy｜实时读取降级：{}。",
-                    calendar_read_error_reason(error)
+                Err(error) => live_summaries.push(tool_live_degraded_summary(
+                    AgentReadTool::CalendarFreeBusy,
+                    calendar_read_error_reason(error),
                 )),
             }
         }
-        Some(Err(reason)) => live_summaries.push(format!(
-            "工具 feishu.calendar.summarize_my_free_busy｜实时读取降级：{}。",
-            reason
+        Some(Err(reason)) => live_summaries.push(tool_live_degraded_summary(
+            AgentReadTool::CalendarFreeBusy,
+            reason,
         )),
-        None => live_summaries.push(
-            "工具 feishu.calendar.summarize_my_free_busy｜实时读取降级：用户身份未解析。"
-                .to_string(),
-        ),
+        None => live_summaries.push(tool_live_degraded_summary(
+            AgentReadTool::CalendarFreeBusy,
+            "用户身份未解析",
+        )),
     }
 
     if planned_reads.calendar_events {
@@ -64,9 +65,9 @@ async fn append_calendar_events_summary(
     .await
     {
         Ok(summary) => live_summaries.push(summary),
-        Err(error) => live_summaries.push(format!(
-            "工具 feishu.calendar.summarize_my_events｜实时读取降级：{}。",
-            calendar_read_error_reason(error)
+        Err(error) => live_summaries.push(tool_live_degraded_summary(
+            AgentReadTool::CalendarEvents,
+            calendar_read_error_reason(error),
         )),
     }
 }

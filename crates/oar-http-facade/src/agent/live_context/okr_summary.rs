@@ -1,18 +1,20 @@
 use oar_lark_adapter::OkrReadCycle;
 
 use super::okr_topology::OkrTopologyRead;
-use super::summary::{compact_text, finalize_summary, truncate_chars};
+use super::summary::{compact_text, finalize_summary, tool_live_label, truncate_chars};
+use crate::agent::tools::AgentReadTool;
 
 const MY_OKR_CYCLE_DETAIL_LIMIT: usize = 3;
 const MY_OKR_OBJECTIVE_DETAIL_LIMIT: usize = 8;
 const MY_OKR_TITLE_LIMIT: usize = 3;
 
 pub(super) fn build_my_okr_summary_from_topology(topology: &OkrTopologyRead) -> String {
+    let tool_label = tool_live_label(AgentReadTool::OkrSummary);
     let OkrTopologyRead::Snapshot(snapshot) = topology else {
-        return "工具 feishu.okr.summarize_my_okr｜实时：Feishu 返回空数据。".to_string();
+        return format!("{tool_label}｜实时：Feishu 返回空数据。");
     };
     if snapshot.cycles.is_empty() {
-        return "工具 feishu.okr.summarize_my_okr｜实时：未读取到 OKR 周期。".to_string();
+        return format!("{tool_label}｜实时：未读取到 OKR 周期。");
     }
 
     let mut cycle_summaries = Vec::new();
@@ -73,7 +75,7 @@ pub(super) fn build_my_okr_summary_from_topology(topology: &OkrTopologyRead) -> 
     };
 
     finalize_summary(format!(
-        "工具 feishu.okr.summarize_my_okr｜实时：读取到 {} 个 OKR 周期；{}{}。",
+        "{tool_label}｜实时：读取到 {} 个 OKR 周期；{}{}。",
         snapshot.cycles.len(),
         cycle_summaries.join("；"),
         detail_suffix

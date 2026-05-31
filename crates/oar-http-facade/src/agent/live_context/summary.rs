@@ -5,8 +5,21 @@ use oar_lark_adapter::{
 
 use super::refs::ParsedOkrEvidenceRef;
 use crate::agent::request::AgentEvidenceRefDTO;
+use crate::agent::tools::AgentReadTool;
 
 const LIVE_SUMMARY_CHAR_LIMIT: usize = 200;
+
+pub(super) fn tool_live_label(tool: AgentReadTool) -> String {
+    format!("工具 {}", tool.spec().name)
+}
+
+pub(super) fn tool_live_degraded_summary(tool: AgentReadTool, reason: &str) -> String {
+    finalize_summary(format!(
+        "{}｜实时读取降级：{}。",
+        tool_live_label(tool),
+        reason
+    ))
+}
 
 pub(super) fn build_live_summary(
     evidence_ref: &AgentEvidenceRefDTO,
@@ -236,5 +249,19 @@ mod tests {
         assert!(!summary.contains("sk-secret"));
         assert!(!summary.contains("auth code"));
         assert!(!summary.contains("raw transcript"));
+    }
+
+    #[test]
+    fn tool_live_summaries_use_registered_tool_name() {
+        let tool = AgentReadTool::OkrSummary;
+
+        assert_eq!(tool_live_label(tool), format!("工具 {}", tool.spec().name));
+        assert_eq!(
+            tool_live_degraded_summary(tool, "OKR 实时读取暂不可用"),
+            format!(
+                "工具 {}｜实时读取降级：OKR 实时读取暂不可用。",
+                tool.spec().name
+            )
+        );
     }
 }

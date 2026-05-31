@@ -2,9 +2,12 @@ use oar_lark_adapter::{AsyncFeishuTaskRead, FeishuTaskGetRequest, TaskUserIdType
 
 use super::super::session::LiveFeishuReadSession;
 use super::super::source_registry::LiveEvidenceResolution;
-use super::super::summary::{build_task_live_summary, degraded_summary, task_read_error_reason};
+use super::super::summary::{
+    build_task_live_summary, degraded_summary, task_read_error_reason, tool_live_degraded_summary,
+};
 use super::super::task_summary::read_my_task_summary;
 use super::PlannedLiveReads;
+use crate::agent::tools::AgentReadTool;
 
 pub(super) async fn append_task_summaries(
     live_summaries: &mut Vec<String>,
@@ -20,9 +23,9 @@ pub(super) async fn append_task_summaries(
     if planned_reads.task_summary {
         match read_my_task_summary(&mut task_client, session.access_token()).await {
             Ok(summary) => live_summaries.push(summary),
-            Err(error) => live_summaries.push(format!(
-                "工具 feishu.task.summarize_my_tasks｜实时读取降级：{}。",
-                task_read_error_reason(error)
+            Err(error) => live_summaries.push(tool_live_degraded_summary(
+                AgentReadTool::TaskSummary,
+                task_read_error_reason(error),
             )),
         }
     }

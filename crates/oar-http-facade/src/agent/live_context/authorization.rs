@@ -1,7 +1,8 @@
-use crate::agent::tools::AgentReadTool;
 use oar_core::action::capability::FeishuScope;
 
 use super::source_registry::LiveEvidenceResolution;
+use super::summary::tool_live_degraded_summary;
+use crate::agent::tools::AgentReadTool;
 
 pub(super) fn gate_read_demand_by_scope(
     scopes: &[String],
@@ -25,11 +26,8 @@ pub(super) fn gate_read_tools_by_scope(
         let required_scopes = match spec.required_feishu_scope_names() {
             Ok(scopes) => scopes,
             Err(error) => {
-                degraded.push(format!(
-                    "工具 {}｜实时读取降级：{}。",
-                    spec.name,
-                    error.safe_reason()
-                ));
+                let reason = error.safe_reason();
+                degraded.push(tool_live_degraded_summary(*tool, &reason));
                 return false;
             }
         };
@@ -37,10 +35,9 @@ pub(super) fn gate_read_tools_by_scope(
         if missing.is_empty() {
             return true;
         }
-        degraded.push(format!(
-            "工具 {}｜实时读取降级：授权缺少 {}。",
-            spec.name,
-            missing.join("、")
+        degraded.push(tool_live_degraded_summary(
+            *tool,
+            &format!("授权缺少 {}", missing.join("、")),
         ));
         false
     });
