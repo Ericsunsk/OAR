@@ -298,6 +298,19 @@ fn runtime_rejects_partial_agent_config_without_leaking_secret() {
 }
 
 #[tokio::test]
+async fn runtime_agent_settings_follow_persistence_availability() {
+    let without_persistence =
+        OarHttpFacadeRuntime::from_env_map(&|_| None).expect("runtime without persistence");
+    assert!(without_persistence.agent_settings.is_none());
+
+    let with_persistence =
+        OarHttpFacadeRuntime::from_env_map_with_persistence(&|_| None, Some(test_persistence()))
+            .expect("runtime with persistence");
+    assert!(with_persistence.agent_settings.is_some());
+    assert!(!format!("{with_persistence:?}").contains("key-test-v1"));
+}
+
+#[tokio::test]
 async fn async_runtime_requires_persistence_key_config_when_database_is_enabled_without_feishu_login(
 ) {
     let error = OarHttpFacadeRuntime::from_env_map_async(&|key| match key {

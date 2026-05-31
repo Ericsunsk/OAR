@@ -226,3 +226,81 @@ fn is_model_catalog_preview_route(method: &Method, path: &str) -> bool {
 fn is_settings_update_route(method: &Method, path: &str) -> bool {
     *method == Method::PUT && path == "/agent/settings"
 }
+
+#[cfg(test)]
+mod tests {
+    use hyper::http::StatusCode;
+    use serde_json::Value;
+
+    use super::*;
+    use AgentModelSettingsError::*;
+
+    #[test]
+    fn agent_model_settings_errors_map_to_stable_http_responses() {
+        let cases = [
+            (
+                InvalidJson,
+                StatusCode::BAD_REQUEST,
+                "agent_settings_invalid_json",
+            ),
+            (
+                MissingBaseURL,
+                StatusCode::BAD_REQUEST,
+                "agent_settings_base_url_required",
+            ),
+            (
+                MissingApiKey,
+                StatusCode::BAD_REQUEST,
+                "agent_settings_api_key_required",
+            ),
+            (
+                MissingModel,
+                StatusCode::BAD_REQUEST,
+                "agent_settings_model_required",
+            ),
+            (
+                InvalidBaseURL,
+                StatusCode::BAD_REQUEST,
+                "agent_settings_base_url_invalid",
+            ),
+            (
+                DetectionFailed,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "agent_settings_model_detection_failed",
+            ),
+            (
+                ModelNotDetected,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "agent_settings_model_not_detected",
+            ),
+            (
+                UpstreamUnauthorized,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "agent_settings_api_key_rejected",
+            ),
+            (
+                StoreUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "agent_settings_unavailable",
+            ),
+            (
+                SecretCryptoFailed,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "agent_settings_unavailable",
+            ),
+            (
+                InvalidStoredProtocol,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "agent_settings_unavailable",
+            ),
+        ];
+
+        for (error, expected_status, expected_code) in cases {
+            let response = agent_model_settings_error_response(error);
+            let body = serde_json::from_str::<Value>(&response.body).expect("json body");
+
+            assert_eq!(response.status, expected_status);
+            assert_eq!(body["error"], expected_code);
+        }
+    }
+}
