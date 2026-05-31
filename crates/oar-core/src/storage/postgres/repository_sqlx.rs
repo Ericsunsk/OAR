@@ -61,8 +61,9 @@ use crate::storage::postgres::scheduler_sql::{
 };
 use crate::storage::postgres::token_grant_sql::{
     GET_TOKEN_GRANT_BY_ID, LIST_TOKEN_REFRESH_CANDIDATE_SNAPSHOTS,
-    MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED, REVOKE_TOKEN_GRANT,
-    ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
+    LOCK_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY, MARK_TOKEN_GRANT_REAUTH_REQUIRED,
+    MARK_TOKEN_GRANT_REFRESH_FAILED, RESUME_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY,
+    REVOKE_TOKEN_GRANT, ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
 };
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -98,18 +99,19 @@ use rows::*;
 pub use types::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
     FailedAuditOutboxRecoveryItem, InsertProposedActionDecisionRequest, OperationalRecoveryAction,
-    ParkedTokenGrantRecoveryItem, PostgresAuthLogoutRevokeReport, PostgresAuthLogoutRevokeRequest,
-    PostgresExecutionRecorderReport, PostgresOperationalRecoveryReport,
-    PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorderReport,
-    PostgresReviewDecisionRecorderRequest, PostgresTokenRefreshOrchestratorReport,
-    PostgresTokenRefreshRecorderReport, PostgresTokenRefreshSweepReport,
-    PostgresTokenRefreshSweepRequest, RotateEncryptedGrantRequest, StoredDeviceSession,
-    StoredEvidenceItem, StoredLarkIdentity, StoredPendingConfirmedAction, StoredProposedAction,
-    StoredProposedActionDecision, StoredProposedActionDecisionKind, StoredReviewDecisionContext,
-    StoredReviewInboxAction, StoredReviewInboxActionDecision, StoredReviewInboxEvidence,
-    StoredReviewInboxItem, StoredReviewInboxLedgerEvent, StoredReviewInboxLedgerStage,
-    StoredReviewInboxLedgerStatus, StoredReviewInboxSnapshot, StoredSchedulerJob, StoredTenant,
-    StoredWorkspaceUser,
+    OperationalRecoveryExecutionKind, ParkedTokenGrantRecoveryItem, PostgresAuthLogoutRevokeReport,
+    PostgresAuthLogoutRevokeRequest, PostgresExecutionRecorderReport,
+    PostgresOperationalRecoveryExecutionReport, PostgresOperationalRecoveryExecutionRequest,
+    PostgresOperationalRecoveryReport, PostgresReviewDecisionContextRequest,
+    PostgresReviewDecisionRecorderReport, PostgresReviewDecisionRecorderRequest,
+    PostgresTokenRefreshOrchestratorReport, PostgresTokenRefreshRecorderReport,
+    PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest, RotateEncryptedGrantRequest,
+    StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity, StoredPendingConfirmedAction,
+    StoredProposedAction, StoredProposedActionDecision, StoredProposedActionDecisionKind,
+    StoredReviewDecisionContext, StoredReviewInboxAction, StoredReviewInboxActionDecision,
+    StoredReviewInboxEvidence, StoredReviewInboxItem, StoredReviewInboxLedgerEvent,
+    StoredReviewInboxLedgerStage, StoredReviewInboxLedgerStatus, StoredReviewInboxSnapshot,
+    StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
 };
 use util::*;
 

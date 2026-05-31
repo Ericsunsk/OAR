@@ -1,7 +1,8 @@
 use oar_core::storage::postgres::token_grant_sql::{
     GET_TOKEN_GRANT_BY_ID, LIST_TOKEN_REFRESH_CANDIDATE_SNAPSHOTS,
-    MARK_TOKEN_GRANT_REAUTH_REQUIRED, MARK_TOKEN_GRANT_REFRESH_FAILED, REVOKE_TOKEN_GRANT,
-    ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
+    LOCK_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY, MARK_TOKEN_GRANT_REAUTH_REQUIRED,
+    MARK_TOKEN_GRANT_REFRESH_FAILED, RESUME_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY,
+    REVOKE_TOKEN_GRANT, ROTATE_TOKEN_GRANT, UPSERT_TOKEN_GRANT,
 };
 
 use crate::compact;
@@ -117,4 +118,44 @@ fn token_refresh_candidate_sql_contract_is_tenant_scoped_guarded_and_determinist
     assert!(sql.contains("id asc"));
     assert!(sql.contains("limit $3"));
     assert!(!sql.contains("encrypted_oauth_grant,"));
+}
+
+#[test]
+fn token_grant_paused_refresh_recovery_is_single_row_state_guarded_and_secret_safe() {
+    let lock = compact(LOCK_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY);
+    let resume = compact(RESUME_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY);
+
+    assert!(lock.starts_with("select "));
+    assert!(lock.contains("where tenant_id = $1"));
+    assert!(lock.contains("and id = $2"));
+    assert!(lock.contains("floor(extract(epoch from updated_at) * 1000)::bigint = $3"));
+    assert!(lock.contains("state in ('valid', 'needs_refresh', 'expired')"));
+    assert!(lock.contains("and revoked_at is null"));
+    assert!(lock.contains("and reauth_required_at is null"));
+    assert!(lock.contains("coalesce(last_refresh_error, '') in"));
+    assert!(lock.contains("'refresh_config_required'"));
+    assert!(lock.contains("'auth_refresh_parse_failed'"));
+    assert!(lock.contains("'auth_refresh_oversized_response'"));
+    assert!(lock.contains("and octet_length(encrypted_oauth_grant) > 0"));
+    assert!(lock.contains("for update"));
+
+    assert!(resume.starts_with("update token_grants"));
+    assert!(resume.contains("last_refresh_error = null"));
+    assert!(resume.contains("updated_at = to_timestamp($4::double precision / 1000.0)"));
+    assert!(resume.contains("where tenant_id = $1"));
+    assert!(resume.contains("and id = $2"));
+    assert!(resume.contains("floor(extract(epoch from updated_at) * 1000)::bigint = $3"));
+    assert!(resume.contains("state in ('valid', 'needs_refresh', 'expired')"));
+    assert!(resume.contains("and revoked_at is null"));
+    assert!(resume.contains("and reauth_required_at is null"));
+    assert!(resume.contains("coalesce(last_refresh_error, '') in"));
+    assert!(resume.contains("returning id"));
+
+    for sql in [lock, resume] {
+        assert!(!sql.contains("access_token"));
+        assert!(!sql.contains("refresh_token"));
+        assert!(!sql.contains("oauth_grant_key_id"));
+        assert!(!sql.contains("oauth_grant_fingerprint"));
+        assert!(!sql.contains("encrypted_oauth_grant,"));
+    }
 }

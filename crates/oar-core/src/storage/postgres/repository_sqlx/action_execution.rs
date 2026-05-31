@@ -9,8 +9,9 @@ mod validation;
 use transition::{
     get_operation_by_idempotency_key_with_executor,
     list_confirmed_actions_ready_for_execution_with_executor, resolve_transition_miss,
-    transition_in_tx, transition_operation_with_executor, OperationStatusTransition,
+    transition_operation_with_executor,
 };
+pub(super) use transition::{transition_in_tx, OperationStatusTransition};
 use validation::{validate_recorder_tenant, validate_review_decision_request};
 
 pub(super) async fn submit_confirmed_action_in_tx(

@@ -47,3 +47,46 @@ pub enum OperationalRecoveryAction {
     FixFeishuRefreshConfigThenResume,
     AskUserToReauthorize,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostgresOperationalRecoveryExecutionRequest {
+    pub action: ConfirmedAction,
+    pub confirmed_at_ms: u64,
+    pub operation_id: String,
+    pub occurred_at_ms: u64,
+    pub outbox_next_attempt_at_ms: u64,
+    pub audit_trace_id: String,
+    pub kind: OperationalRecoveryExecutionKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperationalRecoveryExecutionKind {
+    ResumePausedAuthRefresh {
+        grant_id: String,
+        expected_updated_at_ms: u64,
+    },
+}
+
+impl OperationalRecoveryExecutionKind {
+    pub fn action_type(&self) -> &'static str {
+        match self {
+            Self::ResumePausedAuthRefresh { .. } => {
+                "operational_recovery.resume_paused_auth_refresh"
+            }
+        }
+    }
+
+    pub fn target_reference_ids(&self) -> Vec<String> {
+        match self {
+            Self::ResumePausedAuthRefresh { grant_id, .. } => vec![grant_id.clone()],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostgresOperationalRecoveryExecutionReport {
+    pub operation: OperationRecord,
+    pub duplicate: bool,
+    pub resumed_token_grant_id: Option<String>,
+    pub events: Vec<AuditEvent>,
+}

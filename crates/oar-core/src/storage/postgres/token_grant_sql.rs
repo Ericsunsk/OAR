@@ -275,3 +275,43 @@ ORDER BY
   id ASC
 LIMIT $3
 "#;
+
+pub const LOCK_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY: &str = r#"
+SELECT
+id,
+last_refresh_error,
+floor(extract(epoch from updated_at) * 1000)::bigint AS updated_at_ms
+FROM token_grants
+WHERE tenant_id = $1
+  AND id = $2
+  AND floor(extract(epoch from updated_at) * 1000)::bigint = $3
+  AND state IN ('valid', 'needs_refresh', 'expired')
+  AND revoked_at IS NULL
+  AND reauth_required_at IS NULL
+  AND COALESCE(last_refresh_error, '') IN (
+    'refresh_config_required',
+    'auth_refresh_parse_failed',
+    'auth_refresh_oversized_response'
+  )
+  AND octet_length(encrypted_oauth_grant) > 0
+FOR UPDATE
+"#;
+
+pub const RESUME_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY: &str = r#"
+UPDATE token_grants
+SET last_refresh_error = NULL,
+    updated_at = to_timestamp($4::double precision / 1000.0)
+WHERE tenant_id = $1
+  AND id = $2
+  AND floor(extract(epoch from updated_at) * 1000)::bigint = $3
+  AND state IN ('valid', 'needs_refresh', 'expired')
+  AND revoked_at IS NULL
+  AND reauth_required_at IS NULL
+  AND COALESCE(last_refresh_error, '') IN (
+    'refresh_config_required',
+    'auth_refresh_parse_failed',
+    'auth_refresh_oversized_response'
+  )
+  AND octet_length(encrypted_oauth_grant) > 0
+RETURNING id
+"#;

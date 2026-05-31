@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) async fn transition_in_tx(
+pub(in crate::storage::postgres::repository_sqlx) async fn transition_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     transition: OperationStatusTransition,
     tenant_id: &str,
@@ -29,27 +29,27 @@ pub(super) async fn transition_in_tx(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct OperationStatusTransition {
+pub(in crate::storage::postgres::repository_sqlx) struct OperationStatusTransition {
     sql: &'static str,
     target_status: ActionStatus,
 }
 
 impl OperationStatusTransition {
-    pub(super) const fn mark_executing() -> Self {
+    pub(in crate::storage::postgres::repository_sqlx) const fn mark_executing() -> Self {
         Self {
             sql: MARK_EXECUTING,
             target_status: ActionStatus::Executing,
         }
     }
 
-    pub(super) const fn mark_succeeded() -> Self {
+    pub(in crate::storage::postgres::repository_sqlx) const fn mark_succeeded() -> Self {
         Self {
             sql: MARK_SUCCEEDED,
             target_status: ActionStatus::Succeeded,
         }
     }
 
-    pub(super) const fn mark_failed() -> Self {
+    pub(in crate::storage::postgres::repository_sqlx) const fn mark_failed() -> Self {
         Self {
             sql: MARK_FAILED,
             target_status: ActionStatus::Failed,
