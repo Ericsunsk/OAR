@@ -208,6 +208,7 @@ fn configured_runtime_with_persistence(pool: sqlx::PgPool) -> Arc<OarHttpFacadeR
         agent: None,
         agent_settings: None,
         tenant_maintenance: None,
+        tenant_maintenance_daemon_status: Default::default(),
     })
 }
 

@@ -4,6 +4,7 @@ mod agent;
 mod agent_routes;
 mod config;
 mod feishu_auth;
+mod health;
 mod persistence;
 mod response;
 mod review_inbox_routes;
@@ -13,6 +14,7 @@ mod server;
 mod session_auth;
 mod tenant_maintenance;
 mod tenant_maintenance_daemon;
+mod tenant_maintenance_daemon_status;
 mod util;
 
 pub(crate) use routing::{accepts_event_stream, event_stream_required};

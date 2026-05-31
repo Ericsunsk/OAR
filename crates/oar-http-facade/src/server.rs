@@ -103,9 +103,15 @@ async fn accept_loop(
                 result = daemon.wait_finished() => {
                     match result {
                         Ok(()) => {
+                            runtime.tenant_maintenance_daemon_status().mark_failed(
+                                "tenant_maintenance_daemon_stopped_unexpectedly",
+                            );
                             error!("tenant maintenance daemon stopped unexpectedly");
                         }
                         Err(error) => {
+                            runtime.tenant_maintenance_daemon_status().mark_failed(
+                                "tenant_maintenance_daemon_task_failed",
+                            );
                             error!(
                                 panic = error.is_panic(),
                                 cancelled = error.is_cancelled(),

@@ -11,6 +11,7 @@ use crate::tenant_maintenance::{
     tenant_maintenance_runtime_settings_from_env_map, TenantMaintenanceRuntimeSettings,
     TenantMaintenanceSettingsError,
 };
+use crate::tenant_maintenance_daemon_status::TenantMaintenanceDaemonStatusHandle;
 use crate::util::non_empty_env;
 
 #[derive(Clone, Default)]
@@ -20,6 +21,7 @@ pub struct OarHttpFacadeRuntime {
     pub(crate) agent: Option<Arc<AgentRuntime>>,
     pub(crate) agent_settings: Option<Arc<AgentModelSettingsRuntime>>,
     pub(crate) tenant_maintenance: Option<TenantMaintenanceRuntimeSettings>,
+    pub(crate) tenant_maintenance_daemon_status: TenantMaintenanceDaemonStatusHandle,
 }
 
 impl fmt::Debug for OarHttpFacadeRuntime {
@@ -30,6 +32,10 @@ impl fmt::Debug for OarHttpFacadeRuntime {
             .field("agent", &self.agent.is_some())
             .field("agent_settings", &self.agent_settings.is_some())
             .field("tenant_maintenance", &self.tenant_maintenance.is_some())
+            .field(
+                "tenant_maintenance_daemon_status",
+                &self.tenant_maintenance_daemon_status.snapshot().state,
+            )
             .finish()
     }
 }
@@ -100,6 +106,10 @@ impl OarHttpFacadeRuntime {
         self.persistence.as_ref()
     }
 
+    pub(crate) fn tenant_maintenance_daemon_status(&self) -> &TenantMaintenanceDaemonStatusHandle {
+        &self.tenant_maintenance_daemon_status
+    }
+
     pub fn from_env_map(
         env: &impl Fn(&str) -> Option<String>,
     ) -> Result<Self, OarHttpFacadeRuntimeError> {
@@ -152,12 +162,15 @@ impl OarHttpFacadeRuntime {
             feishu_login.is_some(),
         )
         .map_err(tenant_maintenance_settings_error)?;
+        let tenant_maintenance_daemon_status =
+            TenantMaintenanceDaemonStatusHandle::for_enabled(tenant_maintenance.is_some());
         Ok(Self {
             persistence,
             feishu_login,
             agent,
             agent_settings,
             tenant_maintenance,
+            tenant_maintenance_daemon_status,
         })
     }
 }

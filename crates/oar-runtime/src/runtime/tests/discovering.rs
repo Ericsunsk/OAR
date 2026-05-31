@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::time;
@@ -161,4 +161,43 @@ async fn discovering_runtime_runs_until_cancelled() {
     assert_eq!(report.successful_rounds, 1);
     assert_eq!(report.failed_rounds, 0);
     assert!(report.cancelled);
+}
+
+#[tokio::test(start_paused = true)]
+async fn discovering_runtime_observer_receives_each_completed_round() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let observed_rounds = Arc::clone(&observed);
+    let tick_calls = Arc::clone(&calls);
+    let cancellation = CancellationToken::new();
+    let discovery = QueueDiscovery::new(vec![vec!["tenant_a"]]);
+    let factory = QueueFactory::new(vec![Ok(
+        RegistryTestTick::succeeded(tick_calls, 7).with_cancellation(cancellation.clone())
+    )]);
+    let mut runtime =
+        DiscoveringTenantMaintenanceRuntime::try_new(runtime_config(), discovery, factory)
+            .expect("runtime config should be valid");
+
+    let (report, _) = tokio::join!(
+        runtime.run_until_cancelled_with_observer(&cancellation, move |round| {
+            let status = match round {
+                DiscoveringRuntimeRoundReport::Succeeded(_) => "succeeded",
+                DiscoveringRuntimeRoundReport::Failed(_) => "failed",
+            };
+            observed_rounds
+                .lock()
+                .expect("observed rounds")
+                .push(status);
+        }),
+        async {
+            time::advance(Duration::from_secs(1)).await;
+        }
+    );
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(report.successful_rounds, 1);
+    assert_eq!(
+        observed.lock().expect("observed rounds").as_slice(),
+        ["succeeded"]
+    );
 }

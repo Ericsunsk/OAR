@@ -119,6 +119,19 @@ where
     where
         T::Report: Clone,
     {
+        self.run_until_cancelled_with_observer(cancellation, |_| {})
+            .await
+    }
+
+    pub async fn run_until_cancelled_with_observer<O>(
+        &mut self,
+        cancellation: &CancellationToken,
+        mut observe_round: O,
+    ) -> DiscoveringRuntimeRunReport<T::Report>
+    where
+        T::Report: Clone,
+        O: FnMut(&DiscoveringRuntimeRoundReport<T::Report>),
+    {
         let mut interval = time::interval(self.config.tick_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -139,6 +152,7 @@ where
                 }
                 _ = interval.tick() => {
                     let round = self.run_once_round().await;
+                    observe_round(&round);
                     match &round {
                         DiscoveringRuntimeRoundReport::Succeeded(_) => {
                             successful_rounds = successful_rounds.saturating_add(1);

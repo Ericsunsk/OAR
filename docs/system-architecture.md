@@ -1,6 +1,6 @@
 # 技术架构总览
 
-更新日期：2026-05-26
+更新日期：2026-05-31
 
 ## 1. 架构原则
 
@@ -204,7 +204,7 @@ Phase 0.6 的首版 Postgres migration 草案位于：
 - `audit_outbox.payload` 必须保持最小安全 envelope：仅保存可路由事件引用（例如 `event_id`、`trace_id`、`event_type`、`kind`），入库前拒绝 token、authorization、raw stdout/stderr、encrypted blob、fingerprint 等敏感字段或值。
 - `audit_outbox` 的 pending claim 已补 tenant/stream 组合索引，匹配多租户 drain 查询形态，避免大表下按全局 status 扫描。
 - `postgres` / `postgres-sqlx` feature 可编译 `sqlx` 版 Postgres repository 类型；默认构建仍不拉起数据库运行时依赖。
-- `oar-http-facade` 已把真实 Rust auth refresh adapter 与 HTTPS webhook audit outbox sink 组装进 tenant maintenance daemon；daemon 在 facade 成功绑定监听后启动，并按 tick rediscover active tenants 执行 `refresh scheduled sweep + audit outbox drain`。仍需补齐真实 Feishu 网络验证、crash recovery、stage-level alerting/metrics、failed outbox 运维恢复入口，以及更接近生产的并发/soak 测试。
+- `oar-http-facade` 已把真实 Rust auth refresh adapter 与 HTTPS webhook audit outbox sink 组装进 tenant maintenance daemon；daemon 在 facade 成功绑定监听后启动，并按 tick rediscover active tenants 执行 `refresh scheduled sweep + audit outbox drain`。`/healthz` 仅暴露 safe aggregate daemon status（启用状态、daemon state、轮次计数、租户失败聚合计数和规范化 failure code），不得返回 tenant id、URL、原始错误、token、authorization code、fingerprint、encrypted payload 或外部 sink 细节。仍需补齐真实 Feishu 网络验证、crash recovery、stage-level alerting/metrics、failed outbox 运维恢复入口，以及更接近生产的并发/soak 测试。
 
 ## 6.2 Phase 0.6 下一切片：Identity Repositories + TokenRefreshDecision Bridge
 

@@ -1,6 +1,6 @@
 # 阶段 0.6 身份与同步验证报告
 
-更新日期：2026-05-27
+更新日期：2026-05-31
 执行时间：2026-05-27 00:00:00 +0800
 
 ## 1. 结论
@@ -13,7 +13,7 @@
 1. 安全 parser / adapter contract（已部分通过）：定义并验证 refresh 输入输出安全边界与领域映射。
 2. fixture replay -> Postgres orchestrator/Recorder/audit（已部分通过）：用 fixture/fake adapter 打通事务化编排与审计留痕。
 3. `AuthAdapter` safe transport client boundary（已部分通过）：core 已能消费上层 runtime transport 返回的 raw envelope，并在 auth 边界内完成大小上限、parser fail-closed 与安全错误分类；core 不执行 shell/CLI/OpenAPI。
-4. 具体 Rust OpenAPI transport + scheduler（部分通过）：OAuth refresh 的 reqwest HTTP transport、授权材料解密提供器和生产装配入口已放入 `crates/oar-lark-adapter`，并通过 fake HTTP/transport 验证；facade 已装配 tenant maintenance daemon 触发路径。真实 Feishu 网络调用、stage-level alerting/metrics、crash recovery 与生产监控仍未闭环，不具备生产就绪声明条件。`lark-cli` 后续只作为本地验证与 fixture 录制工具，不作为生产主通道。
+4. 具体 Rust OpenAPI transport + scheduler（部分通过）：OAuth refresh 的 reqwest HTTP transport、授权材料解密提供器和生产装配入口已放入 `crates/oar-lark-adapter`，并通过 fake HTTP/transport 验证；facade 已装配 tenant maintenance daemon 触发路径，`/healthz` 可观测其安全聚合运行状态，但该信号只用于 liveness / runtime observability，不等同于 live Feishu 或生产监控闭环验证。真实 Feishu 网络调用、stage-level alerting/metrics、crash recovery 与生产监控仍未闭环，不具备生产就绪声明条件。`lark-cli` 后续只作为本地验证与 fixture 录制工具，不作为生产主通道。
 5. 候选筛选 + 单次 sweep（已部分通过）：已在候选选择与编排链路之间补充“显式触发的一次性 `run_once` sweep”，并加入 `DATABASE_URL`-gated Postgres live tests 覆盖逐 grant 调用既有 orchestrator/Recorder/audit、顺序审计和 `limit = 0` 短路；同时已补齐 durable Postgres scheduler lease primitive 作为 sweep 执行门禁，scheduled sweep 会用 insert-if-missing bootstrap 缺失 recurring job 且不重置已有 `pending` / `running` schedule。该 core 能力本身不是 daemon，也不内建无人值守后台循环。
 6. tenant maintenance one-shot contract（已部分通过）：`oar-core` 维持 pure core/storage/contracts 边界，不实现 daemon/poll loop/HTTP/gRPC runtime；“显式触发一次的 tenant maintenance tick”可串联 lease-gated refresh scheduled sweep 与 audit outbox drain，并返回两段独立 stage report；scheduled sweep 硬错误不得跳过 outbox drain，stage failure 只暴露安全分类字符串。facade daemon 已负责外层周期触发，但生产闭环仍待 live Feishu、监控和恢复验证。
 7. tenant maintenance config fail-closed（已通过）：tenant maintenance 构造前已具备 `validate` / `try_new` 校验，`tenant_id` / `lease_id` / `audit_stream` / `scheduled_audit_trace_id` 为空或 `lease/retry/delay/limit/batch/max_attempts` 为 `0`/非正时会被拒绝；`0`/空值不再被接受为 noop 配置。
@@ -104,7 +104,7 @@
 2. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
 3. 继续维护 refresh scheduler 安全前置能力：Postgres 租户级 due-candidate 安全筛选（`due` / `needs_refresh` / `expired`），并在查询层排除 `revoked` / `reauth_required` / `refresh_config_required` grant，确保候选快照不返回 `encrypted_oauth_grant` 或任何明文 token；CAS fingerprint 仅作为编排元数据使用，不写入日志或审计。
 4. 在已验证的单次 sweep / `run_once` 之上补齐 scheduler 触发后的生产验证：基于已落地 lease gate、per-attempt audit sequence window 与 recurring `pending` / `running` 状态模型，继续完善失败中断/后续重试语义、租户粒度触发入口，以及真实 adapter 路径的安全边界验证；继续明确 core sweep 本身不是常驻 daemon，也不将整轮 sweep 包装为单个大事务。
-5. 在 tenant maintenance one-shot tick 契约上继续收口 runtime 装配：最小 `oar-runtime` 已定义 Tokio interval + cancellation 语义，并已补齐多租户 registry、tenant discovery / registry builder 与 repository-backed active tenant discovery 前置边界；facade 已用真实 Rust auth adapter builder 与 HTTPS webhook audit outbox sink 装配 daemon，且启用门禁拒绝 noop/local-noop；后续补齐 retry/backoff、stage-level alerting/metrics、crash recovery、failed outbox 运维恢复入口和生产监控；循环语义继续禁止下沉进 `oar-core`。
+5. 在 tenant maintenance one-shot tick 契约上继续收口 runtime 装配：最小 `oar-runtime` 已定义 Tokio interval + cancellation 语义，并已补齐多租户 registry、tenant discovery / registry builder 与 repository-backed active tenant discovery 前置边界；facade 已用真实 Rust auth adapter builder 与 HTTPS webhook audit outbox sink 装配 daemon，且启用门禁拒绝 noop/local-noop；`/healthz` 仅作为安全聚合运行观测入口，不承载原始平台数据、租户标识或生产完成判定；后续补齐 retry/backoff、stage-level alerting/metrics、crash recovery、failed outbox 运维恢复入口和生产监控；循环语义继续禁止下沉进 `oar-core`。
 6. 持续验证 `PostgresTokenRefreshOrchestrator` 经 Rust 原生 OpenAPI auth transport 与 facade 后台调度触发后的生产路径，覆盖从 refresh attempt 到 Postgres CAS + audit 的事务边界；当前不引入跨语言 SDK bridge。
 7. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露 access token、refresh token、authorization code、raw CLI stdout/stderr、sink 内部错误、encrypted blob 或 fingerprint。
 8. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。

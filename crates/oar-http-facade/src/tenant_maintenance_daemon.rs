@@ -214,8 +214,16 @@ pub(crate) fn spawn_tenant_maintenance_daemon(
             .map_err(daemon_runtime_config_error)?;
     let cancellation = CancellationToken::new();
     let daemon_cancellation = cancellation.clone();
+    let status = runtime.tenant_maintenance_daemon_status().clone();
+    status.mark_running();
+    let task_status = status.clone();
     let task = tokio::spawn(async move {
-        let report = daemon.run_until_cancelled(&daemon_cancellation).await;
+        let report = daemon
+            .run_until_cancelled_with_observer(&daemon_cancellation, |round| {
+                task_status.record_round(round);
+            })
+            .await;
+        task_status.mark_stopped(&report);
         info!(
             successful_rounds = report.successful_rounds,
             failed_rounds = report.failed_rounds,
