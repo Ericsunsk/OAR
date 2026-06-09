@@ -26,9 +26,10 @@ use crate::domain::token_refresh::types::{
 use crate::storage::postgres::audit_outbox_payload::SafeAuditOutboxPayload;
 use crate::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
-    MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
+    LOCK_FAILED_AUDIT_OUTBOX_FOR_RECOVERY, MARK_AUDIT_OUTBOX_FAILED,
+    MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
     MARK_AUDIT_OUTBOX_RETRYABLE_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_SENT,
-    MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT,
+    MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT, REQUEUE_FAILED_AUDIT_OUTBOX_FOR_RECOVERY,
 };
 use crate::storage::postgres::device_session_sql::{
     ADVANCE_DEVICE_SESSION_CURSOR_CAS, EXPIRE_DEVICE_SESSION, GET_DEVICE_SESSION_BY_ID,
@@ -99,19 +100,20 @@ use rows::*;
 pub use types::{
     AuditOutboxEnvelope, AuditOutboxMessage, EncryptedTokenGrantRecord,
     FailedAuditOutboxRecoveryItem, InsertProposedActionDecisionRequest, OperationalRecoveryAction,
-    OperationalRecoveryExecutionKind, ParkedTokenGrantRecoveryItem, PostgresAuthLogoutRevokeReport,
-    PostgresAuthLogoutRevokeRequest, PostgresExecutionRecorderReport,
-    PostgresOperationalRecoveryExecutionReport, PostgresOperationalRecoveryExecutionRequest,
-    PostgresOperationalRecoveryReport, PostgresReviewDecisionContextRequest,
-    PostgresReviewDecisionRecorderReport, PostgresReviewDecisionRecorderRequest,
-    PostgresTokenRefreshOrchestratorReport, PostgresTokenRefreshRecorderReport,
-    PostgresTokenRefreshSweepReport, PostgresTokenRefreshSweepRequest, RotateEncryptedGrantRequest,
-    StoredDeviceSession, StoredEvidenceItem, StoredLarkIdentity, StoredPendingConfirmedAction,
-    StoredProposedAction, StoredProposedActionDecision, StoredProposedActionDecisionKind,
-    StoredReviewDecisionContext, StoredReviewInboxAction, StoredReviewInboxActionDecision,
-    StoredReviewInboxEvidence, StoredReviewInboxItem, StoredReviewInboxLedgerEvent,
-    StoredReviewInboxLedgerStage, StoredReviewInboxLedgerStatus, StoredReviewInboxSnapshot,
-    StoredSchedulerJob, StoredTenant, StoredWorkspaceUser,
+    OperationalRecoveryExecutionKind, OperationalRecoveryExecutionTarget,
+    ParkedTokenGrantRecoveryItem, PostgresAuthLogoutRevokeReport, PostgresAuthLogoutRevokeRequest,
+    PostgresExecutionRecorderReport, PostgresOperationalRecoveryExecutionReport,
+    PostgresOperationalRecoveryExecutionRequest, PostgresOperationalRecoveryReport,
+    PostgresReviewDecisionContextRequest, PostgresReviewDecisionRecorderReport,
+    PostgresReviewDecisionRecorderRequest, PostgresTokenRefreshOrchestratorReport,
+    PostgresTokenRefreshRecorderReport, PostgresTokenRefreshSweepReport,
+    PostgresTokenRefreshSweepRequest, RotateEncryptedGrantRequest, StoredDeviceSession,
+    StoredEvidenceItem, StoredLarkIdentity, StoredPendingConfirmedAction, StoredProposedAction,
+    StoredProposedActionDecision, StoredProposedActionDecisionKind, StoredReviewDecisionContext,
+    StoredReviewInboxAction, StoredReviewInboxActionDecision, StoredReviewInboxEvidence,
+    StoredReviewInboxItem, StoredReviewInboxLedgerEvent, StoredReviewInboxLedgerStage,
+    StoredReviewInboxLedgerStatus, StoredReviewInboxSnapshot, StoredSchedulerJob, StoredTenant,
+    StoredWorkspaceUser,
 };
 use util::*;
 

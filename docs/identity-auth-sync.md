@@ -21,7 +21,7 @@
 
 当前判断：
 
-> 身份与 refresh 前置条件成立；生产级 `TokenGrant` 存储、refresh token rotation、幂等执行、后台 maintenance 和 confirmed paused auth refresh resume 已有 Postgres/Rust 主路径与部分 live DB 验证。当前仍需补齐真实 Feishu live smoke、多端真实联调、crash recovery、告警和 failed outbox requeue 验证。
+> 身份与 refresh 前置条件成立；生产级 `TokenGrant` 存储、refresh token rotation、幂等执行、后台 maintenance、confirmed paused auth refresh resume 和 confirmed failed outbox requeue 已有 Postgres/Rust 主路径与部分 live DB 验证。当前仍需补齐真实 Feishu live smoke、多端真实联调、crash recovery、告警和运维 route 验证。
 
 已验证：
 
@@ -104,7 +104,7 @@
 2. `DeviceSession` Postgres repository 语义验证：`tenant_id` 隔离、`sync_cursor` 单调推进、revoked/expired 会话门禁、并发更新冲突信号。
 3. 继续维护 refresh scheduler 安全前置能力：Postgres 租户级 due-candidate 安全筛选（`due` / `needs_refresh` / `expired`），并在查询层排除 `revoked` / `reauth_required` / `refresh_config_required` grant，确保候选快照不返回 `encrypted_oauth_grant` 或任何明文 token；CAS fingerprint 仅作为编排元数据使用，不写入日志或审计。
 4. 在已验证的单次 sweep / `run_once` 之上补齐 scheduler 触发后的生产验证：基于已落地 lease gate、per-attempt audit sequence window 与 recurring `pending` / `running` 状态模型，继续完善失败中断/后续重试语义、租户粒度触发入口，以及真实 adapter 路径的安全边界验证；继续明确 core sweep 本身不是常驻 daemon，也不将整轮 sweep 包装为单个大事务。
-5. 在 tenant maintenance one-shot tick 契约上继续收口 runtime 装配：最小 `oar-runtime` 已定义 Tokio interval + cancellation 语义，并已补齐多租户 registry、tenant discovery / registry builder 与 repository-backed active tenant discovery 前置边界；facade 已用真实 Rust auth adapter builder 与 HTTPS webhook audit outbox sink 装配 daemon，且启用门禁拒绝 noop/local-noop；`/healthz` 与 `/readyz` 仅作为安全聚合运行观测入口，不承载原始平台数据、租户标识或生产完成判定；core/storage 已新增 operational recovery report 和 confirmed 单 grant paused auth refresh resume，用于列出 failed outbox 与 parked grant 的安全恢复项，并在配置修复后清除单个 grant 的安全暂停 sentinel；后续补齐 retry/backoff、crash recovery、确认后的 failed outbox requeue 写入口和生产监控；循环语义继续禁止下沉进 `oar-core`。
+5. 在 tenant maintenance one-shot tick 契约上继续收口 runtime 装配：最小 `oar-runtime` 已定义 Tokio interval + cancellation 语义，并已补齐多租户 registry、tenant discovery / registry builder 与 repository-backed active tenant discovery 前置边界；facade 已用真实 Rust auth adapter builder 与 HTTPS webhook audit outbox sink 装配 daemon，且启用门禁拒绝 noop/local-noop；`/healthz` 与 `/readyz` 仅作为安全聚合运行观测入口，不承载原始平台数据、租户标识或生产完成判定；core/storage 已新增 operational recovery report、confirmed 单 grant paused auth refresh resume 和 confirmed failed audit outbox requeue，用于列出 failed outbox 与 parked grant 的安全恢复项，并在配置修复后恢复单条安全暂停项；后续补齐 retry/backoff、crash recovery、admin/operator recovery route 和生产监控；循环语义继续禁止下沉进 `oar-core`。
 6. 持续验证 `PostgresTokenRefreshOrchestrator` 经 Rust 原生 OpenAPI auth transport 与 facade 后台调度触发后的生产路径，覆盖从 refresh attempt 到 Postgres CAS + audit 的事务边界；当前不引入跨语言 SDK bridge。
 7. 补齐真实 adapter / scheduler 路径下的审计集成验证：将 service report / audit summary 写入 append-only audit 事件，并确保不暴露 access token、refresh token、authorization code、raw CLI stdout/stderr、sink 内部错误、encrypted blob 或 fingerprint。
 8. 验证 refresh 编排不越权：不直接暴露明文 token，不绕过 `LarkAdapter/AuthAdapter`，不触发未确认的 OKR 写回。
@@ -164,8 +164,8 @@
 - revoked / reauth-required grant 的 rotation 阻断需在真实数据库和并发场景下持续验证。
 - `DeviceSession` Postgres repository 需补齐真实数据库并发验证：cursor 只前进不回退、revoked/expired 门禁、跨设备冲突可观测。
 - `PostgresTokenRefreshOrchestrator` 与具体 auth transport / facade scheduler 的生产集成验证需继续补齐：refresh 只经加密授权包与 CAS guard，且不绕过 `LarkAdapter/AuthAdapter`；不引入跨语言 SDK bridge。
-- token refresh background scheduler/daemon 已在 facade 装配启动路径，并已提供 `/readyz` stage-level 安全聚合状态；confirmed 单 grant paused auth refresh resume 已在 core/storage 接入。当前仍缺真实 Feishu 网络验证、crash recovery、确认后的 failed outbox requeue、告警接入和并发/soak 验证，不代表已具备生产无人值守 refresh 闭环。
+- token refresh background scheduler/daemon 已在 facade 装配启动路径，并已提供 `/readyz` stage-level 安全聚合状态；confirmed 单 grant paused auth refresh resume 与 failed audit outbox requeue 已在 core/storage 接入。当前仍缺真实 Feishu 网络验证、crash recovery、admin/operator recovery route、告警接入和并发/soak 验证，不代表已具备生产无人值守 refresh 闭环。
 - Postgres 级 `OperationLedger` 唯一约束 / upsert 的真实数据库验证需在提供 `DATABASE_URL` 的环境持续运行；多进程并发 race 仍需专门压力用例。
-- Postgres executor / outbox worker 已通过 facade tenant maintenance daemon 接入真实后台调度与 HTTPS webhook audit outbox sink，并可通过 `/readyz` 观察 outbox drain stage 的安全聚合状态；operational recovery report 已能列出 failed outbox 安全摘要，确认后的 paused auth refresh resume 已能恢复单个 grant，failed outbox requeue、crash recovery、告警接入和并发/soak 验证仍需补齐。
+- Postgres executor / outbox worker 已通过 facade tenant maintenance daemon 接入真实后台调度与 HTTPS webhook audit outbox sink，并可通过 `/readyz` 观察 outbox drain stage 的安全聚合状态；operational recovery report 已能列出 failed outbox 安全摘要，确认后的 paused auth refresh resume 已能恢复单个 grant，confirmed failed outbox requeue 已能恢复同一 outbox row 的 pending 投递；crash recovery、告警接入和并发/soak 验证仍需补齐。
 - tenant maintenance 已从 one-shot contract 向外层 runtime 壳推进：`oar-runtime` 可周期触发 `run_once` 并支持 cancellation；多租户 registry 与 tenant discovery / registry builder 前置边界已能以静态 discovery/fake factory 方式验证构建路径，并已接入 repository-backed active tenant discovery；facade 已完成具体 Rust OpenAPI auth transport production 装配、runtime tick factory production wiring、webhook outbox sink 装配和 `/readyz` stage-level 安全聚合观测；重试策略、告警接入与生产监控闭环仍待完成。
 - macOS、iOS、飞书卡片通过同一后端 repository 观察一致状态。

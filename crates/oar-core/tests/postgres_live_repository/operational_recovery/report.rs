@@ -53,6 +53,50 @@ fn postgres_live_operational_recovery_report_lists_safe_recovery_items() {
         .execute(&pool)
         .await?;
 
+        sqlx::query(
+            r#"
+            INSERT INTO audit_outbox (
+                tenant_id,
+                stream,
+                aggregate_id,
+                payload,
+                status,
+                attempt_count,
+                next_attempt_at
+            )
+            VALUES ($1, $2, $3, $4, 'failed', 1, NULL)
+            "#,
+        )
+        .bind("tenant_ops_recovery")
+        .bind("non-audit-events")
+        .bind("trace_failed_other_stream")
+        .bind(json!({ "trace_id": "trace_failed_other_stream" }))
+        .execute(&pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO audit_outbox (
+                tenant_id,
+                stream,
+                aggregate_id,
+                payload,
+                status,
+                attempt_count,
+                next_attempt_at,
+                sent_at
+            )
+            VALUES ($1, $2, $3, $4, 'failed', 1, NULL, to_timestamp($5::double precision / 1000.0))
+            "#,
+        )
+        .bind("tenant_ops_recovery")
+        .bind("audit-events")
+        .bind("trace_failed_sent")
+        .bind(json!({ "trace_id": "trace_failed_sent" }))
+        .bind(1_748_260_400_000_i64)
+        .execute(&pool)
+        .await?;
+
         let other_outbox_id = audit
             .enqueue_outbox(
                 "tenant_ops_recovery_other",
@@ -158,7 +202,7 @@ fn postgres_live_operational_recovery_report_lists_safe_recovery_items() {
         assert!(report.failed_audit_outbox[0].payload_safe);
         assert_eq!(
             report.failed_audit_outbox[0].recommended_action,
-            OperationalRecoveryAction::InspectFailedAuditOutbox
+            OperationalRecoveryAction::RequeueFailedAuditOutbox
         );
         assert_eq!(
             report.failed_audit_outbox[1].aggregate_id,
@@ -166,6 +210,18 @@ fn postgres_live_operational_recovery_report_lists_safe_recovery_items() {
         );
         assert!(!report.failed_audit_outbox[1].payload_safe);
         assert_eq!(report.failed_audit_outbox[1].payload, None);
+        assert_eq!(
+            report.failed_audit_outbox[1].recommended_action,
+            OperationalRecoveryAction::InspectFailedAuditOutbox
+        );
+        assert!(!report
+            .failed_audit_outbox
+            .iter()
+            .any(|item| item.aggregate_id == "trace_failed_other_stream"));
+        assert!(!report
+            .failed_audit_outbox
+            .iter()
+            .any(|item| item.aggregate_id == "trace_failed_sent"));
 
         assert_eq!(report.parked_token_grants.len(), 2);
         assert!(!report

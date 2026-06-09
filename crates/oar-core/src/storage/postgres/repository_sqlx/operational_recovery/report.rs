@@ -53,17 +53,23 @@ fn failed_outbox_recovery_item_from_row(
     let payload: Value = row.try_get("payload")?;
     let payload = SafeAuditOutboxPayload::try_from(&payload).ok();
     let payload_safe = payload.is_some();
+    let stream = row.try_get("stream")?;
+    let can_requeue = payload_safe && stream == "audit-events";
 
     Ok(FailedAuditOutboxRecoveryItem {
         id: row.try_get("id")?,
         tenant_id: row.try_get("tenant_id")?,
-        stream: row.try_get("stream")?,
+        stream,
         aggregate_id: row.try_get("aggregate_id")?,
         attempt_count: row.try_get("attempt_count")?,
         created_at_ms: non_negative_i64_to_u64(row.try_get("created_at_ms")?, "created_at_ms")?,
         payload,
         payload_safe,
-        recommended_action: OperationalRecoveryAction::InspectFailedAuditOutbox,
+        recommended_action: if can_requeue {
+            OperationalRecoveryAction::RequeueFailedAuditOutbox
+        } else {
+            OperationalRecoveryAction::InspectFailedAuditOutbox
+        },
     })
 }
 

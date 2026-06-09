@@ -44,6 +44,7 @@ pub struct ParkedTokenGrantRecoveryItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationalRecoveryAction {
     InspectFailedAuditOutbox,
+    RequeueFailedAuditOutbox,
     FixFeishuRefreshConfigThenResume,
     AskUserToReauthorize,
 }
@@ -65,6 +66,11 @@ pub enum OperationalRecoveryExecutionKind {
         grant_id: String,
         expected_updated_at_ms: u64,
     },
+    RequeueFailedAuditOutbox {
+        outbox_id: i64,
+        expected_attempt_count: i32,
+        requeue_next_attempt_at_ms: u64,
+    },
 }
 
 impl OperationalRecoveryExecutionKind {
@@ -73,20 +79,32 @@ impl OperationalRecoveryExecutionKind {
             Self::ResumePausedAuthRefresh { .. } => {
                 "operational_recovery.resume_paused_auth_refresh"
             }
+            Self::RequeueFailedAuditOutbox { .. } => {
+                "operational_recovery.requeue_failed_audit_outbox"
+            }
         }
     }
 
     pub fn target_reference_ids(&self) -> Vec<String> {
         match self {
             Self::ResumePausedAuthRefresh { grant_id, .. } => vec![grant_id.clone()],
+            Self::RequeueFailedAuditOutbox { outbox_id, .. } => {
+                vec![format!("audit_outbox:{outbox_id}")]
+            }
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OperationalRecoveryExecutionTarget {
+    TokenGrantRefresh { grant_id: String },
+    AuditOutboxRequeue { outbox_id: i64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostgresOperationalRecoveryExecutionReport {
     pub operation: OperationRecord,
     pub duplicate: bool,
-    pub resumed_token_grant_id: Option<String>,
+    pub recovered_target: Option<OperationalRecoveryExecutionTarget>,
     pub events: Vec<AuditEvent>,
 }

@@ -10,6 +10,8 @@ SELECT
 FROM audit_outbox
 WHERE tenant_id = $1
   AND status = 'failed'
+  AND stream = 'audit-events'
+  AND sent_at IS NULL
 ORDER BY created_at ASC, id ASC
 LIMIT $2
 "#;

@@ -1,8 +1,9 @@
 use oar_core::storage::postgres::audit_sql::{
     APPEND_AUDIT_EVENT, CLAIM_AUDIT_OUTBOX, ENQUEUE_AUDIT_OUTBOX, FIND_AUDIT_EVENTS_BY_TRACE_ID,
-    MARK_AUDIT_OUTBOX_FAILED, MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
+    LOCK_FAILED_AUDIT_OUTBOX_FOR_RECOVERY, MARK_AUDIT_OUTBOX_FAILED,
+    MARK_AUDIT_OUTBOX_FAILED_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_RETRYABLE,
     MARK_AUDIT_OUTBOX_RETRYABLE_FOR_ATTEMPT, MARK_AUDIT_OUTBOX_SENT,
-    MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT,
+    MARK_AUDIT_OUTBOX_SENT_FOR_ATTEMPT, REQUEUE_FAILED_AUDIT_OUTBOX_FOR_RECOVERY,
 };
 
 use crate::compact;
@@ -95,4 +96,34 @@ fn audit_outbox_attempt_guarded_updates_bind_current_claim() {
     assert!(retryable.contains("next_attempt_at = to_timestamp($5::double precision / 1000.0)"));
     assert!(failed.contains("set status = 'failed'"));
     assert!(failed.contains("next_attempt_at = null"));
+}
+
+#[test]
+fn audit_outbox_failed_requeue_recovery_is_single_row_guarded() {
+    let lock = compact(LOCK_FAILED_AUDIT_OUTBOX_FOR_RECOVERY);
+    let requeue = compact(REQUEUE_FAILED_AUDIT_OUTBOX_FOR_RECOVERY);
+
+    assert!(lock.starts_with("select "));
+    assert!(lock.contains("from audit_outbox"));
+    assert!(lock.contains("where tenant_id = $1"));
+    assert!(lock.contains("and id = $2"));
+    assert!(lock.contains("and attempt_count = $3"));
+    assert!(lock.contains("and stream = 'audit-events'"));
+    assert!(lock.contains("and status = 'failed'"));
+    assert!(lock.contains("and sent_at is null"));
+    assert!(lock.contains("for update"));
+
+    assert!(requeue.starts_with("update audit_outbox"));
+    assert!(requeue.contains("set status = 'pending'"));
+    assert!(requeue.contains("next_attempt_at = to_timestamp($4::double precision / 1000.0)"));
+    assert!(requeue.contains("sent_at = null"));
+    assert!(requeue.contains("where tenant_id = $1"));
+    assert!(requeue.contains("and id = $2"));
+    assert!(requeue.contains("and attempt_count = $3"));
+    assert!(requeue.contains("and stream = 'audit-events'"));
+    assert!(requeue.contains("and status = 'failed'"));
+    assert!(requeue.contains("and sent_at is null"));
+    assert!(requeue.contains("returning id"));
+    assert!(!requeue.contains("insert into audit_outbox"));
+    assert!(!requeue.contains("payload ="));
 }

@@ -19,8 +19,9 @@ pub use auth_lifecycle::{PostgresAuthLogoutRevokeReport, PostgresAuthLogoutRevok
 pub use identity::{StoredDeviceSession, StoredLarkIdentity, StoredTenant, StoredWorkspaceUser};
 pub use operational_recovery::{
     FailedAuditOutboxRecoveryItem, OperationalRecoveryAction, OperationalRecoveryExecutionKind,
-    ParkedTokenGrantRecoveryItem, PostgresOperationalRecoveryExecutionReport,
-    PostgresOperationalRecoveryExecutionRequest, PostgresOperationalRecoveryReport,
+    OperationalRecoveryExecutionTarget, ParkedTokenGrantRecoveryItem,
+    PostgresOperationalRecoveryExecutionReport, PostgresOperationalRecoveryExecutionRequest,
+    PostgresOperationalRecoveryReport,
 };
 pub use review_inbox::{
     InsertProposedActionDecisionRequest, PostgresReviewDecisionContextRequest, StoredEvidenceItem,

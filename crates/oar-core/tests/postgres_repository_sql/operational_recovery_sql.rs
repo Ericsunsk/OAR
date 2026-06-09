@@ -45,6 +45,8 @@ fn operational_recovery_sql_is_readonly_tenant_scoped_and_avoids_secret_columns(
 fn operational_recovery_sql_targets_only_terminal_or_parked_rows() {
     let outbox = compact(LIST_FAILED_AUDIT_OUTBOX_RECOVERY_ITEMS);
     assert!(outbox.contains("status = 'failed'"));
+    assert!(outbox.contains("stream = 'audit-events'"));
+    assert!(outbox.contains("sent_at is null"));
 
     let grants = compact(LIST_PARKED_TOKEN_GRANT_RECOVERY_ITEMS);
     assert!(grants.contains("state = 'reauth_required'"));

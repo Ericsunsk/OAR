@@ -4,6 +4,9 @@ use crate::action::audit_event::{
 };
 use crate::action::audit_trace::AuditTrace;
 
+mod outbox_requeue;
+mod resume;
+
 impl PostgresOperationalRecoveryRepository {
     pub async fn execute_confirmed_recovery(
         &self,
@@ -23,7 +26,7 @@ impl PostgresOperationalRecoveryRepository {
             return Ok(PostgresOperationalRecoveryExecutionReport {
                 operation,
                 duplicate: true,
-                resumed_token_grant_id: None,
+                recovered_target: None,
                 events: Vec::new(),
             });
         }
@@ -60,7 +63,7 @@ impl PostgresOperationalRecoveryRepository {
             return Ok(PostgresOperationalRecoveryExecutionReport {
                 operation,
                 duplicate: true,
-                resumed_token_grant_id: None,
+                recovered_target: None,
                 events,
             });
         }
@@ -70,7 +73,7 @@ impl PostgresOperationalRecoveryRepository {
                 grant_id,
                 expected_updated_at_ms,
             } => {
-                execute_resume_paused_auth_refresh(
+                resume::execute_resume_paused_auth_refresh(
                     tx,
                     request,
                     operation,
@@ -81,104 +84,25 @@ impl PostgresOperationalRecoveryRepository {
                 )
                 .await
             }
+            OperationalRecoveryExecutionKind::RequeueFailedAuditOutbox {
+                outbox_id,
+                expected_attempt_count,
+                requeue_next_attempt_at_ms,
+            } => {
+                outbox_requeue::execute_requeue_failed_audit_outbox(
+                    tx,
+                    request,
+                    operation,
+                    events,
+                    trace,
+                    outbox_id,
+                    expected_attempt_count,
+                    requeue_next_attempt_at_ms,
+                )
+                .await
+            }
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct LockedPausedTokenGrantRefresh {
-    id: String,
-    updated_at_ms: u64,
-}
-
-async fn execute_resume_paused_auth_refresh(
-    mut tx: Transaction<'_, Postgres>,
-    request: PostgresOperationalRecoveryExecutionRequest,
-    operation: OperationRecord,
-    mut events: Vec<AuditEvent>,
-    mut trace: AuditTrace,
-    grant_id: &str,
-    expected_updated_at_ms: u64,
-) -> PgRepositoryResult<PostgresOperationalRecoveryExecutionReport> {
-    let eligible = lock_paused_token_grant_refresh_for_recovery(
-        &mut tx,
-        &request.action.tenant_id,
-        grant_id,
-        expected_updated_at_ms,
-    )
-    .await?;
-    let dry_run_event =
-        recovery_dry_run_event(&mut trace, &request, eligible.as_ref().map(|item| &item.id));
-    append_recovery_event_in_tx(&mut tx, &dry_run_event, &operation.operation_id, &request).await?;
-    events.push(dry_run_event);
-
-    let Some(eligible) = eligible else {
-        let (operation, events) = fail_recovery_operation(
-            &mut tx,
-            &request,
-            events,
-            trace,
-            "operational_recovery_no_eligible_grant",
-            "no eligible paused auth refresh grant matched the confirmed recovery request",
-        )
-        .await?;
-        tx.commit().await?;
-        return Ok(PostgresOperationalRecoveryExecutionReport {
-            operation,
-            duplicate: false,
-            resumed_token_grant_id: None,
-            events,
-        });
-    };
-
-    let resumed = resume_paused_token_grant_refresh_for_recovery(
-        &mut tx,
-        &request.action.tenant_id,
-        &eligible.id,
-        eligible.updated_at_ms,
-        request.occurred_at_ms,
-    )
-    .await?;
-    let Some(resumed_id) = resumed else {
-        let (operation, events) = fail_recovery_operation(
-            &mut tx,
-            &request,
-            events,
-            trace,
-            "operational_recovery_resume_conflict",
-            "paused auth refresh grant changed before recovery could resume it",
-        )
-        .await?;
-        tx.commit().await?;
-        return Ok(PostgresOperationalRecoveryExecutionReport {
-            operation,
-            duplicate: false,
-            resumed_token_grant_id: None,
-            events,
-        });
-    };
-
-    let (operation, _) = super::super::action_execution::transition_in_tx(
-        &mut tx,
-        super::super::action_execution::OperationStatusTransition::mark_succeeded(),
-        &request.action.tenant_id,
-        &request.action.idempotency_key,
-        None,
-        request.occurred_at_ms,
-    )
-    .await?;
-    let succeeded_event = recovery_succeeded_event(&mut trace, &request, &resumed_id);
-    append_recovery_event_in_tx(&mut tx, &succeeded_event, &operation.operation_id, &request)
-        .await?;
-    tx.commit().await?;
-    events.push(succeeded_event);
-
-    Ok(PostgresOperationalRecoveryExecutionReport {
-        operation,
-        duplicate: false,
-        resumed_token_grant_id: Some(resumed_id),
-        events,
-    })
 }
 
 async fn fail_recovery_operation(
@@ -222,50 +146,6 @@ fn is_recovery_terminal_or_inflight(status: ActionStatus) -> bool {
     )
 }
 
-async fn lock_paused_token_grant_refresh_for_recovery(
-    tx: &mut Transaction<'_, Postgres>,
-    tenant_id: &str,
-    grant_id: &str,
-    expected_updated_at_ms: u64,
-) -> PgRepositoryResult<Option<LockedPausedTokenGrantRefresh>> {
-    let row = sqlx::query(LOCK_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY)
-        .bind(tenant_id)
-        .bind(grant_id)
-        .bind(expected_updated_at_ms as i64)
-        .fetch_optional(&mut **tx)
-        .await?;
-    row.as_ref()
-        .map(|row| {
-            Ok(LockedPausedTokenGrantRefresh {
-                id: row.try_get("id")?,
-                updated_at_ms: non_negative_i64_to_u64(
-                    row.try_get("updated_at_ms")?,
-                    "updated_at_ms",
-                )?,
-            })
-        })
-        .transpose()
-}
-
-async fn resume_paused_token_grant_refresh_for_recovery(
-    tx: &mut Transaction<'_, Postgres>,
-    tenant_id: &str,
-    grant_id: &str,
-    expected_updated_at_ms: u64,
-    resumed_at_ms: u64,
-) -> PgRepositoryResult<Option<String>> {
-    let row = sqlx::query(RESUME_PAUSED_TOKEN_GRANT_REFRESH_FOR_RECOVERY)
-        .bind(tenant_id)
-        .bind(grant_id)
-        .bind(expected_updated_at_ms as i64)
-        .bind(resumed_at_ms as i64)
-        .fetch_optional(&mut **tx)
-        .await?;
-    row.as_ref()
-        .map(|row| row.try_get("id").map_err(PostgresRepositoryError::from))
-        .transpose()
-}
-
 fn recovery_audit_trace(request: &PostgresOperationalRecoveryExecutionRequest) -> AuditTrace {
     AuditTrace::new(
         request.audit_trace_id.clone(),
@@ -288,21 +168,67 @@ fn recovery_audit_trace(request: &PostgresOperationalRecoveryExecutionRequest) -
     )
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecoveryDryRunOutcome {
+    Eligible(String),
+    UnsafePayload(String),
+    Missing,
+}
+
 fn recovery_dry_run_event(
     trace: &mut AuditTrace,
     request: &PostgresOperationalRecoveryExecutionRequest,
-    eligible_grant_id: Option<&String>,
+    outcome: RecoveryDryRunOutcome,
 ) -> AuditEvent {
     let reference_ids = request.kind.target_reference_ids();
-    let after_summary = match eligible_grant_id {
-        Some(grant_id) => AuditStateSummary {
+    let after_summary = match (&request.kind, outcome) {
+        (
+            OperationalRecoveryExecutionKind::ResumePausedAuthRefresh { .. },
+            RecoveryDryRunOutcome::Eligible(reference_id),
+        ) => AuditStateSummary {
             summary: "paused auth refresh grant is eligible for recovery resume".to_string(),
-            reference_ids: vec![grant_id.clone()],
+            reference_ids: vec![reference_id],
             content_hash: None,
         },
-        None => AuditStateSummary {
+        (
+            OperationalRecoveryExecutionKind::ResumePausedAuthRefresh { .. },
+            RecoveryDryRunOutcome::UnsafePayload(reference_id),
+        ) => AuditStateSummary {
+            summary: "paused auth refresh grant matched an unsafe recovery state".to_string(),
+            reference_ids: vec![reference_id],
+            content_hash: None,
+        },
+        (
+            OperationalRecoveryExecutionKind::ResumePausedAuthRefresh { .. },
+            RecoveryDryRunOutcome::Missing,
+        ) => AuditStateSummary {
             summary: "no eligible paused auth refresh grant matched the recovery request"
                 .to_string(),
+            reference_ids,
+            content_hash: None,
+        },
+        (
+            OperationalRecoveryExecutionKind::RequeueFailedAuditOutbox { .. },
+            RecoveryDryRunOutcome::Eligible(reference_id),
+        ) => AuditStateSummary {
+            summary: "failed audit outbox is eligible for recovery requeue".to_string(),
+            reference_ids: vec![reference_id],
+            content_hash: None,
+        },
+        (
+            OperationalRecoveryExecutionKind::RequeueFailedAuditOutbox { .. },
+            RecoveryDryRunOutcome::UnsafePayload(reference_id),
+        ) => AuditStateSummary {
+            summary: "failed audit outbox matched but payload did not pass safety validation"
+                .to_string(),
+            reference_ids: vec![reference_id],
+            content_hash: None,
+        },
+        (
+            OperationalRecoveryExecutionKind::RequeueFailedAuditOutbox { .. },
+            RecoveryDryRunOutcome::Missing,
+        ) => AuditStateSummary {
+            summary: "no eligible failed audit outbox matched the recovery request".to_string(),
             reference_ids,
             content_hash: None,
         },
@@ -321,23 +247,45 @@ fn recovery_dry_run_event(
 fn recovery_succeeded_event(
     trace: &mut AuditTrace,
     request: &PostgresOperationalRecoveryExecutionRequest,
-    grant_id: &str,
+    target: OperationalRecoveryExecutionTarget,
 ) -> AuditEvent {
-    trace.execution_succeeded(
-        request.occurred_at_ms,
-        Some(AuditStateSummary {
-            summary: "paused auth refresh grant had a recoverable safe refresh blocker".to_string(),
-            reference_ids: vec![grant_id.to_string()],
-            content_hash: None,
-        }),
-        Some(AuditStateSummary {
-            summary: "paused auth refresh blocker was cleared; scheduler can re-evaluate the grant"
-                .to_string(),
-            reference_ids: vec![grant_id.to_string()],
-            content_hash: None,
-        }),
-        format!("operational-recovery:resume-paused-auth-refresh:{grant_id}"),
-    )
+    match target {
+        OperationalRecoveryExecutionTarget::TokenGrantRefresh { grant_id } => trace
+            .execution_succeeded(
+            request.occurred_at_ms,
+            Some(AuditStateSummary {
+                summary: "paused auth refresh grant had a recoverable safe refresh blocker"
+                    .to_string(),
+                reference_ids: vec![grant_id.clone()],
+                content_hash: None,
+            }),
+            Some(AuditStateSummary {
+                summary:
+                    "paused auth refresh blocker was cleared; scheduler can re-evaluate the grant"
+                        .to_string(),
+                reference_ids: vec![grant_id.clone()],
+                content_hash: None,
+            }),
+            format!("operational-recovery:resume-paused-auth-refresh:{grant_id}"),
+        ),
+        OperationalRecoveryExecutionTarget::AuditOutboxRequeue { outbox_id } => trace
+            .execution_succeeded(
+            request.occurred_at_ms,
+            Some(AuditStateSummary {
+                summary: "failed audit outbox had a recoverable safe delivery blocker".to_string(),
+                reference_ids: vec![format!("audit_outbox:{outbox_id}")],
+                content_hash: None,
+            }),
+            Some(AuditStateSummary {
+                summary:
+                    "failed audit outbox was reopened for delivery; worker can retry the same row"
+                        .to_string(),
+                reference_ids: vec![format!("audit_outbox:{outbox_id}")],
+                content_hash: None,
+            }),
+            format!("operational-recovery:requeue-failed-audit-outbox:{outbox_id}"),
+        ),
+    }
 }
 
 fn recovery_failed_event(

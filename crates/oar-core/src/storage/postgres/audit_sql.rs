@@ -173,3 +173,32 @@ WHERE tenant_id = $1
   AND status = 'pending'
 RETURNING id
 "#;
+
+pub const LOCK_FAILED_AUDIT_OUTBOX_FOR_RECOVERY: &str = r#"
+SELECT
+    id,
+    payload,
+    attempt_count
+FROM audit_outbox
+WHERE tenant_id = $1
+  AND id = $2
+  AND attempt_count = $3
+  AND stream = 'audit-events'
+  AND status = 'failed'
+  AND sent_at IS NULL
+FOR UPDATE
+"#;
+
+pub const REQUEUE_FAILED_AUDIT_OUTBOX_FOR_RECOVERY: &str = r#"
+UPDATE audit_outbox
+SET status = 'pending',
+    next_attempt_at = to_timestamp($4::double precision / 1000.0),
+    sent_at = NULL
+WHERE tenant_id = $1
+  AND id = $2
+  AND attempt_count = $3
+  AND stream = 'audit-events'
+  AND status = 'failed'
+  AND sent_at IS NULL
+RETURNING id
+"#;
